@@ -29,4 +29,6 @@ export interface OutreachArtifact {
   rejectionReason?: string | null;
   /** @nullable */
   graphRunId?: string | null;
+  /** @nullable */
+  cohort?: string | null;
 }

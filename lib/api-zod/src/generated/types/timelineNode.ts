@@ -19,6 +19,8 @@ export interface TimelineNode {
   /** @nullable */
   durationMs?: number | null;
   /** @nullable */
+  cost?: number | null;
+  /** @nullable */
   score?: number | null;
   timestamp: string;
   children: TimelineNode[];

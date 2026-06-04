@@ -9,6 +9,8 @@ import type { ReplyIntelligence } from './replyIntelligence';
 
 export interface Conversation {
   id: string;
+  /** @nullable */
+  leadId?: string | null;
   leadName: string;
   leadCompany: string;
   /** @nullable */

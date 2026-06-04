@@ -11,6 +11,8 @@ stage?: string;
 minScore?: number;
 intentSignal?: string;
 geo?: string;
+cohort?: string;
+industry?: string;
 sort?: string;
 page?: number;
 limit?: number;

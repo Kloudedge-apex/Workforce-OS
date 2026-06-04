@@ -11,4 +11,6 @@ export interface TodayKpis {
   artifactsSentToday: number;
   replyRate7d: number;
   qualifiedMeetingsBooked: number;
+  leadsSourcedToday: number;
+  leadsScored: number;
 }

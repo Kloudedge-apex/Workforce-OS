@@ -10,4 +10,5 @@ export interface EvaluatorScores {
   pii: number;
   hallucination: number;
   citationCoverage: number;
+  toxicity: number;
 }

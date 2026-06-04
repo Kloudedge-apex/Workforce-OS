@@ -6,6 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { IntentSignal } from './intentSignal';
+import type { LeadCohort } from './leadCohort';
+import type { LeadEmailStatus } from './leadEmailStatus';
 import type { SendPolicy } from './sendPolicy';
 
 export interface Lead {
@@ -15,12 +17,22 @@ export interface Lead {
   email: string;
   company: string;
   /** @nullable */
+  domain?: string | null;
+  /** @nullable */
   companyLogoUrl?: string | null;
   /** @nullable */
   avatarUrl?: string | null;
   score: number;
   stage: string;
   geo?: string;
+  /** @nullable */
+  country?: string | null;
+  /** @nullable */
+  industry?: string | null;
+  /** @nullable */
+  headcountEstimate?: string | null;
+  cohort: LeadCohort;
+  emailStatus: LeadEmailStatus;
   intentSignals: IntentSignal[];
   /** @nullable */
   lastContactedAt?: string | null;

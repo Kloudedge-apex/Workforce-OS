@@ -9,7 +9,7 @@ import { eq, sql } from "drizzle-orm";
 
 const router = Router();
 
-const ORG_ID = "org_demo";
+const ORG_ID = "org_mynoted";
 
 router.get("/settings/org", async (req, res) => {
   const [org] = await db

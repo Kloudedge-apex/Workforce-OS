@@ -3,12 +3,13 @@ import { db } from "@workspace/db";
 import {
   outreachArtifactsTable,
   conversationsTable,
+  leadsTable,
 } from "@workspace/db";
 import { eq, and, gte, sql } from "drizzle-orm";
 
 const router = Router();
 
-const ORG_ID = "org_demo";
+const ORG_ID = "org_mynoted";
 
 router.get("/today/kpis", async (req, res) => {
   const todayStart = new Date();
@@ -17,7 +18,7 @@ router.get("/today/kpis", async (req, res) => {
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-  const [pendingRows, sentTodayRows, totalSentRows, repliedRows, meetingsRows] =
+  const [pendingRows, sentTodayRows, totalSentRows, repliedRows, meetingsRows, leadsSourcedRows, leadsScoredRows] =
     await Promise.all([
       db
         .select({ count: sql<number>`count(*)::int` })

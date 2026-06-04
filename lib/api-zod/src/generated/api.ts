@@ -49,7 +49,8 @@ export const ListPendingArtifactsResponse = zod.object({
   "evaluatorScores": zod.object({
   "pii": zod.number(),
   "hallucination": zod.number(),
-  "citationCoverage": zod.number()
+  "citationCoverage": zod.number(),
+  "toxicity": zod.number()
 }),
   "sendPolicy": zod.object({
   "liveSendEnabled": zod.boolean(),
@@ -61,7 +62,8 @@ export const ListPendingArtifactsResponse = zod.object({
   "approvedAt": zod.string().nullish(),
   "sentAt": zod.string().nullish(),
   "rejectionReason": zod.string().nullish(),
-  "graphRunId": zod.string().nullish()
+  "graphRunId": zod.string().nullish(),
+  "cohort": zod.string().nullish()
 })),
   "total": zod.number(),
   "page": zod.number(),
@@ -103,7 +105,8 @@ export const ListArtifactsResponse = zod.object({
   "evaluatorScores": zod.object({
   "pii": zod.number(),
   "hallucination": zod.number(),
-  "citationCoverage": zod.number()
+  "citationCoverage": zod.number(),
+  "toxicity": zod.number()
 }),
   "sendPolicy": zod.object({
   "liveSendEnabled": zod.boolean(),
@@ -115,7 +118,8 @@ export const ListArtifactsResponse = zod.object({
   "approvedAt": zod.string().nullish(),
   "sentAt": zod.string().nullish(),
   "rejectionReason": zod.string().nullish(),
-  "graphRunId": zod.string().nullish()
+  "graphRunId": zod.string().nullish(),
+  "cohort": zod.string().nullish()
 })),
   "total": zod.number(),
   "page": zod.number(),
@@ -151,7 +155,8 @@ export const GetArtifactResponse = zod.object({
   "evaluatorScores": zod.object({
   "pii": zod.number(),
   "hallucination": zod.number(),
-  "citationCoverage": zod.number()
+  "citationCoverage": zod.number(),
+  "toxicity": zod.number()
 }),
   "sendPolicy": zod.object({
   "liveSendEnabled": zod.boolean(),
@@ -163,7 +168,8 @@ export const GetArtifactResponse = zod.object({
   "approvedAt": zod.string().nullish(),
   "sentAt": zod.string().nullish(),
   "rejectionReason": zod.string().nullish(),
-  "graphRunId": zod.string().nullish()
+  "graphRunId": zod.string().nullish(),
+  "cohort": zod.string().nullish()
 })
 
 
@@ -195,7 +201,8 @@ export const ApproveArtifactResponse = zod.object({
   "evaluatorScores": zod.object({
   "pii": zod.number(),
   "hallucination": zod.number(),
-  "citationCoverage": zod.number()
+  "citationCoverage": zod.number(),
+  "toxicity": zod.number()
 }),
   "sendPolicy": zod.object({
   "liveSendEnabled": zod.boolean(),
@@ -207,7 +214,8 @@ export const ApproveArtifactResponse = zod.object({
   "approvedAt": zod.string().nullish(),
   "sentAt": zod.string().nullish(),
   "rejectionReason": zod.string().nullish(),
-  "graphRunId": zod.string().nullish()
+  "graphRunId": zod.string().nullish(),
+  "cohort": zod.string().nullish()
 })
 
 
@@ -243,7 +251,8 @@ export const RejectArtifactResponse = zod.object({
   "evaluatorScores": zod.object({
   "pii": zod.number(),
   "hallucination": zod.number(),
-  "citationCoverage": zod.number()
+  "citationCoverage": zod.number(),
+  "toxicity": zod.number()
 }),
   "sendPolicy": zod.object({
   "liveSendEnabled": zod.boolean(),
@@ -255,7 +264,8 @@ export const RejectArtifactResponse = zod.object({
   "approvedAt": zod.string().nullish(),
   "sentAt": zod.string().nullish(),
   "rejectionReason": zod.string().nullish(),
-  "graphRunId": zod.string().nullish()
+  "graphRunId": zod.string().nullish(),
+  "cohort": zod.string().nullish()
 })
 
 
@@ -287,7 +297,8 @@ export const SuppressArtifactResponse = zod.object({
   "evaluatorScores": zod.object({
   "pii": zod.number(),
   "hallucination": zod.number(),
-  "citationCoverage": zod.number()
+  "citationCoverage": zod.number(),
+  "toxicity": zod.number()
 }),
   "sendPolicy": zod.object({
   "liveSendEnabled": zod.boolean(),
@@ -299,7 +310,8 @@ export const SuppressArtifactResponse = zod.object({
   "approvedAt": zod.string().nullish(),
   "sentAt": zod.string().nullish(),
   "rejectionReason": zod.string().nullish(),
-  "graphRunId": zod.string().nullish()
+  "graphRunId": zod.string().nullish(),
+  "cohort": zod.string().nullish()
 })
 
 
@@ -327,7 +339,7 @@ export const GetActivityStreamQueryParams = zod.object({
 export const GetActivityStreamResponseItem = zod.object({
   "id": zod.string(),
   "agentName": zod.string(),
-  "agentType": zod.enum(['sdr', 'content', 'ops', 'pipeline']),
+  "agentType": zod.enum(['sdr', 'content', 'ops', 'pipeline', 'reply', 'reporting']),
   "action": zod.string(),
   "stage": zod.string(),
   "timestamp": zod.string(),
@@ -344,7 +356,9 @@ export const GetTodayKpisResponse = zod.object({
   "artifactsPending": zod.number(),
   "artifactsSentToday": zod.number(),
   "replyRate7d": zod.number(),
-  "qualifiedMeetingsBooked": zod.number()
+  "qualifiedMeetingsBooked": zod.number(),
+  "leadsSourcedToday": zod.number(),
+  "leadsScored": zod.number()
 })
 
 
@@ -360,6 +374,8 @@ export const ListLeadsQueryParams = zod.object({
   "minScore": zod.coerce.number().optional(),
   "intentSignal": zod.coerce.string().optional(),
   "geo": zod.coerce.string().optional(),
+  "cohort": zod.coerce.string().optional(),
+  "industry": zod.coerce.string().optional(),
   "sort": zod.coerce.string().default(listLeadsQuerySortDefault),
   "page": zod.coerce.number().default(listLeadsQueryPageDefault),
   "limit": zod.coerce.number().default(listLeadsQueryLimitDefault),
@@ -373,11 +389,17 @@ export const ListLeadsResponse = zod.object({
   "title": zod.string().optional(),
   "email": zod.string(),
   "company": zod.string(),
+  "domain": zod.string().nullish(),
   "companyLogoUrl": zod.string().nullish(),
   "avatarUrl": zod.string().nullish(),
   "score": zod.number(),
   "stage": zod.string(),
   "geo": zod.string().optional(),
+  "country": zod.string().nullish(),
+  "industry": zod.string().nullish(),
+  "headcountEstimate": zod.string().nullish(),
+  "cohort": zod.enum(['A', 'B']),
+  "emailStatus": zod.enum(['DELIVERABLE', 'HIGH_PROBABILITY', 'CATCH_ALL']),
   "intentSignals": zod.array(zod.object({
   "label": zod.string(),
   "confidence": zod.number()
@@ -411,11 +433,17 @@ export const GetLeadResponse = zod.object({
   "title": zod.string().optional(),
   "email": zod.string(),
   "company": zod.string(),
+  "domain": zod.string().nullish(),
   "companyLogoUrl": zod.string().nullish(),
   "avatarUrl": zod.string().nullish(),
   "score": zod.number(),
   "stage": zod.string(),
   "geo": zod.string().optional(),
+  "country": zod.string().nullish(),
+  "industry": zod.string().nullish(),
+  "headcountEstimate": zod.string().nullish(),
+  "cohort": zod.enum(['A', 'B']),
+  "emailStatus": zod.enum(['DELIVERABLE', 'HIGH_PROBABILITY', 'CATCH_ALL']),
   "intentSignals": zod.array(zod.object({
   "label": zod.string(),
   "confidence": zod.number()
@@ -476,6 +504,7 @@ export const ListConversationsQueryParams = zod.object({
   "unread": zod.coerce.boolean().optional(),
   "needsReply": zod.coerce.boolean().optional(),
   "archived": zod.coerce.boolean().optional(),
+  "leadId": zod.coerce.string().optional(),
   "page": zod.coerce.number().default(listConversationsQueryPageDefault),
   "limit": zod.coerce.number().default(listConversationsQueryLimitDefault)
 })
@@ -483,6 +512,7 @@ export const ListConversationsQueryParams = zod.object({
 export const ListConversationsResponse = zod.object({
   "items": zod.array(zod.object({
   "id": zod.string(),
+  "leadId": zod.string().nullish(),
   "leadName": zod.string(),
   "leadCompany": zod.string(),
   "leadAvatarUrl": zod.string().nullish(),
@@ -515,6 +545,7 @@ export const GetConversationParams = zod.object({
 export const GetConversationResponse = zod.object({
   "conversation": zod.object({
   "id": zod.string(),
+  "leadId": zod.string().nullish(),
   "leadName": zod.string(),
   "leadCompany": zod.string(),
   "leadAvatarUrl": zod.string().nullish(),
@@ -551,18 +582,152 @@ export const DraftReplyParams = zod.object({
 
 
 /**
+ * @summary Archive a conversation thread
+ */
+export const ArchiveConversationParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const ArchiveConversationResponse = zod.object({
+  "affected": zod.number()
+})
+
+
+/**
+ * @summary Paginated GraphRun history
+ */
+export const listRunsQueryPageDefault = 1;
+export const listRunsQueryLimitDefault = 20;
+
+export const ListRunsQueryParams = zod.object({
+  "page": zod.coerce.number().default(listRunsQueryPageDefault),
+  "limit": zod.coerce.number().default(listRunsQueryLimitDefault),
+  "status": zod.coerce.string().optional()
+})
+
+export const ListRunsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "status": zod.enum(['RUNNING', 'AWAITING_APPROVAL', 'COMPLETED', 'FAILED']),
+  "agentsInvolved": zod.array(zod.string()),
+  "leadsSourced": zod.number(),
+  "artifactsGenerated": zod.number(),
+  "durationMs": zod.number(),
+  "costUsd": zod.number(),
+  "triggeredBy": zod.string(),
+  "startedAt": zod.string(),
+  "completedAt": zod.string().nullish()
+})),
+  "total": zod.number(),
+  "page": zod.number(),
+  "limit": zod.number()
+})
+
+
+/**
+ * @summary Get full evidence timeline for one run
+ */
+export const GetRunParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetRunResponse = zod.object({
+  "run": zod.object({
+  "id": zod.string(),
+  "status": zod.enum(['RUNNING', 'AWAITING_APPROVAL', 'COMPLETED', 'FAILED']),
+  "agentsInvolved": zod.array(zod.string()),
+  "leadsSourced": zod.number(),
+  "artifactsGenerated": zod.number(),
+  "durationMs": zod.number(),
+  "costUsd": zod.number(),
+  "triggeredBy": zod.string(),
+  "startedAt": zod.string(),
+  "completedAt": zod.string().nullish()
+}),
+  "timeline": zod.array(zod.object({
+  "id": zod.string(),
+  "nodeType": zod.enum(['agent_run', 'llm_call', 'evaluator', 'tool_call', 'human_action']),
+  "label": zod.string(),
+  "summary": zod.string(),
+  "reasoning": zod.string().nullish(),
+  "tokensUsed": zod.number().nullish(),
+  "durationMs": zod.number().nullish(),
+  "cost": zod.number().nullish(),
+  "score": zod.number().nullish(),
+  "timestamp": zod.string(),
+  "children": zod.array(zod.unknown())
+}))
+})
+
+
+/**
+ * @summary Active agent roster with recent activity
+ */
+export const ListAgentsResponseItem = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "type": zod.enum(['sdr', 'content', 'ops', 'pipeline', 'reply', 'reporting']),
+  "status": zod.enum(['idle', 'running', 'error']),
+  "lastAction": zod.string().nullish(),
+  "lastActionAt": zod.string().nullish(),
+  "recentActivityCount": zod.number(),
+  "sparklineData": zod.array(zod.number())
+})
+export const ListAgentsResponse = zod.array(ListAgentsResponseItem)
+
+
+/**
  * @summary Get organization settings and compliance state
  */
 export const GetOrgSettingsResponse = zod.object({
   "orgId": zod.string(),
   "orgName": zod.string(),
+  "slug": zod.string(),
+  "logoUrl": zod.string().nullish(),
+  "country": zod.string(),
+  "timezone": zod.string(),
+  "senderName": zod.string().nullish(),
   "liveSendEnabled": zod.boolean(),
   "postalAddress": zod.string().nullish(),
   "unsubscribeUrl": zod.string().nullish(),
   "suppressionCount": zod.number(),
   "allowlistedDomains": zod.array(zod.string()),
   "plan": zod.string().optional(),
-  "creditsRemaining": zod.number()
+  "creditsRemaining": zod.number(),
+  "welcomeComplete": zod.boolean()
+})
+
+
+/**
+ * @summary Update organization settings
+ */
+export const UpdateOrgSettingsBody = zod.object({
+  "name": zod.string().optional(),
+  "slug": zod.string().optional(),
+  "logoUrl": zod.string().optional(),
+  "country": zod.string().optional(),
+  "timezone": zod.string().optional(),
+  "senderName": zod.string().optional(),
+  "postalAddress": zod.string().optional(),
+  "liveSendEnabled": zod.boolean().optional()
+})
+
+export const UpdateOrgSettingsResponse = zod.object({
+  "orgId": zod.string(),
+  "orgName": zod.string(),
+  "slug": zod.string(),
+  "logoUrl": zod.string().nullish(),
+  "country": zod.string(),
+  "timezone": zod.string(),
+  "senderName": zod.string().nullish(),
+  "liveSendEnabled": zod.boolean(),
+  "postalAddress": zod.string().nullish(),
+  "unsubscribeUrl": zod.string().nullish(),
+  "suppressionCount": zod.number(),
+  "allowlistedDomains": zod.array(zod.string()),
+  "plan": zod.string().optional(),
+  "creditsRemaining": zod.number(),
+  "welcomeComplete": zod.boolean()
 })
 
 
@@ -575,6 +740,339 @@ export const GetOrgHealthResponse = zod.object({
   "unsubscribeConfigured": zod.boolean(),
   "suppressionCount": zod.number(),
   "blockers": zod.array(zod.string())
+})
+
+
+/**
+ * @summary Get ICP profile
+ */
+export const GetIcpProfileResponse = zod.object({
+  "industries": zod.array(zod.string()),
+  "titles": zod.array(zod.string()),
+  "geos": zod.array(zod.string()),
+  "sizeBand": zod.string(),
+  "intentSignals": zod.array(zod.string()),
+  "seedDomains": zod.array(zod.string()),
+  "exclusionDomains": zod.array(zod.string())
+})
+
+
+/**
+ * @summary Update ICP profile
+ */
+export const UpdateIcpProfileBody = zod.object({
+  "industries": zod.array(zod.string()),
+  "titles": zod.array(zod.string()),
+  "geos": zod.array(zod.string()),
+  "sizeBand": zod.string(),
+  "intentSignals": zod.array(zod.string()),
+  "seedDomains": zod.array(zod.string()),
+  "exclusionDomains": zod.array(zod.string())
+})
+
+export const UpdateIcpProfileResponse = zod.object({
+  "industries": zod.array(zod.string()),
+  "titles": zod.array(zod.string()),
+  "geos": zod.array(zod.string()),
+  "sizeBand": zod.string(),
+  "intentSignals": zod.array(zod.string()),
+  "seedDomains": zod.array(zod.string()),
+  "exclusionDomains": zod.array(zod.string())
+})
+
+
+/**
+ * @summary List integration connection states
+ */
+export const ListIntegrationsResponseItem = zod.object({
+  "id": zod.string(),
+  "provider": zod.string(),
+  "status": zod.enum(['connected', 'available', 'errored']),
+  "accountEmail": zod.string().nullish(),
+  "connectedAt": zod.string().nullish(),
+  "errorMessage": zod.string().nullish()
+})
+export const ListIntegrationsResponse = zod.array(ListIntegrationsResponseItem)
+
+
+/**
+ * @summary Connect an integration (stub OAuth)
+ */
+export const ConnectIntegrationParams = zod.object({
+  "provider": zod.coerce.string()
+})
+
+export const ConnectIntegrationResponse = zod.object({
+  "id": zod.string(),
+  "provider": zod.string(),
+  "status": zod.enum(['connected', 'available', 'errored']),
+  "accountEmail": zod.string().nullish(),
+  "connectedAt": zod.string().nullish(),
+  "errorMessage": zod.string().nullish()
+})
+
+
+/**
+ * @summary Disconnect an integration
+ */
+export const DisconnectIntegrationParams = zod.object({
+  "provider": zod.coerce.string()
+})
+
+export const DisconnectIntegrationResponse = zod.object({
+  "id": zod.string(),
+  "provider": zod.string(),
+  "status": zod.enum(['connected', 'available', 'errored']),
+  "accountEmail": zod.string().nullish(),
+  "connectedAt": zod.string().nullish(),
+  "errorMessage": zod.string().nullish()
+})
+
+
+/**
+ * @summary Get sequence cadence config
+ */
+export const GetCadenceResponseItem = zod.object({
+  "id": zod.string(),
+  "dayOffset": zod.number(),
+  "channel": zod.string(),
+  "label": zod.string(),
+  "enabled": zod.boolean(),
+  "position": zod.number()
+})
+export const GetCadenceResponse = zod.array(GetCadenceResponseItem)
+
+
+/**
+ * @summary Update sequence cadence
+ */
+export const UpdateCadenceBody = zod.object({
+  "stages": zod.array(zod.object({
+  "id": zod.string(),
+  "dayOffset": zod.number(),
+  "channel": zod.string(),
+  "label": zod.string(),
+  "enabled": zod.boolean(),
+  "position": zod.number()
+}))
+})
+
+export const UpdateCadenceResponseItem = zod.object({
+  "id": zod.string(),
+  "dayOffset": zod.number(),
+  "channel": zod.string(),
+  "label": zod.string(),
+  "enabled": zod.boolean(),
+  "position": zod.number()
+})
+export const UpdateCadenceResponse = zod.array(UpdateCadenceResponseItem)
+
+
+/**
+ * @summary Get brand voice and style config
+ */
+export const GetStyleConfigResponse = zod.object({
+  "voice": zod.string(),
+  "toneValue": zod.number(),
+  "signatureHtml": zod.string()
+})
+
+
+/**
+ * @summary Update brand voice config
+ */
+export const UpdateStyleConfigBody = zod.object({
+  "voice": zod.string(),
+  "toneValue": zod.number(),
+  "signatureHtml": zod.string()
+})
+
+export const UpdateStyleConfigResponse = zod.object({
+  "voice": zod.string(),
+  "toneValue": zod.number(),
+  "signatureHtml": zod.string()
+})
+
+
+/**
+ * @summary List team members and roles
+ */
+export const ListTeamMembersResponseItem = zod.object({
+  "id": zod.string(),
+  "email": zod.string(),
+  "name": zod.string(),
+  "role": zod.enum(['OWNER', 'ADMIN', 'MEMBER']),
+  "status": zod.string(),
+  "invitedAt": zod.string(),
+  "joinedAt": zod.string().nullish()
+})
+export const ListTeamMembersResponse = zod.array(ListTeamMembersResponseItem)
+
+
+/**
+ * @summary Invite a team member by email
+ */
+export const InviteTeamMemberBody = zod.object({
+  "email": zod.string(),
+  "name": zod.string(),
+  "role": zod.enum(['ADMIN', 'MEMBER'])
+})
+
+export const InviteTeamMemberResponse = zod.object({
+  "id": zod.string(),
+  "email": zod.string(),
+  "name": zod.string(),
+  "role": zod.enum(['OWNER', 'ADMIN', 'MEMBER']),
+  "status": zod.string(),
+  "invitedAt": zod.string(),
+  "joinedAt": zod.string().nullish()
+})
+
+
+/**
+ * @summary Remove a team member
+ */
+export const RemoveTeamMemberParams = zod.object({
+  "userId": zod.coerce.string()
+})
+
+export const RemoveTeamMemberResponse = zod.object({
+  "affected": zod.number()
+})
+
+
+/**
+ * @summary Get plan, usage, and invoice history
+ */
+export const GetBillingResponse = zod.object({
+  "plan": zod.string(),
+  "creditsRemaining": zod.number(),
+  "creditsTotal": zod.number(),
+  "sendsThisMonth": zod.number(),
+  "sendsLimit": zod.number(),
+  "seats": zod.number(),
+  "seatsLimit": zod.number(),
+  "invoices": zod.array(zod.object({
+  "id": zod.string(),
+  "date": zod.string(),
+  "amount": zod.number(),
+  "status": zod.string(),
+  "downloadUrl": zod.string()
+}))
+})
+
+
+/**
+ * @summary List API keys (prefix only)
+ */
+export const ListApiKeysResponseItem = zod.object({
+  "id": zod.string(),
+  "prefix": zod.string(),
+  "name": zod.string(),
+  "lastUsedAt": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const ListApiKeysResponse = zod.array(ListApiKeysResponseItem)
+
+
+/**
+ * @summary Issue a new API key
+ */
+export const CreateApiKeyBody = zod.object({
+  "name": zod.string()
+})
+
+
+/**
+ * @summary Revoke an API key
+ */
+export const RevokeApiKeyParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const RevokeApiKeyResponse = zod.object({
+  "affected": zod.number()
+})
+
+
+/**
+ * @summary Get notification preferences
+ */
+export const GetNotificationPrefsResponse = zod.object({
+  "emailEnabled": zod.boolean(),
+  "slackEnabled": zod.boolean(),
+  "approvalQueueFull": zod.boolean(),
+  "sendFailed": zod.boolean(),
+  "suppressionHit": zod.boolean(),
+  "weeklyReport": zod.boolean(),
+  "newReply": zod.boolean()
+})
+
+
+/**
+ * @summary Update notification preferences
+ */
+export const UpdateNotificationPrefsBody = zod.object({
+  "emailEnabled": zod.boolean(),
+  "slackEnabled": zod.boolean(),
+  "approvalQueueFull": zod.boolean(),
+  "sendFailed": zod.boolean(),
+  "suppressionHit": zod.boolean(),
+  "weeklyReport": zod.boolean(),
+  "newReply": zod.boolean()
+})
+
+export const UpdateNotificationPrefsResponse = zod.object({
+  "emailEnabled": zod.boolean(),
+  "slackEnabled": zod.boolean(),
+  "approvalQueueFull": zod.boolean(),
+  "sendFailed": zod.boolean(),
+  "suppressionHit": zod.boolean(),
+  "weeklyReport": zod.boolean(),
+  "newReply": zod.boolean()
+})
+
+
+/**
+ * @summary Get bell dropdown content
+ */
+export const ListNotificationsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "type": zod.string(),
+  "title": zod.string(),
+  "body": zod.string(),
+  "read": zod.boolean(),
+  "link": zod.string().nullish(),
+  "createdAt": zod.string()
+})),
+  "unreadCount": zod.number()
+})
+
+
+/**
+ * @summary Mark all notifications read
+ */
+export const MarkNotificationsReadResponse = zod.object({
+  "affected": zod.number()
+})
+
+
+/**
+ * @summary Get onboarding progress
+ */
+export const GetWelcomeStatusResponse = zod.object({
+  "complete": zod.boolean(),
+  "currentStep": zod.number()
+})
+
+
+/**
+ * @summary Mark onboarding as complete
+ */
+export const CompleteWelcomeResponse = zod.object({
+  "complete": zod.boolean(),
+  "currentStep": zod.number()
 })
 
 
@@ -593,6 +1091,7 @@ export const GetGraphRunTimelineResponseItem = zod.object({
   "reasoning": zod.string().nullish(),
   "tokensUsed": zod.number().nullish(),
   "durationMs": zod.number().nullish(),
+  "cost": zod.number().nullish(),
   "score": zod.number().nullish(),
   "timestamp": zod.string(),
   "children": zod.array(zod.unknown())

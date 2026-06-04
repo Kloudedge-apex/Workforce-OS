@@ -9,6 +9,13 @@
 export interface OrgSettings {
   orgId: string;
   orgName: string;
+  slug: string;
+  /** @nullable */
+  logoUrl?: string | null;
+  country: string;
+  timezone: string;
+  /** @nullable */
+  senderName?: string | null;
   liveSendEnabled: boolean;
   /** @nullable */
   postalAddress?: string | null;
@@ -18,4 +25,5 @@ export interface OrgSettings {
   allowlistedDomains: string[];
   plan?: string;
   creditsRemaining: number;
+  welcomeComplete: boolean;
 }

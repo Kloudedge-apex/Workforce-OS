@@ -10,7 +10,7 @@ import {
 
 const router = Router();
 
-const ORG_ID = "org_demo";
+const ORG_ID = "org_mynoted";
 
 function shapeConversation(c: typeof conversationsTable.$inferSelect, preview: string) {
   return {

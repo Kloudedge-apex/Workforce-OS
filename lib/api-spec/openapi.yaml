@@ -22,6 +22,14 @@ tags:
     description: Inbox and conversation threads
   - name: settings
     description: Organization settings and compliance
+  - name: runs
+    description: Pipeline run history
+  - name: agents
+    description: Agent roster and status
+  - name: notifications
+    description: In-app notifications
+  - name: welcome
+    description: Onboarding wizard
 paths:
   /healthz:
     get:
@@ -232,6 +240,12 @@ paths:
         - name: geo
           in: query
           schema: { type: string }
+        - name: cohort
+          in: query
+          schema: { type: string }
+        - name: industry
+          in: query
+          schema: { type: string }
         - name: sort
           in: query
           schema: { type: string, default: score_desc }
@@ -329,6 +343,9 @@ paths:
         - name: archived
           in: query
           schema: { type: boolean }
+        - name: leadId
+          in: query
+          schema: { type: string }
         - name: page
           in: query
           schema: { type: integer, default: 1 }
@@ -381,6 +398,95 @@ paths:
               schema:
                 $ref: "#/components/schemas/TriggerResult"
 
+  /conversations/{id}/archive:
+    post:
+      operationId: archiveConversation
+      tags: [conversations]
+      summary: Archive a conversation thread
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Archived
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkActionResult"
+
+  /runs:
+    get:
+      operationId: listRuns
+      tags: [runs]
+      summary: Paginated GraphRun history
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+        - name: status
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Paginated graph runs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedRuns"
+
+  /runs/trigger:
+    post:
+      operationId: triggerRun
+      tags: [runs]
+      summary: Start a new pipeline run
+      responses:
+        "202":
+          description: Run started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TriggerResult"
+
+  /runs/{id}:
+    get:
+      operationId: getRun
+      tags: [runs]
+      summary: Get full evidence timeline for one run
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Run with evidence timeline
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphRunDetail"
+        "404":
+          description: Not found
+
+  /agents:
+    get:
+      operationId: listAgents
+      tags: [agents]
+      summary: Active agent roster with recent activity
+      responses:
+        "200":
+          description: Agent list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Agent"
+
   /settings/org:
     get:
       operationId: getOrgSettings
@@ -389,6 +495,23 @@ paths:
       responses:
         "200":
           description: Organization settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrgSettings"
+    put:
+      operationId: updateOrgSettings
+      tags: [settings]
+      summary: Update organization settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateOrgInput"
+      responses:
+        "200":
+          description: Updated org settings
           content:
             application/json:
               schema:
@@ -406,6 +529,348 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OrgHealth"
+
+  /settings/icp:
+    get:
+      operationId: getIcpProfile
+      tags: [settings]
+      summary: Get ICP profile
+      responses:
+        "200":
+          description: ICP profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IcpProfile"
+    put:
+      operationId: updateIcpProfile
+      tags: [settings]
+      summary: Update ICP profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IcpProfile"
+      responses:
+        "200":
+          description: Updated ICP profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IcpProfile"
+
+  /settings/integrations:
+    get:
+      operationId: listIntegrations
+      tags: [settings]
+      summary: List integration connection states
+      responses:
+        "200":
+          description: Integration list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Integration"
+
+  /settings/integrations/{provider}/connect:
+    post:
+      operationId: connectIntegration
+      tags: [settings]
+      summary: Connect an integration (stub OAuth)
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Integration"
+
+  /settings/integrations/{provider}/disconnect:
+    post:
+      operationId: disconnectIntegration
+      tags: [settings]
+      summary: Disconnect an integration
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Disconnected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Integration"
+
+  /settings/cadence:
+    get:
+      operationId: getCadence
+      tags: [settings]
+      summary: Get sequence cadence config
+      responses:
+        "200":
+          description: Cadence stages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CadenceStage"
+    put:
+      operationId: updateCadence
+      tags: [settings]
+      summary: Update sequence cadence
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCadenceInput"
+      responses:
+        "200":
+          description: Updated cadence
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CadenceStage"
+
+  /settings/style:
+    get:
+      operationId: getStyleConfig
+      tags: [settings]
+      summary: Get brand voice and style config
+      responses:
+        "200":
+          description: Style config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StyleConfig"
+    put:
+      operationId: updateStyleConfig
+      tags: [settings]
+      summary: Update brand voice config
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StyleConfig"
+      responses:
+        "200":
+          description: Updated style
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StyleConfig"
+
+  /settings/team:
+    get:
+      operationId: listTeamMembers
+      tags: [settings]
+      summary: List team members and roles
+      responses:
+        "200":
+          description: Team members
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TeamMember"
+
+  /settings/team/invite:
+    post:
+      operationId: inviteTeamMember
+      tags: [settings]
+      summary: Invite a team member by email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InviteInput"
+      responses:
+        "200":
+          description: Invited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamMember"
+
+  /settings/team/{userId}:
+    delete:
+      operationId: removeTeamMember
+      tags: [settings]
+      summary: Remove a team member
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkActionResult"
+
+  /settings/billing:
+    get:
+      operationId: getBilling
+      tags: [settings]
+      summary: Get plan, usage, and invoice history
+      responses:
+        "200":
+          description: Billing info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingInfo"
+
+  /settings/api-keys:
+    get:
+      operationId: listApiKeys
+      tags: [settings]
+      summary: List API keys (prefix only)
+      responses:
+        "200":
+          description: API key list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ApiKey"
+    post:
+      operationId: createApiKey
+      tags: [settings]
+      summary: Issue a new API key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateApiKeyInput"
+      responses:
+        "201":
+          description: Created key (full value shown once)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKeyCreated"
+
+  /settings/api-keys/{id}:
+    delete:
+      operationId: revokeApiKey
+      tags: [settings]
+      summary: Revoke an API key
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkActionResult"
+
+  /settings/notifications:
+    get:
+      operationId: getNotificationPrefs
+      tags: [settings]
+      summary: Get notification preferences
+      responses:
+        "200":
+          description: Notification prefs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationPrefs"
+    put:
+      operationId: updateNotificationPrefs
+      tags: [settings]
+      summary: Update notification preferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationPrefs"
+      responses:
+        "200":
+          description: Updated prefs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationPrefs"
+
+  /notifications:
+    get:
+      operationId: listNotifications
+      tags: [notifications]
+      summary: Get bell dropdown content
+      responses:
+        "200":
+          description: Notifications
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationList"
+
+  /notifications/mark-read:
+    post:
+      operationId: markNotificationsRead
+      tags: [notifications]
+      summary: Mark all notifications read
+      responses:
+        "200":
+          description: Marked read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkActionResult"
+
+  /welcome/status:
+    get:
+      operationId: getWelcomeStatus
+      tags: [welcome]
+      summary: Get onboarding progress
+      responses:
+        "200":
+          description: Welcome status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WelcomeStatus"
+
+  /welcome/complete:
+    post:
+      operationId: completeWelcome
+      tags: [welcome]
+      summary: Mark onboarding as complete
+      responses:
+        "200":
+          description: Completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WelcomeStatus"
 
   /graph-runs/{id}/timeline:
     get:
@@ -452,7 +917,8 @@ components:
         pii: { type: number }
         hallucination: { type: number }
         citationCoverage: { type: number }
-      required: [pii, hallucination, citationCoverage]
+        toxicity: { type: number }
+      required: [pii, hallucination, citationCoverage, toxicity]
 
     FactCitation:
       type: object
@@ -495,6 +961,7 @@ components:
         sentAt: { type: ["string", "null"] }
         rejectionReason: { type: ["string", "null"] }
         graphRunId: { type: ["string", "null"] }
+        cohort: { type: ["string", "null"] }
       required: [id, status, recipient, subject, bodyHtml, citations, evaluatorScores, sendPolicy, createdAt]
 
     PaginatedArtifacts:
@@ -532,7 +999,7 @@ components:
         agentName: { type: string }
         agentType:
           type: string
-          enum: [sdr, content, ops, pipeline]
+          enum: [sdr, content, ops, pipeline, reply, reporting]
         action: { type: string }
         stage: { type: string }
         timestamp: { type: string }
@@ -547,7 +1014,9 @@ components:
         artifactsSentToday: { type: integer }
         replyRate7d: { type: number }
         qualifiedMeetingsBooked: { type: integer }
-      required: [artifactsPending, artifactsSentToday, replyRate7d, qualifiedMeetingsBooked]
+        leadsSourcedToday: { type: integer }
+        leadsScored: { type: integer }
+      required: [artifactsPending, artifactsSentToday, replyRate7d, qualifiedMeetingsBooked, leadsSourcedToday, leadsScored]
 
     IntentSignal:
       type: object
@@ -564,11 +1033,17 @@ components:
         title: { type: string }
         email: { type: string }
         company: { type: string }
+        domain: { type: ["string", "null"] }
         companyLogoUrl: { type: ["string", "null"] }
         avatarUrl: { type: ["string", "null"] }
         score: { type: integer }
         stage: { type: string }
         geo: { type: string }
+        country: { type: ["string", "null"] }
+        industry: { type: ["string", "null"] }
+        headcountEstimate: { type: ["string", "null"] }
+        cohort: { type: string, enum: [A, B] }
+        emailStatus: { type: string, enum: [DELIVERABLE, HIGH_PROBABILITY, CATCH_ALL] }
         intentSignals:
           type: array
           items:
@@ -577,7 +1052,7 @@ components:
         sendPolicy:
           $ref: "#/components/schemas/SendPolicy"
         createdAt: { type: string }
-      required: [id, name, email, company, score, stage, intentSignals, sendPolicy, createdAt]
+      required: [id, name, email, company, score, stage, cohort, emailStatus, intentSignals, sendPolicy, createdAt]
 
     ScoreBreakdown:
       type: object
@@ -674,6 +1149,7 @@ components:
       type: object
       properties:
         id: { type: string }
+        leadId: { type: ["string", "null"] }
         leadName: { type: string }
         leadCompany: { type: string }
         leadAvatarUrl: { type: ["string", "null"] }
@@ -716,6 +1192,11 @@ components:
       properties:
         orgId: { type: string }
         orgName: { type: string }
+        slug: { type: string }
+        logoUrl: { type: ["string", "null"] }
+        country: { type: string }
+        timezone: { type: string }
+        senderName: { type: ["string", "null"] }
         liveSendEnabled: { type: boolean }
         postalAddress: { type: ["string", "null"] }
         unsubscribeUrl: { type: ["string", "null"] }
@@ -725,7 +1206,20 @@ components:
           items: { type: string }
         plan: { type: string }
         creditsRemaining: { type: integer }
-      required: [orgId, orgName, liveSendEnabled, suppressionCount, allowlistedDomains, creditsRemaining]
+        welcomeComplete: { type: boolean }
+      required: [orgId, orgName, slug, country, timezone, liveSendEnabled, suppressionCount, allowlistedDomains, creditsRemaining, welcomeComplete]
+
+    UpdateOrgInput:
+      type: object
+      properties:
+        name: { type: string }
+        slug: { type: string }
+        logoUrl: { type: string }
+        country: { type: string }
+        timezone: { type: string }
+        senderName: { type: string }
+        postalAddress: { type: string }
+        liveSendEnabled: { type: boolean }
 
     OrgHealth:
       type: object
@@ -739,6 +1233,249 @@ components:
           items: { type: string }
       required: [liveSendEnabled, postalAddressConfigured, unsubscribeConfigured, suppressionCount, blockers]
 
+    IcpProfile:
+      type: object
+      properties:
+        industries:
+          type: array
+          items: { type: string }
+        titles:
+          type: array
+          items: { type: string }
+        geos:
+          type: array
+          items: { type: string }
+        sizeBand: { type: string }
+        intentSignals:
+          type: array
+          items: { type: string }
+        seedDomains:
+          type: array
+          items: { type: string }
+        exclusionDomains:
+          type: array
+          items: { type: string }
+      required: [industries, titles, geos, sizeBand, intentSignals, seedDomains, exclusionDomains]
+
+    Integration:
+      type: object
+      properties:
+        id: { type: string }
+        provider: { type: string }
+        status:
+          type: string
+          enum: [connected, available, errored]
+        accountEmail: { type: ["string", "null"] }
+        connectedAt: { type: ["string", "null"] }
+        errorMessage: { type: ["string", "null"] }
+      required: [id, provider, status]
+
+    CadenceStage:
+      type: object
+      properties:
+        id: { type: string }
+        dayOffset: { type: integer }
+        channel: { type: string }
+        label: { type: string }
+        enabled: { type: boolean }
+        position: { type: integer }
+      required: [id, dayOffset, channel, label, enabled, position]
+
+    StyleConfig:
+      type: object
+      properties:
+        voice: { type: string }
+        toneValue: { type: integer }
+        signatureHtml: { type: string }
+      required: [voice, toneValue, signatureHtml]
+
+    TeamMember:
+      type: object
+      properties:
+        id: { type: string }
+        email: { type: string }
+        name: { type: string }
+        role:
+          type: string
+          enum: [OWNER, ADMIN, MEMBER]
+        status: { type: string }
+        invitedAt: { type: string }
+        joinedAt: { type: ["string", "null"] }
+      required: [id, email, name, role, status, invitedAt]
+
+    InviteInput:
+      type: object
+      properties:
+        email: { type: string }
+        name: { type: string }
+        role:
+          type: string
+          enum: [ADMIN, MEMBER]
+      required: [email, name, role]
+
+    BillingInfo:
+      type: object
+      properties:
+        plan: { type: string }
+        creditsRemaining: { type: integer }
+        creditsTotal: { type: integer }
+        sendsThisMonth: { type: integer }
+        sendsLimit: { type: integer }
+        seats: { type: integer }
+        seatsLimit: { type: integer }
+        invoices:
+          type: array
+          items:
+            $ref: "#/components/schemas/Invoice"
+      required: [plan, creditsRemaining, creditsTotal, sendsThisMonth, sendsLimit, seats, seatsLimit, invoices]
+
+    Invoice:
+      type: object
+      properties:
+        id: { type: string }
+        date: { type: string }
+        amount: { type: number }
+        status: { type: string }
+        downloadUrl: { type: string }
+      required: [id, date, amount, status, downloadUrl]
+
+    ApiKey:
+      type: object
+      properties:
+        id: { type: string }
+        prefix: { type: string }
+        name: { type: string }
+        lastUsedAt: { type: ["string", "null"] }
+        createdAt: { type: string }
+      required: [id, prefix, name, createdAt]
+
+    CreateApiKeyInput:
+      type: object
+      properties:
+        name: { type: string }
+      required: [name]
+
+    ApiKeyCreated:
+      type: object
+      properties:
+        id: { type: string }
+        prefix: { type: string }
+        name: { type: string }
+        fullKey: { type: string }
+        createdAt: { type: string }
+      required: [id, prefix, name, fullKey, createdAt]
+
+    NotificationPrefs:
+      type: object
+      properties:
+        emailEnabled: { type: boolean }
+        slackEnabled: { type: boolean }
+        approvalQueueFull: { type: boolean }
+        sendFailed: { type: boolean }
+        suppressionHit: { type: boolean }
+        weeklyReport: { type: boolean }
+        newReply: { type: boolean }
+      required: [emailEnabled, slackEnabled, approvalQueueFull, sendFailed, suppressionHit, weeklyReport, newReply]
+
+    Notification:
+      type: object
+      properties:
+        id: { type: string }
+        type: { type: string }
+        title: { type: string }
+        body: { type: string }
+        read: { type: boolean }
+        link: { type: ["string", "null"] }
+        createdAt: { type: string }
+      required: [id, type, title, body, read, createdAt]
+
+    NotificationList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Notification"
+        unreadCount: { type: integer }
+      required: [items, unreadCount]
+
+    WelcomeStatus:
+      type: object
+      properties:
+        complete: { type: boolean }
+        currentStep: { type: integer }
+      required: [complete, currentStep]
+
+    GraphRun:
+      type: object
+      properties:
+        id: { type: string }
+        status:
+          type: string
+          enum: [RUNNING, AWAITING_APPROVAL, COMPLETED, FAILED]
+        agentsInvolved:
+          type: array
+          items: { type: string }
+        leadsSourced: { type: integer }
+        artifactsGenerated: { type: integer }
+        durationMs: { type: integer }
+        costUsd: { type: number }
+        triggeredBy: { type: string }
+        startedAt: { type: string }
+        completedAt: { type: ["string", "null"] }
+      required: [id, status, agentsInvolved, leadsSourced, artifactsGenerated, durationMs, costUsd, triggeredBy, startedAt]
+
+    PaginatedRuns:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphRun"
+        total: { type: integer }
+        page: { type: integer }
+        limit: { type: integer }
+      required: [items, total, page, limit]
+
+    GraphRunDetail:
+      type: object
+      properties:
+        run:
+          $ref: "#/components/schemas/GraphRun"
+        timeline:
+          type: array
+          items:
+            $ref: "#/components/schemas/TimelineNode"
+      required: [run, timeline]
+
+    Agent:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        type:
+          type: string
+          enum: [sdr, content, ops, pipeline, reply, reporting]
+        status:
+          type: string
+          enum: [idle, running, error]
+        lastAction: { type: ["string", "null"] }
+        lastActionAt: { type: ["string", "null"] }
+        recentActivityCount: { type: integer }
+        sparklineData:
+          type: array
+          items: { type: integer }
+      required: [id, name, type, status, recentActivityCount, sparklineData]
+
+    UpdateCadenceInput:
+      type: object
+      properties:
+        stages:
+          type: array
+          items:
+            $ref: "#/components/schemas/CadenceStage"
+      required: [stages]
+
     TimelineNode:
       type: object
       properties:
@@ -751,6 +1488,7 @@ components:
         reasoning: { type: ["string", "null"] }
         tokensUsed: { type: ["integer", "null"] }
         durationMs: { type: ["integer", "null"] }
+        cost: { type: ["number", "null"] }
         score: { type: ["number", "null"] }
         timestamp: { type: string }
         children:

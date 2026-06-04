@@ -12,6 +12,7 @@ sentiment?: ListConversationsSentiment;
 unread?: boolean;
 needsReply?: boolean;
 archived?: boolean;
+leadId?: string;
 page?: number;
 limit?: number;
 };

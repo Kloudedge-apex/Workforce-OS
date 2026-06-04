@@ -14,7 +14,7 @@ import {
 
 const router = Router();
 
-const ORG_ID = "org_demo";
+const ORG_ID = "org_mynoted";
 
 function shapeArtifact(a: typeof outreachArtifactsTable.$inferSelect) {
   const scores = (a.evaluatorScores ?? {}) as Record<string, number>;

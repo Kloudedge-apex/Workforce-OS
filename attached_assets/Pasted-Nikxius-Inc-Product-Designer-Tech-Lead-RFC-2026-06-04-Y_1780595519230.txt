@@ -1,0 +1,713 @@
+Nikxius, Inc. · Product Designer + Tech Lead RFC · 2026-06-04
+
+  You are building the complete production frontend for Workforce OS — Nikxius's multi-tenant AI agent platform. Not a demo. Not a polish sprint. The full surface area, fully realized, every state
+  covered, every route built, every component shippable.
+
+  This brief is exhaustive on purpose. There are 12 sections. Read it end-to-end before you create a single file.
+
+  ---
+  1 · Mission statement
+  
+  A founder, head of growth, or RevOps lead opens Workforce OS 2–8 times a day. The platform is running autonomous AI agents — sourcing, enriching, scoring, drafting, replying — on their behalf.
+  Their job inside the app is to review what the agents produced, approve or reject, configure the system, and watch the outcomes.
+
+  The frontend must:
+  1. Make agent activity legible at a glance and at depth.
+  2. Surface the approval queue as the first thing every session.
+  3. Embed compliance signals at every send moment.
+  4. Stay fast (sub-1.5 s FCP), responsive (375 px → 1920 px), and accessible (WCAG AA).
+  5. Look like a $50M ARR SaaS that Linear, Vercel, and Stripe Atlas would approve of.
+
+  No half-done routes. No "we'll add it later." No placeholder data in shipped views. Every screen this brief names must ship with empty, loading, error, and happy-path states fully designed and
+  implemented.
+
+  ---
+  2 · Stack — locked in
+
+  Use exactly this stack. Do not introduce alternatives without an explicit reason in a code comment.
+
+  ┌─────────────────┬────────────────────────────────────────────────────┐
+  │      Layer      │                     Technology                     │
+  ├─────────────────┼────────────────────────────────────────────────────┤
+  │ Build           │ Vite 6+                                            │
+  ├─────────────────┼────────────────────────────────────────────────────┤
+  │ Framework       │ React 19                                           │
+  ├─────────────────┼────────────────────────────────────────────────────┤
+  │ Router          │ Wouter                                             │
+  ├─────────────────┼────────────────────────────────────────────────────┤
+  │ Data fetching   │ TanStack Query v5                                  │
+  ├─────────────────┼────────────────────────────────────────────────────┤
+  │ Forms           │ React Hook Form + Zod resolvers                    │
+  ├─────────────────┼────────────────────────────────────────────────────┤
+  │ Validation      │ Zod                                                │
+  ├─────────────────┼────────────────────────────────────────────────────┤
+  │ Styling         │ Tailwind v4 + CSS variables                        │
+  ├─────────────────┼────────────────────────────────────────────────────┤
+  │ Primitives      │ Radix UI (all unstyled primitives)                 │
+  ├─────────────────┼────────────────────────────────────────────────────┤
+  │ Command palette │ cmdk                                               │
+  ├─────────────────┼────────────────────────────────────────────────────┤
+  │ Icons           │ Lucide React                                       │
+  ├─────────────────┼────────────────────────────────────────────────────┤
+  │ Toasts          │ Sonner                                             │
+  ├─────────────────┼────────────────────────────────────────────────────┤
+  │ Date / time     │ date-fns                                           │
+  ├─────────────────┼────────────────────────────────────────────────────┤
+  │ Charts          │ Inline SVG sparklines (no chart library)           │
+  ├─────────────────┼────────────────────────────────────────────────────┤
+  │ HTTP            │ Built-in fetch                                     │
+  ├─────────────────┼────────────────────────────────────────────────────┤
+  │ Mock backend    │ Existing Express + Drizzle (extend, don't replace) │
+  ├─────────────────┼────────────────────────────────────────────────────┤
+  │ Auth            │ Stub now, Clerk-ready hooks (see §7)               │
+  ├─────────────────┼────────────────────────────────────────────────────┤
+  │ Test runner     │ Vitest (only for utility functions, not visual)    │
+  └─────────────────┴────────────────────────────────────────────────────┘
+
+  Hard constraints:
+  - TypeScript strict mode. No any. No @ts-ignore. No as unknown as.
+  - No new dependencies beyond the above without justification.
+  - Bundle size budget: 350 KB gzipped initial route. Lazy-load every route detail.
+
+  ---
+  3 · Information architecture — every route
+
+  3.1 Public routes (unauthenticated)
+
+  ┌──────────────┬──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+  │     Path     │                                                                             Purpose                                                                              │
+  ├──────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /            │ Marketing-style landing → CTA to /sign-up. Minimal — single hero, three feature cards, sign-up CTA. Lives in this app to round out the demo; do not over-invest. │
+  ├──────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /sign-in     │ Email + password OR magic link stub. Stores a fake session token in localStorage and routes to /today.                                                           │
+  ├──────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /sign-up     │ Same as sign-in for now. After "submit" → /welcome.                                                                                                              │
+  ├──────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /welcome     │ Onboarding wizard (5 steps, full spec §8).                                                                                                                       │
+  ├──────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /goodbye     │ Post-delete-org confirmation. Centered card, "Your data has been removed." Auto-redirect to / after 8 s.                                                         │
+  ├──────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /404         │ Custom not-found. Serif numeral "4 · 0 · 4" in text-ink-3, helpful nav links.                                                                                    │
+  ├──────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /maintenance │ Toggle via env var. Centered message + status link.                                                                                                              │
+  ├──────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /u/:token    │ Public unsubscribe page (recipient-facing). Confirms suppression, no auth required.                                                                              │
+  └──────────────┴──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+  3.2 Authenticated routes (workspace)
+
+  ┌──────────────────────────┬────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+  │           Path           │                                                                              Purpose                                                                               │
+  ├──────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /today                   │ Approval queue + KPIs + agent activity. Default landing after sign-in.                                                                                             │
+  ├──────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /pipeline                │ Master-detail lead view with 6 filter facets.                                                                                                                      │
+  ├──────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /pipeline/:leadId        │ Deep-link to a specific lead's detail panel pre-open.                                                                                                              │
+  ├──────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /outbound                │ Tabbed view: Drafts · Approved · Sent · Suppressed · Rejected.                                                                                                     │
+  ├──────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /outbound/:artifactId    │ Deep-link to an artifact, opens its detail sheet over the list.                                                                                                    │
+  ├──────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /conversations           │ Inbox with reply intelligence.                                                                                                                                     │
+  ├──────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /conversations/:threadId │ Deep-link to a thread.                                                                                                                                             │
+  ├──────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /agents                  │ Agent roster — list of the active SDR / Content / Reply / Reporting agents with their status + recent activity. Read-only configuration view.                      │
+  ├──────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /runs                    │ Pipeline run history. Each row is a GraphRun with status, duration, agents involved, leads sourced, artifacts generated. Click → run detail with EvidenceTimeline. │
+  ├──────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /runs/:runId             │ Full evidence timeline for one GraphRun.                                                                                                                           │
+  ├──────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /settings                │ Tabs (see §3.3).                                                                                                                                                   │
+  └──────────────────────────┴────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+  3.3 Settings tabs
+
+  Settings lives at /settings and uses sub-routes for each tab so they're deep-linkable.
+
+  ┌─────────────────────────┬───────────────┬─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+  │          Path           │      Tab      │                                                                       Purpose                                                                       │
+  ├─────────────────────────┼───────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /settings/profile       │ Profile       │ User account, name, email, avatar, password reset link                                                                                              │
+  ├─────────────────────────┼───────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /settings/workspace     │ Workspace     │ Org name, slug, logo, postal address (CAN-SPAM), country, timezone                                                                                  │
+  ├─────────────────────────┼───────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /settings/icp           │ ICP           │ Editable ICP — industries (multi-chip), titles (multi-chip), geos (multi-chip), size band, intent signals, seed domains, exclusion domains          │
+  ├─────────────────────────┼───────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /settings/integrations  │ Integrations  │ Gmail · Outlook · LinkedIn · HubSpot · Salesforce · Slack · Clay · Apollo · Hunter · FullEnrich · Webhooks. Each integration shows status           │
+  │                         │               │ (connected / available / errored), connect / disconnect / test buttons                                                                              │
+  ├─────────────────────────┼───────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /settings/cadence       │ Cadence       │ Sequence editor: Day 0 email · Day 1 LinkedIn · Day 3 email · Day 5 LinkedIn · Day 7 breakup. Drag-to-reorder, toggle stages on/off                 │
+  ├─────────────────────────┼───────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /settings/email         │ Email         │ Sending domain, sender name, SPF/DKIM/DMARC status indicators, warm-up status                                                                       │
+  ├─────────────────────────┼───────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /settings/style         │ Style         │ Voice (Professional / Conversational / Direct), tone slider (Formal ↔ Casual), signature block editor with live preview                             │
+  ├─────────────────────────┼───────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /settings/team          │ Team          │ Members list with role, invite-by-email form, role editor, remove member                                                                            │
+  ├─────────────────────────┼───────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /settings/compliance    │ Compliance    │ Suppression list (paginated, with Unsuppress action) + Allowlisted-domains + Danger Zone (Delete Organization with re-auth)                         │
+  ├─────────────────────────┼───────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /settings/billing       │ Billing       │ Current plan, usage meters (credits, sends, seats), invoice history                                                                                 │
+  ├─────────────────────────┼───────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /settings/api-keys      │ API Keys      │ Issue / revoke API keys, with prefix-only display and copy-on-create                                                                                │
+  ├─────────────────────────┼───────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ /settings/notifications │ Notifications │ Email + Slack triggers — approval queue full, send failed, suppression hit, weekly report                                                           │
+  └─────────────────────────┴───────────────┴─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+  3.4 Global UI surfaces
+
+  These are not routes. They are always-mounted UI.
+
+  ┌─────────────────────────────┬─────────────────────────────────────────────────────────────────────────────────────┐
+  │           Element           │                                        Where                                        │
+  ├─────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────┤
+  │ Sidebar                     │ Left, persistent on all /dashboard/*. 5 main items + workspace switcher + user menu │
+  ├─────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────┤
+  │ Top bar                     │ Breadcrumb · Cmd-K trigger · Notification bell · User avatar                        │
+  ├─────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────┤
+  │ Cmd-K palette               │ Global, opens on ⌘K / Ctrl-K                                                        │
+  ├─────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────┤
+  │ Toast region                │ Bottom-right, Sonner-style                                                          │
+  ├─────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────┤
+  │ Right rail (Agent Activity) │ On /today, /pipeline, /outbound only                                                │
+  ├─────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────┤
+  │ Notification dropdown       │ From the bell, shows unread + recent                                                │
+  └─────────────────────────────┴─────────────────────────────────────────────────────────────────────────────────────┘
+
+  ---
+  4 · Component library — every component
+
+  Build these in this order. Each component lives in src/components/{primitives|composed|features}/ per layer. Each has a Storybook-style preview at /_dev/components/<name> (gated to
+  non-production).
+
+  4.1 Primitives (foundation)
+
+  - Button — variants: primary, secondary, ghost, destructive, link. Sizes: sm, md, lg, icon
+  - Input, Textarea, Select, MultiSelect, Checkbox, Switch, Slider, RadioGroup
+  - Label, FormField, FormError, FormHelp
+  - Badge — variants: neutral, info, success, warning, critical, plus the brand variants (rust, ember)
+  - Card — base + variants (elevated, outlined, danger)
+  - Tabs (Radix wrapper)
+  - Sheet (Radix Dialog wrapper, right-aligned)
+  - AlertDialog (Radix)
+  - DropdownMenu, ContextMenu, Popover, Tooltip, HoverCard
+  - Avatar with Gravatar fallback + initials fallback
+  - Logo for company logos: Clearbit fallback → first-letter card fallback
+  - Skeleton (variants matching the actual final layout shape)
+  - Spinner (use sparingly, only inside buttons during async)
+
+  4.2 Composed
+
+  - DataTable — sortable, filterable, paginated. Supports row selection + bulk-actions toolbar
+  - FilterChips — single or multi-select chip groups with clear-all
+  - SearchBar — debounced 200 ms, with optional keyboard shortcut hint (/)
+  - Breadcrumb
+  - EmptyState — title, description, illustration (large serif letterform), optional CTA
+  - ErrorState — inline error with retry, never a global toast
+  - Pagination — page size + cursor-based
+  - Stat — KPI tile with value, label, delta, sparkline
+  - Sparkline — pure CSS-or-SVG, no library
+  - NumberTicker — animates from 0 to target on first IntersectionObserver intersection
+  - TimeAgo — "2m ago" with auto-refresh every 30 s
+  - CopyButton — clipboard + confirm tick
+  - ScoreBadge — 3 variants: small (12 px), medium (16 px), large display (32 px) — tabular nums
+  - StatusBadge — for OutreachArtifactStatus + Lead stage + GraphRun status. 8 statuses each with brand color + icon
+  - CountryFlag — emoji or SVG flag chip
+  - CohortBadge — A or B with tooltip explaining the brief's A/B test
+
+  4.3 Feature components (the six from the first brief, fully realized)
+
+  ApprovalCard
+  - Recipient block: avatar, name, title, company logo, company name, geo flag, score badge
+  - Subject line (large, serif)
+  - Body (HTML render, expandable from 3 lines to full)
+  - Evaluator scores row: PII, Hallucination, Citation Coverage, Toxicity — each as a small ThresholdMeter with color (green ≥ 0.8, amber 0.5–0.8, red < 0.5)
+  - Evidence accordion: "N facts cited" expands to show the actual fact_ids + sources
+  - Action row: Approve (primary), Edit & Approve (opens inline editor in sheet), Reject (secondary, opens reason dialog)
+  - Footer: PolicyBadge showing this artifact's send-ability state
+  - Optimistic update on Approve → scale 0.98 → cross-fade to SentReceipt confirmation in-place
+
+  AgentActivityStream
+  - Vertical scrollable list of evidence events
+  - Each row: timestamp (TimeAgo), agent icon + label, action verb, target object (with link), inline status chip
+  - Polls /api/activity every 5 s; new events fade in at top
+  - Filterable by agent + by route context (outbound, pipeline, conversations)
+  - Keeps last 50 in memory; oldest fades out on overflow
+  - aria-live="polite"
+  - Collapses on mobile to a bottom sheet with a floating count pill
+
+  LeadCard
+  - Compact mode (used in grid): logo, name + title, score badge, top 2 intent chips, last-activity timestamp, kebab menu (View, Trigger outbound, Suppress, Add to campaign)
+  - Detailed mode (used in detail panel): full profile, research brief (with cited fact_ids), score breakdown bar chart, intent signals, outreach history table (last 5 sends), conversations link
+
+  ConversationThread
+  - Compact preview: sentiment chip, snippet, unread dot
+  - Full mode: message list (timestamped, with sender avatar), ReplyIntelligence strip above with sentiment confidence + suggested action + Draft Reply button
+  - Draft Reply triggers a new ApprovalCard inline below the strip
+
+  PolicyBadge
+  - Single source of truth on send-ability. States:
+    - live-send-allowed — green
+    - dry-run-only — neutral with warning icon
+    - blocked-no-postal-address — rust, with "Configure address" CTA
+    - recipient-suppressed — rust, action-disabling
+    - recipient-bounced — rust
+  - Inline on ApprovalCard, on Outbound page header, on Settings → Compliance, in the Cmd-K palette as a status indicator
+
+  EvidenceTimeline
+  - Vertical timeline of every node + LLM call + evaluator score for a GraphRun
+  - Each step collapses to reveal raw reasoning + token count + cost 
+  - Pulled from a single /api/graph-runs/:id endpoint
+  - Sequential reveal animation on first open (60 ms stagger per step)
+  - Opens in a Sheet from any artifact's "View evidence" link, from /runs/:id, from /agents
+
+  4.4 Layout components
+
+  - Sidebar — workspace switcher + 5 nav items + user menu at bottom
+  - TopBar — breadcrumb + Cmd-K trigger + notification bell + avatar
+  - RightRail — wraps AgentActivityStream, collapsible
+  - PageHeader — title, subtitle, action row
+  - PageContainer — max-width, padding, scroll behavior
+
+  4.5 The Command Palette
+
+  Cmd-K opens a centered overlay. Sections:
+  1. Navigate — Today · Pipeline · Outbound · Conversations · Agents · Runs · Settings
+  2. Quick actions — Trigger pipeline run · Approve next in queue · Add recipient to suppression · Invite teammate · Open API keys
+  3. Recent artifacts — last 5 viewed (localStorage)
+  4. Recent leads — last 5 viewed
+  5. Help — Docs · Keyboard shortcuts · Contact support
+
+  Esc closes. Arrow keys navigate. Enter executes. Live-filter on type. Use cmdk.
+
+  ---
+  5 · Design system
+
+  5.1 Color tokens (extend; don't replace)
+
+  Existing tokens in v1 stay: paper, paper-2, paper-3 · ink, ink-3, ink-4 · line-soft · rust, ember.
+
+  Add semantic tokens (used only for state, never decoration):
+  - signal-positive — deep green (#0a7a23). Used ONLY for delivered, approved-sent, healthy.
+  - signal-info — slate blue (#3d4a6b). Used ONLY for in-progress, neutral status.
+  - signal-critical — deeper rust (#a8261b). Used ONLY for blocked, failed, suppressed-hit.
+  
+  One semantic token per state. Never two ways to convey the same meaning.
+
+  5.2 Typography
+
+  - Serif (headlines): Lora (already in build). Sizes: display 56/64 · h1 40/48 · h2 28/36 · h3 20/28
+  - Sans (body): Inter. Sizes: body 14/22 · caption 12/18
+  - Mono-numeric: Inter with font-variant-numeric: tabular-nums — applied automatically to ScoreBadge, NumberTicker, Stat values
+  - Headings always serif. Body always sans. Data always sans with tabular nums. No exceptions.
+
+  5.3 Spacing scale
+
+  Tailwind defaults: 1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24. No custom values without justification.
+
+  5.4 Motion
+
+  - 150 ms ease-out for state changes
+  - 220 ms ease-in-out for sheet enter/exit
+  - 0 ms cross-fade for skeleton → real data
+  - All animations respect prefers-reduced-motion
+
+  5.5 Elevation
+
+  - Card resting: no shadow, border border-line-soft
+  - Card hover: translateY(-2px) + shadow-md over 150 ms
+  - Sheet: shadow-2xl from the right
+  - Modal: backdrop blur + shadow-2xl centered
+
+  5.6 Iconography
+
+  Lucide React only. Stroke width 1.5. Sizes: 14, 16, 20, 24. No mixing icon sets.
+
+  ---
+  6 · Data layer
+
+  6.1 Existing Express backend stays — extend, don't replace
+
+  The Express + Drizzle backend that was built in week one stays. Extend it to cover every route's data needs. Add endpoints sparingly — match REST patterns already in place.
+
+  6.2 Endpoints to add to the existing 15
+
+  ┌────────┬─────────────────────────────────────────────────┬─────────────────────────────────────────────────┐
+  │ Method │                      Path                       │                     Purpose                     │
+  ├────────┼─────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ GET    │ /api/runs                                       │ Paginated GraphRun history                      │
+  ├────────┼─────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ GET    │ /api/runs/:id                                   │ Full EvidenceTimeline for one run               │
+  ├────────┼─────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ POST   │ /api/runs/trigger                               │ Start a new pipeline run                        │
+  ├────────┼─────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ GET    │ /api/agents                                     │ Active agent roster + recent activity per agent │
+  ├────────┼─────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ GET    │ /api/settings/integrations                      │ Connection state for all integrations           │
+  ├────────┼─────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ POST   │ /api/settings/integrations/:provider/connect    │ Stub OAuth handler                              │
+  ├────────┼─────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ POST   │ /api/settings/integrations/:provider/disconnect │ Disconnect                                      │
+  ├────────┼─────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ GET    │ /api/settings/cadence                           │ Read sequence config                            │
+  ├────────┼─────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ PUT    │ /api/settings/cadence                           │ Write sequence config                           │
+  ├────────┼─────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ GET    │ /api/settings/style                             │ Read brand voice config                         │
+  ├────────┼─────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ PUT    │ /api/settings/style                             │ Write brand voice                               │
+  ├────────┼─────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ GET    │ /api/settings/team                              │ Members + roles                                 │
+  ├────────┼─────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ POST   │ /api/settings/team/invite                       │ Invite by email                                 │
+  ├────────┼─────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ DELETE │ /api/settings/team/:userId                      │ Remove member                                   │
+  ├────────┼─────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ GET    │ /api/settings/billing                           │ Plan, usage, invoice list                       │
+  ├────────┼─────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ GET    │ /api/settings/api-keys                          │ List keys (prefix-only)                         │
+  ├────────┼─────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ POST   │ /api/settings/api-keys                          │ Issue new key                                   │
+  ├────────┼─────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ DELETE │ /api/settings/api-keys/:id                      │ Revoke                                          │
+  ├────────┼─────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ GET    │ /api/settings/notifications                     │ Read notification prefs                         │
+  ├────────┼─────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ PUT    │ /api/settings/notifications                     │ Write notification prefs                        │
+  ├────────┼─────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ GET    │ /api/notifications                              │ Bell dropdown content                           │
+  ├────────┼─────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ POST   │ /api/notifications/mark-read                    │ Mark notifications read                         │
+  ├────────┼─────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ GET    │ /api/welcome/status                             │ Onboarding progress                             │
+  ├────────┼─────────────────────────────────────────────────┼─────────────────────────────────────────────────┤
+  │ POST   │ /api/welcome/complete                           │ Mark onboarding done                            │
+  └────────┴─────────────────────────────────────────────────┴─────────────────────────────────────────────────┘
+
+  6.3 Seed data — use real Mynoted leads
+
+  Two CSV files exist with 161 real enriched B2B companies with verified CEO emails:
+  - mynoted-askberean-leads-outreach-ready.csv — 75 India + Middle East
+  - mynoted-askberean-leads-us-eu-outreach-ready.csv — 86 US + EU
+  
+  Each row has: company, domain, country, industry, headcount_estimate, icp_score (81–92), cohort (A or B), ceo_name, ceo_email, email_status (DELIVERABLE / HIGH_PROBABILITY / CATCH_ALL),
+  target_titles, ai_signal_notes.
+
+  On every Drizzle migration run, import all 161 rows into the leads table. Generate:
+  - 161 lead records (1:1 from CSV)
+  - 60 OutreachArtifacts (15 PENDING_REVIEW · 15 APPROVED · 15 SENT · 10 SUPPRESSED · 5 REJECTED), each tied to a real lead with a real ICP-rationale body drafted using the ai_signal_notes
+  - 24 ConversationThreads sampled from SENT artifacts — 40% positive · 30% objection · 20% neutral · 10% negative
+  - 200 AgentActivityEvents distributed across the last 36 hours
+  - 8 GraphRuns (1 RUNNING · 2 AWAITING_APPROVAL · 4 COMPLETED · 1 FAILED), each with a full EvidenceTimeline
+
+  The demo Org is Mynoted Private Limited — name: "Mynoted Private Limited", slug: "mynoted", physicalAddress: "Plot 14, MIDC Industrial Estate, Pune 411019, India", country: "IN", senderName: 
+  "Nikhil Sood". Match the real pilot we're running.
+
+  6.4 Schema requirements
+
+  Mirror the apex-prod schema 1:1 for these tables: Org, User, Person, Company, LeadScore, OutreachArtifact, OutreachSuppression, GraphRun, EvidenceEvent, Conversation, Reply, IcpProfile,
+  Integration, AgentRun. Keep enum values identical (OutreachArtifactStatus, OutreachSuppressionReason, Cohort, etc.).
+
+  6.5 TanStack Query conventions
+
+  - Query key shape: [entity, scope, ...filters] — e.g. ["artifacts", "pending", { sort: "score" }]
+  - Global default polling: 30 s · refetch on focus: true · stale: 2 s · 1 retry
+  - Hot pages override per query: see §9 per-route specs
+  - Mutations always optimistic with onMutate snapshot + rollback on error
+  - Invalidate liberally on mutation success
+
+  ---
+  7 · Auth model
+
+  7.1 Current (stub)
+
+  - Sign-in form stores { orgId: "mynoted", userId: "demo", role: "OWNER", token: "demo-token" } in localStorage
+  - useAuth() hook returns the parsed object
+  - All /api/* requests carry Authorization: Bearer demo-token
+  - The Express server accepts demo-token and resolves to the demo org
+  - A logout button clears localStorage and routes to /sign-in
+
+  7.2 Future (Clerk-ready)
+
+  Build the useAuth hook with the exact return shape Clerk's useAuth() uses: { isLoaded, isSignedIn, userId, orgId, getToken, signOut }. Build the <AuthGate> wrapper that gates all /dashboard/*
+  routes on isSignedIn. When the real Clerk wiring lands later, only the implementation of useAuth changes — every call site stays.
+
+  ---
+  8 · Onboarding wizard (/welcome) — full spec
+
+  Five linear screens. Three inputs max per screen. No back button. Each screen has a serif headline (Lora display) and a paragraph below explaining why.
+
+  Step 1 — Workspace
+
+  - Headline: "What's the name of your workspace?"
+  - Body: "This is what your team will see at the top of the app. You can rename it later."
+  - Input: workspace name (text, required, 2–60 chars)
+  - Optional: logo upload (skip ghosted by default)
+  - CTA: "Continue"
+  - On submit → POST /api/welcome/workspace → next step
+
+  Step 2 — ICP quick-pick
+
+  - Headline: "Who are you trying to reach?"
+  - Body: "Pick the industries, company sizes, and geographies your ideal customer falls into. You can fine-tune in Settings → ICP later."
+  - Three multi-select chip groups, all pre-populated with sensible defaults:
+    - Industries: Manufacturing · Logistics · Retail/E-commerce · Tech/SaaS · Professional Services · Education · Real Estate (default: Tech/SaaS + Manufacturing)
+    - Size: 200–500 · 500–2K · 2K–5K (default: all three)
+    - Geo: India · Middle East · US · Europe (default: India + US)
+  - CTA: "Continue"
+  - On submit → POST /api/welcome/icp → next step
+
+  Step 3 — Connect mailbox (optional)
+
+  - Headline: "Connect a mailbox?"
+  - Body: "Workforce OS will draft and send outbound from a dedicated mailbox you control. You can skip and set this up later — we'll stay in dry-run mode until then."
+  - Three large tiles: Gmail · Outlook · Skip for now
+  - Gmail / Outlook show "Connect via OAuth" (stub the OAuth — just transition to a "Connected" success state after 1.5 s)
+  - Skip routes forward immediately
+  - On submit → POST /api/welcome/mailbox → next step
+
+  Step 4 — First pipeline run
+
+  - Headline: "We'll source 25 companies matching your ICP."
+  - Body: "This takes about 15 seconds. Once it's done, you'll have your first batch of drafts ready for review."
+  - Animated progress strip with 5 stages, each ticking through 2.5–3 s:
+    a. Sourcing (companies found: 0 → 25)
+    b. Enrichment (contacts enriched: 0 → 47)
+    c. Scoring (scored above 80: 0 → 18)
+    d. Drafting (drafts written: 0 → 12)
+    e. Ready (drafts ready: 12)
+  - At t+15s: "Done. 12 drafts ready for your review."
+  - CTA: "Open the queue"
+
+  Step 5 — Welcome to today
+
+  - Headline: "You have 12 drafts waiting."
+  - Body: "Review each one. Approve, edit, or reject — the agents handle the rest."
+  - CTA: "Open Today" (large primary)
+  - On submit → POST /api/welcome/complete + route to /today
+
+  After completion, useAuth().welcomeComplete returns true and /welcome redirects to /today if hit again.
+
+  ---
+  9 · Page-by-page specs (the 11 main routes)
+  
+  For each: layout, data sources, interactions, empty/loading/error states.
+
+  9.1 /today
+
+  Layout (desktop): 12-col grid. Left 8 cols: PageHeader + KPI row (4 Stat tiles) + Approval queue (ApprovalCard stack). Right 4 cols: RightRail with AgentActivityStream.
+
+  Layout (mobile): Single column. KPIs as 2×2 grid. Approval queue full-width. Activity in a bottom sheet behind a floating pill.
+
+  Data:
+  - useQuery(["today", "kpis"]) polling 15 s
+  - useQuery(["artifacts", "pending"]) polling 8 s
+  - useQuery(["activity"]) polling 5 s
+  
+  Interactions:
+  - Approve / Edit-and-Approve / Reject per ApprovalCard with optimistic update
+  - Bulk approve (in PageHeader action row) when 2+ cards selected
+  - "Open evidence" link on each card → Sheet with EvidenceTimeline
+  - KPI tap → drill-down to the relevant filtered route (e.g. Sent Today tap → /outbound?tab=sent&date=today)
+
+  Empty: "Your queue is clear." + "Trigger a new run" button.
+  Loading: Skeleton matching the exact card height and KPI layout.
+  Error: Inline ErrorState per pane (queue, KPIs, activity) — each retryable independently.
+
+  9.2 /pipeline
+
+  Layout (desktop): Left 40% — SearchBar + FilterChips + paginated lead list (LeadCard compact mode in a single column). Right 60% — Lead detail panel (LeadCard detailed mode).
+
+  Layout (mobile): Lead list full-width. Tapping a row → full-screen sheet with detail.
+
+  Data:
+  - useQuery(["leads", { filters, sort, page }]) polling 30 s (default)
+  - useQuery(["leads", leadId]) for the open detail
+
+  Filters:
+  - Stage: All · Sourced · Enriched · Scored · Contacted · Replied
+  - Score: All · > 60 · > 70 · > 80 · > 90 (range slider)
+  - Intent: All · High · Medium · Low
+  - Geo: multi-select countries (driven by available data)
+  - Cohort: A · B · Both
+  - Industry: multi-select
+  
+  Sort: Score desc (default) · Last activity · Company name
+
+  Interactions:
+  - Click lead → opens detail panel (or sheet on mobile)
+  - Bulk select via checkbox → toolbar appears at top with: Suppress · Add to campaign · Trigger outbound · Export CSV
+  - Per-lead actions in detail panel: Trigger outbound (opens confirmation), Suppress (opens dialog), View conversations (route to /conversations?leadId=X)
+
+  Empty: "No leads yet." + "Trigger a sourcing run" button.
+  Loading: Skeleton grid of LeadCard placeholders.
+  Error: Inline error per pane.
+
+  9.3 /outbound
+
+  Layout: Tabs across the top: Drafts (count) · Approved (count) · Sent (count) · Suppressed (count) · Rejected (count). PolicyBadge strip below tabs showing org's current send-ability state.
+
+  Drafts tab: ApprovalCard grid (one column). Pagination at bottom.
+  Approved tab: Same as Drafts but cards are read-only with a "Cancel" action.
+  Sent tab: DataTable with columns — Sent At · Recipient · Company · Subject · Status · Deliverability indicator · Open Thread.
+  Suppressed tab: Table of suppressed artifacts with reason + unsuppress action.
+  Rejected tab: Same as Sent but with reject reason column.
+
+  Data:
+  - useQuery(["artifacts", tabKey, { filters, page }]) polling per tab — Drafts 8 s · others 30 s
+
+  Interactions:
+  - Per-artifact: View detail (Sheet), Approve, Reject, View evidence, View thread
+  - Bulk: Approve all above threshold (Drafts tab), Resend (Sent tab — opens a fresh draft for the same recipient)
+  - "Trigger pipeline" CTA in PageHeader
+  
+  Empty per tab: designed copy for each.
+  Loading: Skeleton matching the visible layout per tab.
+  Error: Inline.
+
+  9.4 /outbound/:artifactId
+
+  Opens the artifact's detail Sheet over the list it came from. Sheet content:
+  - Full ApprovalCard (or read-only if not Pending)
+  - Evidence accordion expanded by default
+  - Activity timeline for this specific artifact
+  - "View thread" link if a Conversation exists
+  - Approve / Reject / Edit-and-Approve actions
+
+  9.5 /conversations
+
+  Layout: Inbox-style. Left 40% — FilterChips (sentiment · unread · needs-reply · archived) + thread list (ConversationThread compact). Right 60% — Selected thread (ConversationThread full).
+
+  Mobile: List full-width; tap opens full-screen thread.
+
+  Data:
+  - useQuery(["conversations", filters]) polling 15 s
+  - useQuery(["conversations", threadId]) for selected
+
+  Interactions:
+  - Click thread → opens detail
+  - "Draft reply" → creates inline ApprovalCard for the reply
+  - "Mark resolved" → archives the thread
+  - "Suppress sender" → opens dialog
+  - Click any message → view evidence for that message's draft
+
+  Empty: "Quiet inbox. We'll notify on reply."
+  Loading + Error: standard inline.
+
+  9.6 /agents
+
+  Layout: Grid of agent cards (SDR · Content · Reply · Reporting). Each card: agent icon, current status, last action (TimeAgo), recent activity sparkline.
+
+  Data: useQuery(["agents"]) polling 15 s.
+  Interactions: Click agent → opens drawer with the last 50 events from that agent + config.
+  Empty: N/A (always 4 agents).
+  Loading + Error: standard.
+
+  9.7 /runs
+
+  Layout: DataTable of GraphRun history. Columns: Run id · Started · Duration · Status badge · Agents involved (icon row) · Leads sourced · Artifacts generated · Action (View timeline).
+
+  Data: useQuery(["runs", { filters, page }]) polling 30 s.
+  Interactions: Click row → routes to /runs/:id.
+  Empty: "No runs yet. Trigger one from Today."
+
+  9.8 /runs/:runId
+
+  Full-page EvidenceTimeline for one GraphRun. Header: status, duration, cost (LLM token spend). Below: vertical timeline with collapsible step rows.
+
+  9.9 /settings/*
+
+  Each tab per §3.3. Each tab is its own component, each gets its own data query, each ships with empty/loading/error states. Compliance tab uses the components already built (SuppressionListCard,
+  DangerZoneCard). Profile/Workspace/ICP tabs use React Hook Form + Zod for validation, with autosave on blur OR an explicit Save button (be consistent — pick autosave for low-stakes fields,
+  explicit Save for high-stakes).
+
+  9.10 /welcome
+
+  Full spec in §8.
+
+  9.11 /u/:token
+
+  Public unsubscribe confirmation. No auth. Backend verifies HMAC token, writes the suppression row, returns 200 with this view: centered card, "You have been unsubscribed from Mynoted Private
+  Limited." Auto-fade after 8 s to a marketing-style "What is Workforce OS?" snippet (optional).
+
+  ---
+  10 · Cross-cutting concerns
+
+  10.1 Mobile responsive
+
+  Every route works at 375 px. Verify by stepping through each route in Chrome DevTools at iPhone SE width. Acceptance: no horizontal scroll on any route.
+
+  10.2 Accessibility
+
+  - WCAG AA contrast — verify with @axe-core/cli on every route, zero errors before declaring done
+  - Full keyboard nav — tab order matches visual order
+  - aria-live="polite" on AgentActivityStream + toast region
+  - All icon-only buttons get aria-label
+  - All form fields have associated labels
+  - prefers-reduced-motion respected — disable enter/exit animations
+
+  10.3 Performance budget
+
+  - FCP < 1.5 s on a throttled 3G connection
+  - TTI < 3.0 s
+  - Initial JS < 350 KB gzipped
+  - Each route lazy-loads via Wouter's component prop returning lazy(() => import(...))
+  - React.memo on AgentActivityStream row, LeadCard, ConversationThread compact row — these re-render most often
+  - IntersectionObserver-gated animations (NumberTicker, Sparkline) — no animation runs if off-screen
+
+  10.4 Notifications
+
+  - useQuery(["notifications"]) polling 30 s
+  - Bell shows unread count badge
+  - Click bell → DropdownMenu with last 10 notifications, "Mark all read" footer
+  - Notification types: approval queue full · send failed · suppression hit · new reply · weekly report ready
+
+  10.5 Error boundary
+
+  Wrap each route in an error boundary. On crash: show ErrorState with the error message, a "Reload" button, and a "Copy diagnostic" button (copies the stack to clipboard for support).
+
+  ---
+  11 · Acceptance criteria — the full ship gate
+
+  The complete frontend ships when all 12 are true:
+
+  1. Every route in §3 is implemented with happy, empty, loading, and error states.
+  2. Every component in §4 has a _dev/components/<name> preview.
+  3. The 161 real leads are seeded and visible in /pipeline.
+  4. Onboarding wizard runs end-to-end in under 90 seconds.
+  5. Every route works at 375 px wide with no horizontal scroll.
+  6. ⌘K opens the palette from every route with the four sections in §4.5.
+  7. npx @axe-core/cli http://localhost:5173/<route> passes for every route with zero errors.
+  8. pnpm exec tsc --noEmit is green.
+  9. pnpm vitest run is green (utility tests only — no visual tests).
+  10. Bundle size for /today is under 350 KB gzipped initial load.
+  11. Lighthouse Performance score ≥ 90 on /today with a fresh cache.
+  12. The five hero screenshots (from the previous polish brief) can be captured and look investor-grade.
+
+  ---
+  12 · Explicit out of scope
+  
+  - Real Clerk wiring. Use the stub from §7.1; build hooks to §7.2 shape.
+  - Real LangGraph integration. Simulated pipelines stay.
+  - Real SMTP / SendGrid send. Approve marks the DB row; no email leaves.
+  - WebSocket / SSE. Polling stays at the cadences in §9.
+  - Internationalization beyond English.
+  - A marketing site rewrite at /. The minimal landing in §3.1 is enough.
+  - Migration to TanStack Router or TanStack Start.
+
+  ---
+  13 · Closing note
+
+  Every section here is a contract. If you skip a route, a state, a component, or a constraint, the frontend is not complete. The order doesn't matter — pick the route or component group that
+  unblocks the most downstream work and start there. Commit after each major group lands with a tight message: feat(pipeline): list + detail + bulk actions, etc.
+
+  When in doubt on a design call, default to whatever Linear does in the equivalent situation. Linear is the closest published product to this brief.
+
+  Two CSV files to upload as the data seed:
+  - mynoted-askberean-leads-outreach-ready.csv
+  - mynoted-askberean-leads-us-eu-outreach-ready.csv
+  
+  Both have the columns specified in §6.3. Map them 1:1 into the leads table on migration.
+
+  Now build.

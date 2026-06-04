@@ -23,6 +23,7 @@ export interface EvaluatorScores {
   pii: number;
   hallucination: number;
   citationCoverage: number;
+  toxicity: number;
 }
 
 export interface FactCitation {
@@ -67,6 +68,8 @@ export interface OutreachArtifact {
   rejectionReason?: string | null;
   /** @nullable */
   graphRunId?: string | null;
+  /** @nullable */
+  cohort?: string | null;
 }
 
 export interface PaginatedArtifacts {
@@ -94,6 +97,8 @@ export const ActivityEventAgentType = {
   content: 'content',
   ops: 'ops',
   pipeline: 'pipeline',
+  reply: 'reply',
+  reporting: 'reporting',
 } as const;
 
 export interface ActivityEvent {
@@ -114,12 +119,31 @@ export interface TodayKpis {
   artifactsSentToday: number;
   replyRate7d: number;
   qualifiedMeetingsBooked: number;
+  leadsSourcedToday: number;
+  leadsScored: number;
 }
 
 export interface IntentSignal {
   label: string;
   confidence: number;
 }
+
+export type LeadCohort = typeof LeadCohort[keyof typeof LeadCohort];
+
+
+export const LeadCohort = {
+  A: 'A',
+  B: 'B',
+} as const;
+
+export type LeadEmailStatus = typeof LeadEmailStatus[keyof typeof LeadEmailStatus];
+
+
+export const LeadEmailStatus = {
+  DELIVERABLE: 'DELIVERABLE',
+  HIGH_PROBABILITY: 'HIGH_PROBABILITY',
+  CATCH_ALL: 'CATCH_ALL',
+} as const;
 
 export interface Lead {
   id: string;
@@ -128,12 +152,22 @@ export interface Lead {
   email: string;
   company: string;
   /** @nullable */
+  domain?: string | null;
+  /** @nullable */
   companyLogoUrl?: string | null;
   /** @nullable */
   avatarUrl?: string | null;
   score: number;
   stage: string;
   geo?: string;
+  /** @nullable */
+  country?: string | null;
+  /** @nullable */
+  industry?: string | null;
+  /** @nullable */
+  headcountEstimate?: string | null;
+  cohort: LeadCohort;
+  emailStatus: LeadEmailStatus;
   intentSignals: IntentSignal[];
   /** @nullable */
   lastContactedAt?: string | null;
@@ -228,6 +262,8 @@ export interface ReplyIntelligence {
 
 export interface Conversation {
   id: string;
+  /** @nullable */
+  leadId?: string | null;
   leadName: string;
   leadCompany: string;
   /** @nullable */
@@ -258,6 +294,13 @@ export interface PaginatedConversations {
 export interface OrgSettings {
   orgId: string;
   orgName: string;
+  slug: string;
+  /** @nullable */
+  logoUrl?: string | null;
+  country: string;
+  timezone: string;
+  /** @nullable */
+  senderName?: string | null;
   liveSendEnabled: boolean;
   /** @nullable */
   postalAddress?: string | null;
@@ -267,6 +310,18 @@ export interface OrgSettings {
   allowlistedDomains: string[];
   plan?: string;
   creditsRemaining: number;
+  welcomeComplete: boolean;
+}
+
+export interface UpdateOrgInput {
+  name?: string;
+  slug?: string;
+  logoUrl?: string;
+  country?: string;
+  timezone?: string;
+  senderName?: string;
+  postalAddress?: string;
+  liveSendEnabled?: boolean;
 }
 
 export interface OrgHealth {
@@ -275,6 +330,188 @@ export interface OrgHealth {
   unsubscribeConfigured: boolean;
   suppressionCount: number;
   blockers: string[];
+}
+
+export interface IcpProfile {
+  industries: string[];
+  titles: string[];
+  geos: string[];
+  sizeBand: string;
+  intentSignals: string[];
+  seedDomains: string[];
+  exclusionDomains: string[];
+}
+
+export type IntegrationStatus = typeof IntegrationStatus[keyof typeof IntegrationStatus];
+
+
+export const IntegrationStatus = {
+  connected: 'connected',
+  available: 'available',
+  errored: 'errored',
+} as const;
+
+export interface Integration {
+  id: string;
+  provider: string;
+  status: IntegrationStatus;
+  /** @nullable */
+  accountEmail?: string | null;
+  /** @nullable */
+  connectedAt?: string | null;
+  /** @nullable */
+  errorMessage?: string | null;
+}
+
+export interface CadenceStage {
+  id: string;
+  dayOffset: number;
+  channel: string;
+  label: string;
+  enabled: boolean;
+  position: number;
+}
+
+export interface StyleConfig {
+  voice: string;
+  toneValue: number;
+  signatureHtml: string;
+}
+
+export type TeamMemberRole = typeof TeamMemberRole[keyof typeof TeamMemberRole];
+
+
+export const TeamMemberRole = {
+  OWNER: 'OWNER',
+  ADMIN: 'ADMIN',
+  MEMBER: 'MEMBER',
+} as const;
+
+export interface TeamMember {
+  id: string;
+  email: string;
+  name: string;
+  role: TeamMemberRole;
+  status: string;
+  invitedAt: string;
+  /** @nullable */
+  joinedAt?: string | null;
+}
+
+export type InviteInputRole = typeof InviteInputRole[keyof typeof InviteInputRole];
+
+
+export const InviteInputRole = {
+  ADMIN: 'ADMIN',
+  MEMBER: 'MEMBER',
+} as const;
+
+export interface InviteInput {
+  email: string;
+  name: string;
+  role: InviteInputRole;
+}
+
+export interface Invoice {
+  id: string;
+  date: string;
+  amount: number;
+  status: string;
+  downloadUrl: string;
+}
+
+export interface BillingInfo {
+  plan: string;
+  creditsRemaining: number;
+  creditsTotal: number;
+  sendsThisMonth: number;
+  sendsLimit: number;
+  seats: number;
+  seatsLimit: number;
+  invoices: Invoice[];
+}
+
+export interface ApiKey {
+  id: string;
+  prefix: string;
+  name: string;
+  /** @nullable */
+  lastUsedAt?: string | null;
+  createdAt: string;
+}
+
+export interface CreateApiKeyInput {
+  name: string;
+}
+
+export interface ApiKeyCreated {
+  id: string;
+  prefix: string;
+  name: string;
+  fullKey: string;
+  createdAt: string;
+}
+
+export interface NotificationPrefs {
+  emailEnabled: boolean;
+  slackEnabled: boolean;
+  approvalQueueFull: boolean;
+  sendFailed: boolean;
+  suppressionHit: boolean;
+  weeklyReport: boolean;
+  newReply: boolean;
+}
+
+export interface Notification {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  read: boolean;
+  /** @nullable */
+  link?: string | null;
+  createdAt: string;
+}
+
+export interface NotificationList {
+  items: Notification[];
+  unreadCount: number;
+}
+
+export interface WelcomeStatus {
+  complete: boolean;
+  currentStep: number;
+}
+
+export type GraphRunStatus = typeof GraphRunStatus[keyof typeof GraphRunStatus];
+
+
+export const GraphRunStatus = {
+  RUNNING: 'RUNNING',
+  AWAITING_APPROVAL: 'AWAITING_APPROVAL',
+  COMPLETED: 'COMPLETED',
+  FAILED: 'FAILED',
+} as const;
+
+export interface GraphRun {
+  id: string;
+  status: GraphRunStatus;
+  agentsInvolved: string[];
+  leadsSourced: number;
+  artifactsGenerated: number;
+  durationMs: number;
+  costUsd: number;
+  triggeredBy: string;
+  startedAt: string;
+  /** @nullable */
+  completedAt?: string | null;
+}
+
+export interface PaginatedRuns {
+  items: GraphRun[];
+  total: number;
+  page: number;
+  limit: number;
 }
 
 export type TimelineNodeNodeType = typeof TimelineNodeNodeType[keyof typeof TimelineNodeNodeType];
@@ -300,9 +537,54 @@ export interface TimelineNode {
   /** @nullable */
   durationMs?: number | null;
   /** @nullable */
+  cost?: number | null;
+  /** @nullable */
   score?: number | null;
   timestamp: string;
   children: TimelineNode[];
+}
+
+export interface GraphRunDetail {
+  run: GraphRun;
+  timeline: TimelineNode[];
+}
+
+export type AgentType = typeof AgentType[keyof typeof AgentType];
+
+
+export const AgentType = {
+  sdr: 'sdr',
+  content: 'content',
+  ops: 'ops',
+  pipeline: 'pipeline',
+  reply: 'reply',
+  reporting: 'reporting',
+} as const;
+
+export type AgentStatus = typeof AgentStatus[keyof typeof AgentStatus];
+
+
+export const AgentStatus = {
+  idle: 'idle',
+  running: 'running',
+  error: 'error',
+} as const;
+
+export interface Agent {
+  id: string;
+  name: string;
+  type: AgentType;
+  status: AgentStatus;
+  /** @nullable */
+  lastAction?: string | null;
+  /** @nullable */
+  lastActionAt?: string | null;
+  recentActivityCount: number;
+  sparklineData: number[];
+}
+
+export interface UpdateCadenceInput {
+  stages: CadenceStage[];
 }
 
 export type ListPendingArtifactsParams = {
@@ -347,6 +629,8 @@ stage?: string;
 minScore?: number;
 intentSignal?: string;
 geo?: string;
+cohort?: string;
+industry?: string;
 sort?: string;
 page?: number;
 limit?: number;
@@ -358,6 +642,7 @@ sentiment?: ListConversationsSentiment;
 unread?: boolean;
 needsReply?: boolean;
 archived?: boolean;
+leadId?: string;
 page?: number;
 limit?: number;
 };
@@ -371,4 +656,10 @@ export const ListConversationsSentiment = {
   neutral: 'neutral',
   negative: 'negative',
 } as const;
+
+export type ListRunsParams = {
+page?: number;
+limit?: number;
+status?: string;
+};
 

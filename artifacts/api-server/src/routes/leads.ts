@@ -15,7 +15,7 @@ import {
 
 const router = Router();
 
-const ORG_ID = "org_demo";
+const ORG_ID = "org_mynoted";
 
 function shapeLead(l: typeof leadsTable.$inferSelect) {
   const signals = (l.intentSignals ?? []) as Array<{ label: string; confidence: number }>;

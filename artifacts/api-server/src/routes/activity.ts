@@ -6,7 +6,7 @@ import { GetActivityStreamQueryParams, GetGraphRunTimelineParams } from "@worksp
 
 const router = Router();
 
-const ORG_ID = "org_demo";
+const ORG_ID = "org_mynoted";
 
 router.get("/activity", async (req, res) => {
   const parsed = GetActivityStreamQueryParams.safeParse(req.query);

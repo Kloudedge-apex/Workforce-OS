@@ -14,4 +14,6 @@ export const ActivityEventAgentType = {
   content: 'content',
   ops: 'ops',
   pipeline: 'pipeline',
+  reply: 'reply',
+  reporting: 'reporting',
 } as const;
