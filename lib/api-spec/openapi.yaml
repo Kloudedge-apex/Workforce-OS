@@ -3,20 +3,31 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Workforce OS v2 API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: artifacts
+    description: Outreach artifact operations
+  - name: activity
+    description: Agent activity stream
+  - name: today
+    description: Today page data
+  - name: leads
+    description: Lead and pipeline management
+  - name: conversations
+    description: Inbox and conversation threads
+  - name: settings
+    description: Organization settings and compliance
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +35,726 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /artifacts/pending:
+    get:
+      operationId: listPendingArtifacts
+      tags: [artifacts]
+      summary: List pending review artifacts
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 5 }
+      responses:
+        "200":
+          description: Paginated list of pending artifacts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedArtifacts"
+
+  /artifacts:
+    get:
+      operationId: listArtifacts
+      tags: [artifacts]
+      summary: List all artifacts with optional status filter
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING_REVIEW, APPROVED, SENT, REJECTED, SUPPRESSED]
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        "200":
+          description: List of outreach artifacts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedArtifacts"
+
+  /artifacts/{id}:
+    get:
+      operationId: getArtifact
+      tags: [artifacts]
+      summary: Get a single artifact by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Artifact detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutreachArtifact"
+        "404":
+          description: Not found
+
+  /artifacts/{id}/approve:
+    post:
+      operationId: approveArtifact
+      tags: [artifacts]
+      summary: Approve an outreach artifact
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Approved artifact
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutreachArtifact"
+        "404":
+          description: Not found
+
+  /artifacts/{id}/reject:
+    post:
+      operationId: rejectArtifact
+      tags: [artifacts]
+      summary: Reject an outreach artifact
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectInput"
+      responses:
+        "200":
+          description: Rejected artifact
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutreachArtifact"
+
+  /artifacts/{id}/suppress:
+    post:
+      operationId: suppressArtifact
+      tags: [artifacts]
+      summary: Suppress recipient and artifact
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Suppressed artifact
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutreachArtifact"
+
+  /artifacts/bulk-approve:
+    post:
+      operationId: bulkApproveArtifacts
+      tags: [artifacts]
+      summary: Bulk approve artifacts that pass evaluators
+      responses:
+        "200":
+          description: Bulk approve result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkApproveResult"
+
+  /activity:
+    get:
+      operationId: getActivityStream
+      tags: [activity]
+      summary: Get agent activity stream
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+        - name: filter
+          in: query
+          schema:
+            type: string
+            enum: [all, outbound, pipeline, conversations]
+            default: all
+      responses:
+        "200":
+          description: Activity events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityEvent"
+
+  /today/kpis:
+    get:
+      operationId: getTodayKpis
+      tags: [today]
+      summary: Get today's KPI tiles
+      responses:
+        "200":
+          description: KPI data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TodayKpis"
+
+  /leads:
+    get:
+      operationId: listLeads
+      tags: [leads]
+      summary: List leads with filters
+      parameters:
+        - name: stage
+          in: query
+          schema: { type: string }
+        - name: minScore
+          in: query
+          schema: { type: integer }
+        - name: intentSignal
+          in: query
+          schema: { type: string }
+        - name: geo
+          in: query
+          schema: { type: string }
+        - name: sort
+          in: query
+          schema: { type: string, default: score_desc }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 25 }
+        - name: q
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Paginated leads
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedLeads"
+
+  /leads/{id}:
+    get:
+      operationId: getLead
+      tags: [leads]
+      summary: Get lead detail
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Lead detail with evidence
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeadDetail"
+        "404":
+          description: Not found
+
+  /leads/{id}/trigger-outbound:
+    post:
+      operationId: triggerOutbound
+      tags: [leads]
+      summary: Trigger an outbound pipeline run for a lead
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "202":
+          description: Pipeline run triggered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TriggerResult"
+
+  /leads/bulk-suppress:
+    post:
+      operationId: bulkSuppressLeads
+      tags: [leads]
+      summary: Suppress multiple leads
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkLeadIds"
+      responses:
+        "200":
+          description: Suppressed count
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkActionResult"
+
+  /conversations:
+    get:
+      operationId: listConversations
+      tags: [conversations]
+      summary: List conversation threads
+      parameters:
+        - name: sentiment
+          in: query
+          schema:
+            type: string
+            enum: [positive, objection, neutral, negative]
+        - name: unread
+          in: query
+          schema: { type: boolean }
+        - name: needsReply
+          in: query
+          schema: { type: boolean }
+        - name: archived
+          in: query
+          schema: { type: boolean }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        "200":
+          description: Conversation list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedConversations"
+
+  /conversations/{id}:
+    get:
+      operationId: getConversation
+      tags: [conversations]
+      summary: Get full conversation thread
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Full conversation with messages and reply intelligence
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationDetail"
+        "404":
+          description: Not found
+
+  /conversations/{id}/draft-reply:
+    post:
+      operationId: draftReply
+      tags: [conversations]
+      summary: Generate a reply draft inline
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "202":
+          description: Draft queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TriggerResult"
+
+  /settings/org:
+    get:
+      operationId: getOrgSettings
+      tags: [settings]
+      summary: Get organization settings and compliance state
+      responses:
+        "200":
+          description: Organization settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrgSettings"
+
+  /settings/org/health:
+    get:
+      operationId: getOrgHealth
+      tags: [settings]
+      summary: Get org compliance health summary
+      responses:
+        "200":
+          description: Org health
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrgHealth"
+
+  /graph-runs/{id}/timeline:
+    get:
+      operationId: getGraphRunTimeline
+      tags: [activity]
+      summary: Get evidence timeline for a graph run
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Evidence timeline nodes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TimelineNode"
+
 components:
   schemas:
     HealthStatus:
       type: object
       properties:
+        status: { type: string }
+      required: [status]
+
+    Recipient:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        email: { type: string }
+        title: { type: string }
+        company: { type: string }
+        avatarUrl: { type: ["string", "null"] }
+      required: [id, name, email, company]
+
+    EvaluatorScores:
+      type: object
+      properties:
+        pii: { type: number }
+        hallucination: { type: number }
+        citationCoverage: { type: number }
+      required: [pii, hallucination, citationCoverage]
+
+    FactCitation:
+      type: object
+      properties:
+        factId: { type: string }
+        claim: { type: string }
+        source: { type: string }
+      required: [factId, claim, source]
+
+    SendPolicy:
+      type: object
+      properties:
+        liveSendEnabled: { type: boolean }
+        postalAddressSet: { type: boolean }
+        unsubscribeConfigured: { type: boolean }
+        recipientSuppressed: { type: boolean }
+      required: [liveSendEnabled, postalAddressSet, unsubscribeConfigured, recipientSuppressed]
+
+    OutreachArtifact:
+      type: object
+      properties:
+        id: { type: string }
         status:
           type: string
-      required:
-        - status
+          enum: [PENDING_REVIEW, APPROVED, SENT, REJECTED, SUPPRESSED]
+        recipient:
+          $ref: "#/components/schemas/Recipient"
+        subject: { type: string }
+        bodyHtml: { type: string }
+        citations:
+          type: array
+          items:
+            $ref: "#/components/schemas/FactCitation"
+        evaluatorScores:
+          $ref: "#/components/schemas/EvaluatorScores"
+        sendPolicy:
+          $ref: "#/components/schemas/SendPolicy"
+        createdAt: { type: string }
+        approvedAt: { type: ["string", "null"] }
+        sentAt: { type: ["string", "null"] }
+        rejectionReason: { type: ["string", "null"] }
+        graphRunId: { type: ["string", "null"] }
+      required: [id, status, recipient, subject, bodyHtml, citations, evaluatorScores, sendPolicy, createdAt]
 
+    PaginatedArtifacts:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OutreachArtifact"
+        total: { type: integer }
+        page: { type: integer }
+        limit: { type: integer }
+      required: [items, total, page, limit]
+
+    RejectInput:
+      type: object
+      properties:
+        reason: { type: string }
+      required: [reason]
+
+    BulkApproveResult:
+      type: object
+      properties:
+        approved: { type: integer }
+        skipped: { type: integer }
+        reasons:
+          type: array
+          items: { type: string }
+      required: [approved, skipped, reasons]
+
+    ActivityEvent:
+      type: object
+      properties:
+        id: { type: string }
+        agentName: { type: string }
+        agentType:
+          type: string
+          enum: [sdr, content, ops, pipeline]
+        action: { type: string }
+        stage: { type: string }
+        timestamp: { type: string }
+        artifactId: { type: ["string", "null"] }
+        leadId: { type: ["string", "null"] }
+      required: [id, agentName, agentType, action, stage, timestamp]
+
+    TodayKpis:
+      type: object
+      properties:
+        artifactsPending: { type: integer }
+        artifactsSentToday: { type: integer }
+        replyRate7d: { type: number }
+        qualifiedMeetingsBooked: { type: integer }
+      required: [artifactsPending, artifactsSentToday, replyRate7d, qualifiedMeetingsBooked]
+
+    IntentSignal:
+      type: object
+      properties:
+        label: { type: string }
+        confidence: { type: number }
+      required: [label, confidence]
+
+    Lead:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        title: { type: string }
+        email: { type: string }
+        company: { type: string }
+        companyLogoUrl: { type: ["string", "null"] }
+        avatarUrl: { type: ["string", "null"] }
+        score: { type: integer }
+        stage: { type: string }
+        geo: { type: string }
+        intentSignals:
+          type: array
+          items:
+            $ref: "#/components/schemas/IntentSignal"
+        lastContactedAt: { type: ["string", "null"] }
+        sendPolicy:
+          $ref: "#/components/schemas/SendPolicy"
+        createdAt: { type: string }
+      required: [id, name, email, company, score, stage, intentSignals, sendPolicy, createdAt]
+
+    ScoreBreakdown:
+      type: object
+      properties:
+        fit: { type: integer }
+        intent: { type: integer }
+        engagement: { type: integer }
+        timing: { type: integer }
+      required: [fit, intent, engagement, timing]
+
+    EvidenceEventSummary:
+      type: object
+      properties:
+        id: { type: string }
+        eventType: { type: string }
+        description: { type: string }
+        timestamp: { type: string }
+      required: [id, eventType, description, timestamp]
+
+    LeadDetail:
+      type: object
+      properties:
+        lead:
+          $ref: "#/components/schemas/Lead"
+        researchBrief: { type: string }
+        scoreBreakdown:
+          $ref: "#/components/schemas/ScoreBreakdown"
+        recentEvidenceEvents:
+          type: array
+          items:
+            $ref: "#/components/schemas/EvidenceEventSummary"
+      required: [lead, researchBrief, scoreBreakdown, recentEvidenceEvents]
+
+    PaginatedLeads:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Lead"
+        total: { type: integer }
+        page: { type: integer }
+        limit: { type: integer }
+      required: [items, total, page, limit]
+
+    TriggerResult:
+      type: object
+      properties:
+        runId: { type: string }
+        queued: { type: boolean }
+        message: { type: string }
+      required: [runId, queued, message]
+
+    BulkLeadIds:
+      type: object
+      properties:
+        ids:
+          type: array
+          items: { type: string }
+      required: [ids]
+
+    BulkActionResult:
+      type: object
+      properties:
+        affected: { type: integer }
+      required: [affected]
+
+    ConversationMessage:
+      type: object
+      properties:
+        id: { type: string }
+        direction:
+          type: string
+          enum: [inbound, outbound]
+        bodyHtml: { type: string }
+        sentAt: { type: string }
+        senderName: { type: string }
+      required: [id, direction, bodyHtml, sentAt, senderName]
+
+    ReplyIntelligence:
+      type: object
+      properties:
+        sentiment:
+          type: string
+          enum: [positive, objection, neutral, negative]
+        sentimentConfidence: { type: number }
+        nextBestAction: { type: string }
+        nextBestActionType:
+          type: string
+          enum: [send_content, qualify, disqualify, follow_up]
+      required: [sentiment, sentimentConfidence, nextBestAction, nextBestActionType]
+
+    Conversation:
+      type: object
+      properties:
+        id: { type: string }
+        leadName: { type: string }
+        leadCompany: { type: string }
+        leadAvatarUrl: { type: ["string", "null"] }
+        subject: { type: string }
+        lastMessagePreview: { type: string }
+        lastMessageAt: { type: string }
+        unread: { type: boolean }
+        needsReply: { type: boolean }
+        archived: { type: boolean }
+        replyIntelligence:
+          $ref: "#/components/schemas/ReplyIntelligence"
+      required: [id, leadName, leadCompany, subject, lastMessagePreview, lastMessageAt, unread, needsReply, archived, replyIntelligence]
+
+    ConversationDetail:
+      type: object
+      properties:
+        conversation:
+          $ref: "#/components/schemas/Conversation"
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConversationMessage"
+        pendingDraftId: { type: ["string", "null"] }
+      required: [conversation, messages]
+
+    PaginatedConversations:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Conversation"
+        total: { type: integer }
+        page: { type: integer }
+        limit: { type: integer }
+      required: [items, total, page, limit]
+
+    OrgSettings:
+      type: object
+      properties:
+        orgId: { type: string }
+        orgName: { type: string }
+        liveSendEnabled: { type: boolean }
+        postalAddress: { type: ["string", "null"] }
+        unsubscribeUrl: { type: ["string", "null"] }
+        suppressionCount: { type: integer }
+        allowlistedDomains:
+          type: array
+          items: { type: string }
+        plan: { type: string }
+        creditsRemaining: { type: integer }
+      required: [orgId, orgName, liveSendEnabled, suppressionCount, allowlistedDomains, creditsRemaining]
+
+    OrgHealth:
+      type: object
+      properties:
+        liveSendEnabled: { type: boolean }
+        postalAddressConfigured: { type: boolean }
+        unsubscribeConfigured: { type: boolean }
+        suppressionCount: { type: integer }
+        blockers:
+          type: array
+          items: { type: string }
+      required: [liveSendEnabled, postalAddressConfigured, unsubscribeConfigured, suppressionCount, blockers]
+
+    TimelineNode:
+      type: object
+      properties:
+        id: { type: string }
+        nodeType:
+          type: string
+          enum: [agent_run, llm_call, evaluator, tool_call, human_action]
+        label: { type: string }
+        summary: { type: string }
+        reasoning: { type: ["string", "null"] }
+        tokensUsed: { type: ["integer", "null"] }
+        durationMs: { type: ["integer", "null"] }
+        score: { type: ["number", "null"] }
+        timestamp: { type: string }
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/TimelineNode"
+      required: [id, nodeType, label, summary, timestamp, children]

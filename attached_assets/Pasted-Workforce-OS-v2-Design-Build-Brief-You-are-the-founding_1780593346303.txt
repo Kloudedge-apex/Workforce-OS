@@ -1,0 +1,290 @@
+Workforce OS v2 — Design & Build Brief
+  
+  You are the founding product designer + engineer working on v2 of Workforce OS, the multi-tenant AI Workforce Platform built by Nikxius, Inc. (formerly Apex). You are starting from a working v1
+  codebase at workhorse-os/ deployed at workforceos.xyz. v1 is in production with 5 paid pilots; v2 is the visual + structural overhaul that has to land before our 2026-06-12 Techstars Day-21 
+  review and our Loom investor demo.
+
+  This brief is not a sketch. It's an RFC. Read all 13 sections before you touch a file.
+
+  ---
+  1 · Product reality
+
+  What we sell: An AI workforce platform that runs autonomous agents — Sales Development, Content, Operations — on a customer's behalf. The agents source leads, enrich them, score them, write
+  drafts, get human approval, and dispatch. Every action is logged as an evidence event. Every outbound is fail-closed: dry-run by default, an explicit org-allowlist must opt in, and CAN-SPAM /
+  GDPR / one-click unsubscribe are wired into the worker.
+
+  Who uses it: A founder, head of growth, or RevOps lead at a 50–500 person B2B company. They open the dashboard 2–8 times a day. Their stake is reputational (it's their domain that gets reply or
+  burned), economic (they bought credits), and legal (compliance). They are NOT data scientists. They want to see what the agents did, approve or reject, and ship.
+
+  Where v1 hurts:
+  - 15 dashboard routes (dashboard.{index, inbox, lead-gen, tenant-zero, companies, analytics, people, accounts, drafts, deliverability, icp, leads, integrations, campaigns, settings, playbooks}) —
+  sprawling, no clear hierarchy. Pilots learn 3 of them and ignore the rest.
+  - No agent-activity surface — the platform IS the agents working, but you can't see them working. The Dashboard shows KPIs; it doesn't show motion.
+  - Approval is buried — HITL approval is the central workflow, but it's a tab on the home page, not the home page itself.
+  - Polling is the only "live" mechanism — fine for now, but no aria-live announcements + no skeleton states means screen readers go silent and refreshes look like flickers.
+  - Compliance surfaces are scattered — suppression list under Settings → Compliance, OUTREACH_LIVE_FOR_ORGS state nowhere, postal-address fail-closed surfaces only as a backend BadRequest.
+  - Desktop only — no mobile breakpoints; the dashboard is unusable on a phone.
+  - Empty / error / loading states are inconsistent — some routes return literal nothing on no-data, some show stale data, some throw.
+
+  What v2 must accomplish (in priority order):
+  1. Approval queue becomes the home. When the user opens the app, they see what's pending review, then everything else.
+  2. Agent activity is always visible. A live feed of "what the platform is doing right now" sits in a persistent rail. No fake activity — only real agent runs, evidence events, queue state.
+  3. 15 routes consolidate into 5 jobs. Today · Pipeline · Outbound · Conversations · Settings. Other routes either die, merge, or become tabs inside a job.
+  4. Investor-grade polish. Two specific moments must look phenomenal in screenshot: (a) Today/Approval card, (b) Outbound drafts review. These will be in the deck and Loom.
+  5. Compliance is first-class. Suppression, allowlist state, postal-address state visible at every send moment — not just in Settings.
+  6. Mobile-responsive at every breakpoint down to 375 px wide.
+  7. Onboarding hits "first artifact approved" in under 10 minutes of a cold signup.
+
+  ---
+  2 · Design pillars
+  
+  These are not vibes — they are constraints you check every component against.
+
+  ┌─────┬─────────────────────────┬──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+  │  #  │         Pillar          │                                                                       Operational test                                                                       │
+  ├─────┼─────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 1   │ Calm operations         │ If 1,000 agents run concurrently, the UI must not feel chaotic. No bouncing toasts, no flashing badges. Activity flows top-to-bottom in a feed; counters     │
+  │     │                         │ update without re-renders.                                                                                                                                   │
+  ├─────┼─────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 2   │ Editorial typography    │ Headlines are serif (font-serif, already in tokens). Body is sans. Numbers are tabular. Data tables look like the Bloomberg terminal, not a startup landing  │
+  │     │                         │ page.                                                                                                                                                        │
+  ├─────┼─────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 3   │ Warm-neutral,           │ The page is paper + ink (existing bg-paper-*, text-ink-* tokens). Signals — approval needed, send blocked, suppression hit — earn the warm rust/ember        │
+  │     │ signal-bright           │ colors. Avoid blue. Avoid gradients. Avoid neon.                                                                                                             │
+  ├─────┼─────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 4   │ Surface depth, not      │ Detail views are sheets (right-drawer) that allow side-by-side context, not modals that obscure the list. Use Radix Sheet (already in deps). Modals are      │
+  │     │ modals                  │ reserved for destructive confirmations (delete org).                                                                                                         │
+  ├─────┼─────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 5   │ Show the work           │ Every agent decision exposes its reasoning: which fact_ids it grounded on, which evaluator scores it earned, which policy gate it passed. Click any artifact │
+  │     │                         │  → see the chain.                                                                                                                                            │
+  ├─────┼─────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 6   │ Density without clutter │ High information per screen, low decoration. Take cues from Linear (issue list) and Airtable (grid affordances), not Notion (whitespace) or Stripe Dashboard │
+  │     │                         │  (chartjunk).                                                                                                                                                │
+  └─────┴─────────────────────────┴──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+  ---
+  3 · Visual direction
+
+  Reference set (study these explicitly):
+  - Linear — information density, command-palette as central nav, list-detail master pattern.
+  - Vercel Dashboard — developer-polish, neutral palette, restrained motion.
+  - Stripe Atlas — trust signals, compliance surfaces, legal-grade typography.
+  - Bloomberg Terminal — data density, status colors used semantically.
+  - The Browser Company / Arc Search — editorial typography, content-first.
+
+  Anti-references (do NOT do this):
+  - Glassmorphism dark UI with neon accents.
+  - Gradient-heavy startup-chic (purple-to-pink hero, etc.).
+  - Hubspot-style cluttered enterprise UI with 12 nav items.
+  - Salesforce Lightning anything.
+
+  Color system — extend the existing tokens, don't replace them. Keep paper / ink / rust / ember / line-soft. Add signal/positive (deep green, used only for "delivered" / "approved-sent"),
+  signal/info (slate blue, used only for "in-progress"), signal/critical (deeper rust, used only for "blocked / failed"). One semantic token per state — never two ways to convey the same thing.
+
+  Typography:
+  - Serif: Tiempos Headline (or fallback Tinos / Crimson). Sizes: display 56/64, h1 40/48, h2 28/36, h3 20/28.
+  - Sans: Inter (already used). Sizes: body 14/22, caption 12/18, mono-numeric 14/22 (tabular).
+  - Headings always serif, body always sans, data tables always sans with tabular nums. No exceptions.
+
+  Motion:
+  - 150 ms ease-out for state changes.
+  - 220 ms ease-in-out for sheet enter/exit.
+  - 0 ms for skeletons → real data swap (cross-fade only, no slide).
+  - Respect prefers-reduced-motion. Disable all enter animations when set.
+
+  ---
+  4 · Information architecture (the consolidation)
+  
+  Replace the 15 v1 dashboard routes with 5 top-level jobs. Existing routes either merge into a tab inside a job or get deleted.
+
+  /dashboard
+    /today          (was: dashboard.index + dashboard.tsx hybrid)
+    /pipeline       (merges: leads + accounts + people + companies + lead-gen + icp)
+    /outbound       (merges: drafts + campaigns + deliverability + playbooks)
+    /conversations  (was: inbox; reply intelligence inline)
+    /settings       (merges: integrations + tenant-zero + analytics-as-tab + compliance-tab + team)
+
+  Sidebar: 5 items + workspace switcher (top) + user menu (bottom). That's it. No nested expand. No "More."
+
+  Right rail: Persistent on /today, /pipeline, /outbound. Shows the Agent Activity Stream — a live evidence-event feed of "what's happening right now." Collapses on mobile.
+
+  Top bar: Org name + breadcrumb + global Cmd-K trigger + notification bell (approval queue count). No search bar in top bar — search lives in Cmd-K.
+
+  Cmd-K palette: Nav (5 routes), quick actions (Trigger pipeline, Approve next, Add to suppression, Invite teammate), recent artifacts, leads.
+
+  ---
+  5 · The six components that carry the product
+  
+  Build these first. Each gets a Storybook-style preview route under /_dev/components/* (gated by NODE_ENV !== "production").
+
+  5.1 ApprovalCard
+
+  The centerpiece. Shows a single OutreachArtifact in PENDING_REVIEW with: recipient (name, company, role, email), the drafted subject + body inline (HTML rendered, not source), the grounded
+  research brief (fact_ids cited), the evaluator scores (PII, hallucination, citation-coverage as small badges), and three actions: Approve (primary), Edit & Approve (opens inline editor), Reject
+  (secondary, asks for reason). Optimistic update on approve. After approve, the card cross-fades to a SentReceipt summary in-place.
+
+  5.2 AgentActivityStream
+
+  The live evidence-event rail. Each row: timestamp (relative, updated by ticking), agent name (icon + short label), action ("drafted message for Sarah at Acme"), small chip showing pipeline stage.
+  Streams from existing /api/activity endpoint — already wired, just consume it. New events fade in at top, oldest fades out at bottom (≥50 items kept). Aria-live="polite". Collapses to a 32-px
+  wide strip with just the agent icons on hover, expandable.
+
+  5.3 LeadCard
+
+  Shows a person + their company. Header: avatar (Gravatar fallback), name + title, company name + logo (Clearbit / favicon fallback). Body: score (large tabular numeric, 80/100 style), top 3
+  intent signals as inline chips ("hiring SDR", "Series B", "uses Outreach"), last activity ("last contacted 2d ago" or "no contact"). Quick actions footer: View, Approve outbound, Add to
+  suppression, Add to campaign. Cards live in a grid that switches between Compact (just name + score + action) and Detailed (full).
+
+  5.4 ConversationThread
+
+  Inbox reply intelligence. Threaded view of an inbound conversation. Above the thread, a "ReplyIntelligence" strip: sentiment label (Positive / Objection / Neutral / Negative) with confidence
+  percentage, suggested next-best-action ("send case study", "qualify by asking budget", "disqualify and add to suppression"), and a one-click "Draft reply" button that generates a draft inline
+  using the same drafter agent. The draft enters the same ApprovalCard pattern.
+
+  5.5 PolicyBadge (utility)
+
+  A small surfaceable badge component used everywhere outbound is contemplated. States: live-send-allowed (the org is in OUTREACH_LIVE_FOR_ORGS), dry-run-only (default, soft warning),
+  blocked-no-postal-address (critical), recipient-suppressed (critical, prevents action). Used inline on ApprovalCard, on LeadCard, on the Outbound page header. Single source of truth on
+  send-ability.
+
+  5.6 EvidenceTimeline
+
+  For any GraphRun, a vertical timeline of every node + every LLM call + every evaluator score, with collapsible sub-rows that show the raw reasoning. Opens in a Sheet from any artifact or run.
+  Powered by existing GraphRun.langsmithRootRunId + evidence_event rows. Tells the customer "yes the AI did this, here's how, here's what it cost in tokens."
+
+  ---
+  6 · Page redesigns (per job)
+
+  /today
+
+  Two columns desktop, single column mobile. Left (primary, 720 px): Approval queue — vertical stack of ApprovalCard, paginated 5 at a time, newest first. Right (secondary, 320 px): Today's KPIs —
+  4 tiles: artifacts pending, artifacts sent today, reply rate 7-day, qualified meetings booked. Below KPIs: AgentActivityStream. No charts, no graphs. Numbers + activity. The user's first reaction
+  must be "I know what to do next."
+
+  /pipeline
+
+  Master-detail. Left (40%): Filterable list of leads/accounts (LeadCard grid in Compact mode). Filters along the top: stage, score, intent signal, geo. Sort: score desc default. Right (60%):
+  Selected lead's detail — research brief, score breakdown, last 5 evidence events, "Trigger outbound for this lead" CTA. Bulk-select supports approve / suppress / add to campaign. Replaces all
+  five of (leads, accounts, people, companies, lead-gen, icp) — the differences become facets on this one screen.
+
+  /outbound
+
+  Two tabs: Drafts (PENDING_REVIEW + APPROVED) and Sent (SENT + SUPPRESSED + REJECTED). Drafts tab uses ApprovalCard. Sent tab uses a denser table view with date, recipient, subject, status badge,
+  deliverability indicator. Top of page: PolicyBadge showing the org's current send-ability, plus an "Approve all that pass evaluators" button (bulk approval, gated on per-row PolicyBadge
+  clearance). Side rail: AgentActivityStream filtered to outbound events only.
+
+  /conversations
+
+  Inbox-style. Left: thread list (ConversationThread in compact preview). Right: selected thread (ConversationThread in full mode). Above the right pane: ReplyIntelligence strip. Top filters:
+  sentiment (positive/objection/neutral/negative), unread, needs-reply, archived. Replaces v1 dashboard.inbox with explicit reply intelligence — sentiment was already computed backend-side, surface
+  it.
+
+  /settings
+
+  Tabs (the v1 tabs we shipped) + the new Compliance tab (already shipped). Add a new top-of-page "Org health" strip: one row showing — live-send: enabled/disabled badge, physical address: 
+  configured/missing badge, unsubscribe URL: configured badge, suppression count: 12 link. The strip tells the operator "you are 1 config short of being able to send" without making them dig
+  through tabs.
+
+  ---
+  7 · Interaction patterns
+
+  - Optimistic updates: Approve / Reject / Suppress all mutate locally before the server confirms. Roll back with a toast on error. Use TanStack Query mutations with onMutate + cache snapshot.
+  - Polling cadence: Keep the global default of 30 s (already shipped). Hot pages override: /today activity at 5 s, /today KPIs at 15 s, /outbound Drafts tab at 8 s. Pause polling when tab is
+  hidden (already wired).
+  - Skeleton states: Every list and detail view ships a skeleton matched to the actual final layout — same row heights, same column widths. No spinners.
+  - Empty states: Every list ships a designed empty state — illustration (use brand serif numeral or letterform, not stock illustration), one-sentence explanation, primary action.
+  - Error states: Every fetch failure renders a localized error with a retry button — not a global toast that disappears. Use Sentry's pattern: error stays until dismissed or fixed.
+  - Toasts: Reserved for ephemeral confirmations only (approved, suppressed, copied to clipboard). Never for errors. Never auto-dismissing in <4 s.
+  - Cmd-K: Cmd-K / Ctrl-K opens palette. Esc closes. Arrow keys navigate. Enter executes. Recent items remembered in localStorage.
+  - Detail views: Sheets (Radix Sheet) for context-preserving detail. Modals (Radix AlertDialog) only for destructive confirmations.
+
+  ---
+  8 · Accessibility & compliance
+
+  - WCAG AA contrast across all token combinations. Verify with @axe-core/react during dev.
+  - Full keyboard navigation. Tab order matches visual order. Visible focus rings everywhere — match the existing focus-visible style.
+  - aria-live="polite" on AgentActivityStream and on toast region.
+  - Screen-reader-only labels on icon-only buttons.
+  - prefers-reduced-motion respected — disable enter/exit animations, keep state-change transitions.
+  - Color is never the sole signal. Every status chip carries a label or icon as well.
+  - All form fields have associated labels (no placeholder-as-label).
+  - All destructive actions are double-confirmed (type-the-org-name pattern already shipped for delete-org).
+
+  ---
+  9 · Performance budget
+
+  - First Contentful Paint < 1.5 s on a 3G connection.
+  - Time to Interactive < 3.0 s.
+  - Total JS shipped to dashboard < 350 KB gzipped initial. Lazy-load detail views.
+  - Bundle each route as its own chunk via TanStack Router's built-in code-splitting.
+  - Images served via Cloudflare Images. No raw uploads bigger than 200 KB allowed.
+  - Re-render counts: AgentActivityStream must not re-render the entire list on every tick. Use React.memo row + key-stable updates.
+
+  ---
+  10 · Deliverables (what you produce)
+
+  1. Token system update at src/styles.css + tailwind.config.ts — add the signal/positive, signal/info, signal/critical tokens; verify existing tokens are unchanged.
+  2. Routes refactored per the IA above. Move existing route files into src/routes/_legacy/* (don't delete — pilots have links) and create the new 5 routes. Add 301 redirects from /dashboard/leads
+  → /dashboard/pipeline?filter=leads, etc.
+  3. Six new core components (Section 5) at src/components/v2/* with a Storybook-style preview at /_dev/components/*.
+  4. Updated brand.tsx at src/components/brand.tsx — replace existing StatusBadge / StageBadge / ScoreBadge with v2 versions; existing usages will pick up the new look automatically.
+  5. Mobile breakpoints for all 5 jobs. Use sm: md: lg: xl: cleanly. No useMediaQuery JS.
+  6. Empty / loading / error states for every list view.
+  7. Onboarding flow refactor at src/routes/onboarding.tsx — five screens max: (1) workspace name, (2) ICP-quick-pick (industry + size + geo), (3) integration optional, (4) trigger first pipeline
+  run, (5) success → /today. No screen has more than 3 inputs.
+  8. Cmd-K palette at src/components/v2/CommandPalette.tsx — globally available behind a single keystroke.
+  9. Don't ship a dark mode in this version. Optional polish but not blocking.
+
+  ---
+  11 · Constraints & guardrails
+  
+  - Do not change Clerk auth shape. Don't touch __root.tsx Clerk wiring.
+  - Do not change src/lib/api-client.ts function signatures. Add new methods; don't break existing.
+  - Preserve the global QueryClient polling defaults already shipped at src/router.tsx.
+  - Do not add new heavy dependencies (no Framer Motion, no GSAP, no full chart library). Use CSS transitions + small primitives. If you need a sparkline, write 30 lines of SVG inline.
+  - TypeScript strict. No any. No @ts-expect-error. No as unknown as.
+  - Preserve the pnpm dev boot path. Don't break HMR.
+  - Run pnpm exec tsc --noEmit after every component group lands and fix before continuing.
+  - Don't auto-generate React tests — visual changes are not unit-testable. Instead, the Storybook-style preview routes act as the visual diff surface.
+  - Update routeTree.gen.ts after route changes — TanStack Router's generator handles this; just run pnpm dev once and it regenerates.
+
+  ---
+  12 · Out of scope (do not do these)
+
+  - Backend changes of any kind. The 4 P0-deployed APIs (suppression, delete-org, reauth-challenge, metrics) are stable.
+  - New API endpoints. If a view needs data the current API doesn't return, surface a TODO comment with the exact endpoint shape and ship without it.
+  - Schema migrations.
+  - Analytics / event tracking implementation (separate sprint).
+  - Internationalization beyond English-only copy.
+  - A marketing site rewrite (workforceos.xyz landing page is separate).
+
+  ---
+  13 · Acceptance criteria
+
+  The v2 ships when all six items are true:
+
+  1. Cold load to "first approval" completes in under 60 seconds on a desktop, including auth, route load, data fetch, and first ApprovalCard render. Measure via Cmd-Shift-P → Performance → Record.
+  2. Mobile load (375 px viewport) on /today shows the Approval queue full-width, with the AgentActivityStream collapsed into a bottom sheet, and is interactive (tap approve works, sheet opens).
+  3. All five top-level routes render their happy path AND their empty state AND their loading skeleton AND their error state. Verify each manually.
+  4. Cmd-K works on every page. Five nav targets + four quick actions + recent artifacts list.
+  5. pnpm exec tsc --noEmit is green.
+  6. One-screenshot demo set — five screenshots, one per top-level route, that look investor-grade. These get pulled into the Techstars Day-21 review deck. The bar is "would Linear or Vercel ship
+  this?" — if no, iterate before declaring done.
+
+  ---
+  Closing note
+
+  This is a high-trust brief. We've already shipped v1 to paying pilots, the backend is stable, the API contracts are frozen. Your job is to make the surface area match the quality of what the
+  agents are actually doing underneath. Don't add features. Don't refactor backend logic. Don't introduce abstractions for hypothetical future requirements. Build the six components, refactor the
+  five routes, ship the five empty/loading/error states, and run the type-check.
+
+  If you're stuck on a design choice, default to whatever Linear's app does in the equivalent situation. Linear is the closest published product to what we are building.
+
+  When you finish a major chunk (route group, component, token update), commit with a clear message and move on — don't wait for review.
+
+  ---
+  Stack reference (so you don't have to re-discover): TanStack Start + TanStack React Router + TanStack React Query + Clerk (@clerk/tanstack-react-start) + Radix UI + Tailwind v4 + Vite +
+  Cloudflare Workers (via @cloudflare/vite-plugin). Deploys on push to main via Bitbucket Pipelines. Auth via Clerk hosted + useAuth / useUser hooks. Data via src/lib/api-client.ts. Real-time today
+  via React Query polling — no WebSocket / SSE in this version.
+
+  Now build.
