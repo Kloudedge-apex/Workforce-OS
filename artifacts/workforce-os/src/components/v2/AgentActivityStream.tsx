@@ -10,11 +10,13 @@ interface AgentActivityStreamProps {
   collapsed?: boolean;
 }
 
-const agentColorMap = {
+const agentColorMap: Record<string, string> = {
   sdr: "bg-rust-500",
   content: "bg-ember-400",
   ops: "bg-signal-info",
   pipeline: "bg-ink-900",
+  reply: "bg-ink-600",
+  reporting: "bg-paper-400",
 };
 
 export function AgentActivityStream({ filter = "all", collapsed = false }: AgentActivityStreamProps) {

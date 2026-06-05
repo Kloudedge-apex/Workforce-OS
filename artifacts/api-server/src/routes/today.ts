@@ -5,7 +5,7 @@ import {
   conversationsTable,
   leadsTable,
 } from "@workspace/db";
-import { eq, and, gte, sql } from "drizzle-orm";
+import { eq, and, gte, sql, isNotNull } from "drizzle-orm";
 
 const router = Router();
 
@@ -68,6 +68,24 @@ router.get("/today/kpis", async (req, res) => {
             gte(conversationsTable.lastMessageAt, sevenDaysAgo),
           ),
         ),
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(leadsTable)
+        .where(
+          and(
+            eq(leadsTable.orgId, ORG_ID),
+            gte(leadsTable.createdAt, todayStart),
+          ),
+        ),
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(leadsTable)
+        .where(
+          and(
+            eq(leadsTable.orgId, ORG_ID),
+            isNotNull(leadsTable.score),
+          ),
+        ),
     ]);
 
   const totalSent = Number(totalSentRows[0]?.count ?? 0);
@@ -79,6 +97,8 @@ router.get("/today/kpis", async (req, res) => {
     artifactsSentToday: Number(sentTodayRows[0]?.count ?? 0),
     replyRate7d: replyRate,
     qualifiedMeetingsBooked: Number(meetingsRows[0]?.count ?? 0),
+    leadsSourcedToday: Number(leadsSourcedRows[0]?.count ?? 0),
+    leadsScored: Number(leadsScoredRows[0]?.count ?? 0),
   });
 });
 

@@ -123,7 +123,7 @@ export default function ArtifactDetail() {
             <div className="bg-white border border-paper-200 rounded-lg p-4 space-y-2">
               <Button
                 className="w-full bg-rust-500 hover:bg-rust-600 text-white"
-                onClick={() => approve(id)}
+                onClick={() => approve({ id })}
               >
                 <CheckCircle2 className="h-4 w-4 mr-2" /> Approve
               </Button>
@@ -137,7 +137,7 @@ export default function ArtifactDetail() {
               <Button
                 variant="ghost"
                 className="w-full text-ink-500"
-                onClick={() => suppress(id)}
+                onClick={() => suppress({ id })}
               >
                 <ShieldOff className="h-4 w-4 mr-2" /> Suppress
               </Button>
@@ -206,7 +206,7 @@ export default function ArtifactDetail() {
             <Button variant="outline" onClick={() => setRejectOpen(false)}>Cancel</Button>
             <Button
               className="bg-rust-500 hover:bg-rust-600 text-white"
-              onClick={() => reject({ pathParams: { id }, data: { reason: rejectReason } })}
+              onClick={() => reject({ id, data: { reason: rejectReason } })}
               disabled={!rejectReason.trim()}
             >
               Reject

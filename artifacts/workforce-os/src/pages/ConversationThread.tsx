@@ -61,7 +61,7 @@ export default function ConversationThread() {
         <span className="text-sm font-medium text-ink-900 truncate flex-1">{conv.subject}</span>
         <div className="flex items-center gap-2">
           {!conv.archived && (
-            <Button variant="ghost" size="sm" onClick={() => archive(id)} className="text-ink-500 hover:text-ink-900">
+            <Button variant="ghost" size="sm" onClick={() => archive({ id })} className="text-ink-500 hover:text-ink-900">
               <Archive className="h-4 w-4" />
             </Button>
           )}
@@ -118,7 +118,7 @@ export default function ConversationThread() {
                 <Button
                   className="w-full bg-rust-500 hover:bg-rust-600 text-white"
                   size="sm"
-                  onClick={() => draftReply(id)}
+                  onClick={() => draftReply({ id })}
                   disabled={drafting}
                 >
                   <Sparkles className="h-4 w-4 mr-2" />
@@ -128,7 +128,7 @@ export default function ConversationThread() {
                   variant="outline"
                   className="w-full border-paper-300"
                   size="sm"
-                  onClick={() => archive(id)}
+                  onClick={() => archive({ id })}
                 >
                   <Archive className="h-4 w-4 mr-2" /> Archive
                 </Button>

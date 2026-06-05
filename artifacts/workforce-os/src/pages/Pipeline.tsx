@@ -56,7 +56,7 @@ export default function Pipeline() {
     if (selectedIds.size === 0) return;
     toast(`Suppressing ${selectedIds.size} leads...`);
     try {
-      await suppressMut.mutateAsync({ ids: Array.from(selectedIds) });
+      await suppressMut.mutateAsync({ data: { ids: Array.from(selectedIds) } });
       toast.success("Leads suppressed");
       setSelectedIds(new Set());
     } catch (e) {

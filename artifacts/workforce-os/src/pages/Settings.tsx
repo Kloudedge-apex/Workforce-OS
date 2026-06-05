@@ -1,182 +1,877 @@
-import React from "react";
-import { useGetOrgSettings, useGetOrgHealth } from "@workspace/api-client-react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
+import React, { useState, useEffect, useRef } from "react";
+import { useLocation } from "wouter";
+import {
+  useGetOrgSettings, useUpdateOrgSettings, useGetOrgHealth,
+  useGetIcpProfile, useUpdateIcpProfile,
+  useGetCadence, useUpdateCadence,
+  useGetStyleConfig, useUpdateStyleConfig,
+  useListIntegrations, useConnectIntegration, useDisconnectIntegration,
+  useListTeamMembers, useInviteTeamMember, useRemoveTeamMember,
+  useGetBilling,
+  useListApiKeys, useCreateApiKey, useRevokeApiKey,
+  useGetNotificationPrefs, useUpdateNotificationPrefs,
+  type CadenceStage, type NotificationPrefs,
+} from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertCircle, CheckCircle2, Building, ShieldCheck, CreditCard, Users, Link as LinkIcon } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Slider } from "@/components/ui/slider";
+import { Textarea } from "@/components/ui/textarea";
+import { Separator } from "@/components/ui/separator";
+import {
+  Building, Shield, Link as LinkIcon, Users, CreditCard,
+  Key, Bell, Map, Layers, Mic, AlertCircle, CheckCircle2,
+  ChevronUp, ChevronDown, Plus, Trash2, Copy, Eye, EyeOff, X,
+} from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-export default function Settings() {
-  const { data: orgSettings, isLoading: settingsLoading } = useGetOrgSettings({
-    query: { queryKey: ["getOrgSettings"] }
-  });
+// ─── Tab config ─────────────────────────────────────────────────────────────
+const TABS = [
+  { id: "org",           label: "General",       icon: Building },
+  { id: "icp",           label: "ICP",            icon: Map },
+  { id: "cadence",       label: "Cadence",        icon: Layers },
+  { id: "brand",         label: "Brand Voice",    icon: Mic },
+  { id: "integrations",  label: "Integrations",   icon: LinkIcon },
+  { id: "team",          label: "Team",           icon: Users },
+  { id: "billing",       label: "Billing",        icon: CreditCard },
+  { id: "apikeys",       label: "API Keys",       icon: Key },
+  { id: "notifications", label: "Notifications",  icon: Bell },
+] as const;
 
-  const { data: health, isLoading: healthLoading } = useGetOrgHealth({
-    query: { queryKey: ["getOrgHealth"] }
-  });
+type TabId = typeof TABS[number]["id"];
+
+// ─── Root ─────────────────────────────────────────────────────────────────────
+export default function Settings() {
+  const [location, navigate] = useLocation();
+  const sub = location.replace(/^\/settings\/?/, "") || "org";
+  const activeTab = (TABS.find(t => t.id === sub)?.id ?? "org") as TabId;
+
+  const setTab = (id: TabId) => navigate(`/settings/${id}`);
 
   return (
-    <div className="flex flex-col h-full bg-paper-50 overflow-y-auto">
-      
-      {/* Health Strip */}
-      <div className="bg-ink-900 text-white p-4 shrink-0">
-        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            {healthLoading ? (
-              <Skeleton className="h-5 w-5 rounded-full bg-ink-700" />
-            ) : health?.blockers.length === 0 ? (
-              <CheckCircle2 className="h-5 w-5 text-signal-positive" />
-            ) : (
-              <AlertCircle className="h-5 w-5 text-ember-400" />
-            )}
-            <span className="font-serif font-semibold">Workspace Health</span>
+    <div className="flex flex-col h-full bg-paper-50 overflow-hidden">
+      {/* Health bar */}
+      <HealthBar />
+
+      <div className="flex flex-1 min-h-0">
+        {/* Desktop sidebar */}
+        <aside className="hidden md:flex w-44 shrink-0 flex-col border-r border-paper-200 bg-paper-100 p-2 gap-0.5 overflow-y-auto">
+          <p className="text-[10px] font-bold text-ink-400 uppercase tracking-widest px-3 pt-2 pb-1">Settings</p>
+          {TABS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={cn(
+                "flex items-center gap-2.5 px-3 py-2 text-sm rounded-md font-medium transition-colors text-left",
+                activeTab === id
+                  ? "bg-white text-ink-900 shadow-sm border border-paper-200"
+                  : "text-ink-600 hover:bg-paper-200 hover:text-ink-900"
+              )}
+            >
+              <Icon className="h-3.5 w-3.5 shrink-0" />
+              {label}
+            </button>
+          ))}
+        </aside>
+
+        {/* Mobile horizontal tabs */}
+        <div className="md:hidden overflow-x-auto flex border-b border-paper-200 bg-paper-100 no-scrollbar shrink-0">
+          {TABS.map(({ id, label }) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={cn(
+                "flex-shrink-0 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap",
+                activeTab === id
+                  ? "border-rust-500 text-rust-600"
+                  : "border-transparent text-ink-500"
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Content */}
+        <main className="flex-1 overflow-y-auto p-6 md:p-8">
+          <div className="max-w-3xl mx-auto space-y-6">
+            {activeTab === "org"           && <OrgTab />}
+            {activeTab === "icp"           && <IcpTab />}
+            {activeTab === "cadence"       && <CadenceTab />}
+            {activeTab === "brand"         && <BrandTab />}
+            {activeTab === "integrations"  && <IntegrationsTab />}
+            {activeTab === "team"          && <TeamTab />}
+            {activeTab === "billing"       && <BillingTab />}
+            {activeTab === "apikeys"       && <ApiKeysTab />}
+            {activeTab === "notifications" && <NotificationsTab />}
           </div>
+        </main>
+      </div>
+    </div>
+  );
+}
 
-          {!healthLoading && health && (
-            <div className="flex flex-wrap items-center gap-6 text-sm">
-              <HealthItem label="Live Send" active={health.liveSendEnabled} />
-              <HealthItem label="Postal Address" active={health.postalAddressConfigured} />
-              <HealthItem label="Unsubscribe link" active={health.unsubscribeConfigured} />
-              <div className="flex items-center gap-2">
-                <span className="text-ink-400">Suppression List:</span>
-                <span className="font-tabular font-medium">{health.suppressionCount} entries</span>
-              </div>
-            </div>
-          )}
+// ─── Health Bar ───────────────────────────────────────────────────────────────
+function HealthBar() {
+  const { data: health, isLoading } = useGetOrgHealth({ query: { queryKey: ["getOrgHealth"] } });
+  if (isLoading) return <div className="h-10 bg-ink-900" />;
+  const ok = !health || health.blockers.length === 0;
+  return (
+    <div className={cn("shrink-0 px-6 py-2.5 flex items-center gap-4 flex-wrap", ok ? "bg-ink-900" : "bg-ember-500")}>
+      {ok
+        ? <CheckCircle2 className="h-4 w-4 text-green-400 shrink-0" />
+        : <AlertCircle className="h-4 w-4 text-white shrink-0" />}
+      <span className="text-sm text-white font-medium">
+        {ok ? "Workspace healthy" : `${health!.blockers.length} blocker${health!.blockers.length !== 1 ? "s" : ""}: ${health!.blockers.join(", ")}`}
+      </span>
+      {health && (
+        <div className="flex items-center gap-4 ml-auto text-xs">
+          <HealthDot label="Live Send" ok={health.liveSendEnabled} />
+          <HealthDot label="Postal Address" ok={health.postalAddressConfigured} />
+          <HealthDot label="Unsubscribe" ok={health.unsubscribeConfigured} />
+          <span className="text-paper-300">{health.suppressionCount} suppressed</span>
+        </div>
+      )}
+    </div>
+  );
+}
+function HealthDot({ label, ok }: { label: string; ok: boolean }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <div className={cn("w-1.5 h-1.5 rounded-full", ok ? "bg-green-400" : "bg-ember-300")} />
+      <span className={cn("text-xs", ok ? "text-paper-300" : "text-white font-semibold")}>{label}</span>
+    </div>
+  );
+}
 
-          {!healthLoading && health && health.blockers.length > 0 && (
-            <Button variant="outline" size="sm" className="bg-transparent border-ember-400 text-ember-400 hover:bg-ember-400/10">
-              Fix Configuration
-            </Button>
-          )}
+// ─── Org Tab ──────────────────────────────────────────────────────────────────
+function OrgTab() {
+  const { data, isLoading } = useGetOrgSettings({ query: { queryKey: ["getOrgSettings"] } });
+  const { mutate: update, isPending } = useUpdateOrgSettings({
+    mutation: { onSuccess: () => toast.success("Settings saved"), onError: () => toast.error("Save failed") },
+  });
+
+  const [form, setForm] = useState({
+    name: "", slug: "", country: "", timezone: "", senderName: "", postalAddress: "", unsubscribeUrl: "", liveSendEnabled: false,
+  });
+  const initialized = useRef(false);
+  useEffect(() => {
+    if (data && !initialized.current) {
+      setForm({
+        name: data.orgName, slug: data.slug, country: data.country, timezone: data.timezone,
+        senderName: data.senderName ?? "", postalAddress: data.postalAddress ?? "",
+        unsubscribeUrl: data.unsubscribeUrl ?? "", liveSendEnabled: data.liveSendEnabled,
+      });
+      initialized.current = true;
+    }
+  }, [data]);
+
+  if (isLoading) return <FormSkeleton rows={6} />;
+
+  return (
+    <>
+      <SectionHeader title="Organization" description="Core workspace settings and compliance configuration." />
+      <div className="bg-white border border-paper-200 rounded-lg p-5 space-y-4">
+        <TwoCol>
+          <Field label="Organization Name">
+            <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+          </Field>
+          <Field label="Slug">
+            <Input value={form.slug} onChange={e => setForm(f => ({ ...f, slug: e.target.value }))} className="font-mono" />
+          </Field>
+        </TwoCol>
+        <TwoCol>
+          <Field label="Country">
+            <Input value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value }))} placeholder="IN" />
+          </Field>
+          <Field label="Timezone">
+            <Input value={form.timezone} onChange={e => setForm(f => ({ ...f, timezone: e.target.value }))} placeholder="Asia/Kolkata" />
+          </Field>
+        </TwoCol>
+        <Field label="Sender Name (visible to recipients)">
+          <Input value={form.senderName} onChange={e => setForm(f => ({ ...f, senderName: e.target.value }))} />
+        </Field>
+        <Field label="Postal Address (CAN-SPAM required)">
+          <Textarea value={form.postalAddress} onChange={e => setForm(f => ({ ...f, postalAddress: e.target.value }))} rows={2} className="resize-none" />
+        </Field>
+        <Field label="Unsubscribe URL">
+          <Input value={form.unsubscribeUrl} onChange={e => setForm(f => ({ ...f, unsubscribeUrl: e.target.value }))} placeholder="https://app.mynoted.ai/unsubscribe" />
+        </Field>
+      </div>
+
+      <div className="bg-white border border-paper-200 border-l-4 border-l-rust-500 rounded-lg p-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="font-medium text-ink-900">Live Send Enabled</p>
+            <p className="text-sm text-ink-500 mt-0.5">When off, agents operate in dry-run mode — no emails are dispatched.</p>
+          </div>
+          <Switch
+            checked={form.liveSendEnabled}
+            onCheckedChange={v => setForm(f => ({ ...f, liveSendEnabled: v }))}
+          />
         </div>
       </div>
 
-      <div className="flex-1 p-6 md:p-10 max-w-5xl mx-auto w-full">
-        <h1 className="font-serif text-3xl font-semibold text-ink-900 mb-8">Settings</h1>
+      <div className="flex justify-end">
+        <Button
+          className="bg-rust-500 hover:bg-rust-600 text-white"
+          disabled={isPending}
+          onClick={() => update({ data: { name: form.name, slug: form.slug, country: form.country, timezone: form.timezone, senderName: form.senderName, postalAddress: form.postalAddress, liveSendEnabled: form.liveSendEnabled } })}
+        >
+          {isPending ? "Saving…" : "Save Changes"}
+        </Button>
+      </div>
+    </>
+  );
+}
 
-        <Tabs defaultValue="general" className="flex flex-col md:flex-row gap-8">
-          <TabsList className="flex flex-row md:flex-col h-auto bg-transparent p-0 space-y-1 justify-start overflow-x-auto w-full md:w-48 shrink-0">
-            <TabTrigger value="general" icon={Building} label="General" />
-            <TabTrigger value="compliance" icon={ShieldCheck} label="Compliance" />
-            <TabTrigger value="integrations" icon={LinkIcon} label="Integrations" />
-            <TabTrigger value="team" icon={Users} label="Team" />
-            <TabTrigger value="billing" icon={CreditCard} label="Billing" />
-          </TabsList>
+// ─── ICP Tab ──────────────────────────────────────────────────────────────────
+function IcpTab() {
+  const { data, isLoading } = useGetIcpProfile({ query: { queryKey: ["getIcpProfile"] } });
+  const { mutate: update, isPending } = useUpdateIcpProfile({
+    mutation: { onSuccess: () => toast.success("ICP saved"), onError: () => toast.error("Save failed") },
+  });
+  const [profile, setProfile] = useState({ industries: [] as string[], titles: [] as string[], geos: [] as string[], sizeBand: "", intentSignals: [] as string[], seedDomains: [] as string[], exclusionDomains: [] as string[] });
+  const initialized = useRef(false);
 
-          <div className="flex-1 min-w-0">
-            <TabsContent value="general" className="m-0 space-y-6 focus-visible:outline-none">
-              <Card className="shadow-sm border-paper-200">
-                <CardHeader>
-                  <CardTitle className="font-serif text-xl">Organization Profile</CardTitle>
-                  <CardDescription>Manage your company details and core settings.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {settingsLoading ? <Skeleton className="h-10 w-full" /> : (
-                    <div className="space-y-2">
-                      <Label htmlFor="orgName">Organization Name</Label>
-                      <Input id="orgName" defaultValue={orgSettings?.orgName} className="max-w-md" />
-                    </div>
-                  )}
-                  {settingsLoading ? <Skeleton className="h-10 w-full" /> : (
-                    <div className="space-y-2">
-                      <Label htmlFor="postal">Physical Postal Address (Required for CAN-SPAM)</Label>
-                      <Input id="postal" defaultValue={orgSettings?.postalAddress || ""} className="max-w-md" />
-                    </div>
-                  )}
-                  <Button className="mt-4 bg-ink-900 hover:bg-ink-800 text-white">Save Changes</Button>
-                </CardContent>
-              </Card>
+  useEffect(() => {
+    if (data && !initialized.current) { setProfile({ ...data }); initialized.current = true; }
+  }, [data]);
 
-              <Card className="shadow-sm border-paper-200 border-l-4 border-l-rust-500">
-                <CardHeader>
-                  <CardTitle className="font-serif text-xl text-rust-500">Live Send Control</CardTitle>
-                  <CardDescription>When disabled, agents operate in Dry Run mode and cannot send emails.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center justify-between bg-paper-50 p-4 rounded-lg border border-paper-200">
-                    <div className="space-y-0.5">
-                      <Label className="text-base font-semibold">Enable Live Outbound</Label>
-                      <p className="text-sm text-ink-400">Agents will actually dispatch emails to leads.</p>
-                    </div>
-                    <Switch checked={orgSettings?.liveSendEnabled} disabled={settingsLoading} />
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
+  if (isLoading) return <FormSkeleton rows={5} />;
 
-            <TabsContent value="compliance" className="m-0 space-y-6 focus-visible:outline-none">
-              <Card className="shadow-sm border-paper-200">
-                <CardHeader>
-                  <CardTitle className="font-serif text-xl">Suppression & Allowlisting</CardTitle>
-                  <CardDescription>Manage who the agents can and cannot contact.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div>
-                    <h4 className="font-medium text-ink-900 mb-2">Allowlisted Domains</h4>
-                    <p className="text-sm text-ink-400 mb-3">Agents will only contact leads at these domains if specified. Leave empty to allow any domain.</p>
-                    {settingsLoading ? <Skeleton className="h-20 w-full" /> : (
-                      <div className="flex flex-wrap gap-2 mb-3">
-                        {orgSettings?.allowlistedDomains.map(d => (
-                          <span key={d} className="px-2 py-1 bg-paper-100 border border-paper-200 rounded text-sm text-ink-700">{d}</span>
-                        ))}
-                        <Button variant="outline" size="sm" className="h-7 text-xs border-dashed">Add Domain</Button>
-                      </div>
-                    )}
-                  </div>
-                  
-                  <div className="pt-4 border-t border-paper-200">
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="font-medium text-ink-900">Global Suppression List</h4>
-                      <Button variant="link" className="text-rust-500 h-auto p-0">Manage List →</Button>
-                    </div>
-                    <p className="text-sm text-ink-400">
-                      You currently have <strong className="text-ink-900">{orgSettings?.suppressionCount || 0}</strong> addresses on the suppression list. 
-                      Agents will permanently drop leads matching these addresses.
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
+  return (
+    <>
+      <SectionHeader title="Ideal Customer Profile" description="Define which leads the SDR agent should source and target." />
+      <div className="bg-white border border-paper-200 rounded-lg p-5 space-y-5">
+        <ChipField label="Industries" chips={profile.industries} onChange={v => setProfile(p => ({ ...p, industries: v }))} placeholder="e.g. SaaS, Fintech" />
+        <ChipField label="Target Titles" chips={profile.titles} onChange={v => setProfile(p => ({ ...p, titles: v }))} placeholder="e.g. Head of Growth" />
+        <ChipField label="Target Geographies" chips={profile.geos} onChange={v => setProfile(p => ({ ...p, geos: v }))} placeholder="e.g. India, USA, UAE" />
+        <Field label="Company Size Band">
+          <Input value={profile.sizeBand} onChange={e => setProfile(p => ({ ...p, sizeBand: e.target.value }))} placeholder="e.g. 50-500" />
+        </Field>
+        <ChipField label="Intent Signals" chips={profile.intentSignals} onChange={v => setProfile(p => ({ ...p, intentSignals: v }))} placeholder="e.g. hiring engineers" />
+        <Separator />
+        <ChipField label="Seed Domains" chips={profile.seedDomains} onChange={v => setProfile(p => ({ ...p, seedDomains: v }))} placeholder="e.g. acme.com" />
+        <ChipField label="Exclusion Domains" chips={profile.exclusionDomains} onChange={v => setProfile(p => ({ ...p, exclusionDomains: v }))} placeholder="e.g. competitor.com" />
+      </div>
+      <div className="flex justify-end">
+        <Button className="bg-rust-500 hover:bg-rust-600 text-white" disabled={isPending} onClick={() => update({ data: profile })}>
+          {isPending ? "Saving…" : "Save ICP"}
+        </Button>
+      </div>
+    </>
+  );
+}
 
-            {/* Placeholders for other tabs */}
-            <TabsContent value="integrations" className="m-0 focus-visible:outline-none">
-              <Card className="shadow-sm border-paper-200"><CardContent className="p-8 text-center text-ink-400">Integrations panel coming soon.</CardContent></Card>
-            </TabsContent>
-            <TabsContent value="team" className="m-0 focus-visible:outline-none">
-              <Card className="shadow-sm border-paper-200"><CardContent className="p-8 text-center text-ink-400">Team management coming soon.</CardContent></Card>
-            </TabsContent>
-            <TabsContent value="billing" className="m-0 focus-visible:outline-none">
-              <Card className="shadow-sm border-paper-200"><CardContent className="p-8 text-center text-ink-400">Billing details coming soon.</CardContent></Card>
-            </TabsContent>
+// ─── Cadence Tab ──────────────────────────────────────────────────────────────
+function CadenceTab() {
+  const { data, isLoading } = useGetCadence({ query: { queryKey: ["getCadence"] } });
+  const { mutate: update, isPending } = useUpdateCadence({
+    mutation: { onSuccess: () => toast.success("Cadence saved"), onError: () => toast.error("Save failed") },
+  });
+  const [stages, setStages] = useState<CadenceStage[]>([]);
+  const initialized = useRef(false);
+
+  useEffect(() => {
+    if (data && !initialized.current) { setStages([...data].sort((a, b) => a.position - b.position)); initialized.current = true; }
+  }, [data]);
+
+  const move = (idx: number, dir: -1 | 1) => {
+    const next = [...stages];
+    const swapIdx = idx + dir;
+    if (swapIdx < 0 || swapIdx >= next.length) return;
+    [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
+    setStages(next.map((s, i) => ({ ...s, position: i })));
+  };
+
+  const update1 = <K extends keyof CadenceStage>(idx: number, key: K, val: CadenceStage[K]) => {
+    setStages(s => s.map((st, i) => i === idx ? { ...st, [key]: val } : st));
+  };
+
+  const addStage = () => {
+    const pos = stages.length;
+    setStages(s => [...s, { id: `new-${Date.now()}`, dayOffset: pos * 3, channel: "email", label: `Step ${pos + 1}`, enabled: true, position: pos }]);
+  };
+
+  const removeStage = (idx: number) => setStages(s => s.filter((_, i) => i !== idx).map((st, i) => ({ ...st, position: i })));
+
+  if (isLoading) return <FormSkeleton rows={4} />;
+
+  return (
+    <>
+      <SectionHeader title="Outreach Cadence" description="Define the sequence of touchpoints the Content Agent follows." />
+      <div className="space-y-2">
+        {stages.map((stage, idx) => (
+          <div key={stage.id} className="bg-white border border-paper-200 rounded-lg p-4 flex items-center gap-3">
+            <div className="flex flex-col gap-0.5">
+              <button onClick={() => move(idx, -1)} disabled={idx === 0} className="text-ink-300 hover:text-ink-700 disabled:opacity-20"><ChevronUp className="h-3.5 w-3.5" /></button>
+              <button onClick={() => move(idx, 1)} disabled={idx === stages.length - 1} className="text-ink-300 hover:text-ink-700 disabled:opacity-20"><ChevronDown className="h-3.5 w-3.5" /></button>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[10px] text-ink-400">Day</span>
+              <Input
+                type="number"
+                value={stage.dayOffset}
+                onChange={e => update1(idx, "dayOffset", Number(e.target.value))}
+                className="w-14 h-8 text-center font-mono text-sm"
+              />
+            </div>
+            <Select value={stage.channel} onValueChange={v => update1(idx, "channel", v)}>
+              <SelectTrigger className="h-8 w-24 text-xs bg-paper-50">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="email">Email</SelectItem>
+                <SelectItem value="linkedin">LinkedIn</SelectItem>
+                <SelectItem value="call">Call</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input value={stage.label} onChange={e => update1(idx, "label", e.target.value)} className="flex-1 h-8 text-sm" placeholder="Step label" />
+            <Switch checked={stage.enabled} onCheckedChange={v => update1(idx, "enabled", v)} />
+            <button onClick={() => removeStage(idx)} className="text-ink-300 hover:text-red-400 transition-colors">
+              <Trash2 className="h-4 w-4" />
+            </button>
           </div>
-        </Tabs>
+        ))}
+        <Button variant="outline" className="w-full border-dashed border-paper-300 text-ink-500 hover:text-ink-900" onClick={addStage}>
+          <Plus className="h-4 w-4 mr-2" /> Add Stage
+        </Button>
+      </div>
+      <div className="flex justify-end">
+        <Button className="bg-rust-500 hover:bg-rust-600 text-white" disabled={isPending} onClick={() => update({ data: { stages } })}>
+          {isPending ? "Saving…" : "Save Cadence"}
+        </Button>
+      </div>
+    </>
+  );
+}
+
+// ─── Brand Voice Tab ──────────────────────────────────────────────────────────
+function BrandTab() {
+  const { data, isLoading } = useGetStyleConfig({ query: { queryKey: ["getStyleConfig"] } });
+  const { mutate: update, isPending } = useUpdateStyleConfig({
+    mutation: { onSuccess: () => toast.success("Brand voice saved"), onError: () => toast.error("Save failed") },
+  });
+  const [form, setForm] = useState({ voice: "professional", toneValue: 50, signatureHtml: "" });
+  const initialized = useRef(false);
+
+  useEffect(() => {
+    if (data && !initialized.current) { setForm({ ...data }); initialized.current = true; }
+  }, [data]);
+
+  const PRESETS = [
+    { id: "professional", label: "Professional" },
+    { id: "consultative", label: "Consultative" },
+    { id: "bold", label: "Bold" },
+    { id: "warm", label: "Warm" },
+  ];
+
+  if (isLoading) return <FormSkeleton rows={4} />;
+
+  return (
+    <>
+      <SectionHeader title="Brand Voice" description="Control how the Content Agent writes your outreach." />
+      <div className="bg-white border border-paper-200 rounded-lg p-5 space-y-6">
+        <div>
+          <Label className="text-sm font-medium text-ink-700 mb-3 block">Voice Preset</Label>
+          <div className="flex flex-wrap gap-2">
+            {PRESETS.map(p => (
+              <button
+                key={p.id}
+                onClick={() => setForm(f => ({ ...f, voice: p.id }))}
+                className={cn(
+                  "px-4 py-2 rounded-lg text-sm font-medium border transition-all",
+                  form.voice === p.id
+                    ? "bg-rust-500 text-white border-rust-500"
+                    : "bg-paper-50 text-ink-700 border-paper-200 hover:border-paper-400"
+                )}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div className="flex justify-between mb-3">
+            <Label className="text-sm font-medium text-ink-700">Tone</Label>
+            <div className="flex gap-4 text-xs text-ink-400">
+              <span>Formal</span>
+              <span>Conversational</span>
+            </div>
+          </div>
+          <Slider
+            value={[form.toneValue]}
+            min={0} max={100} step={1}
+            onValueChange={([v]) => setForm(f => ({ ...f, toneValue: v }))}
+            className="w-full"
+          />
+          <div className="flex justify-between mt-1 text-[10px] text-ink-300">
+            <span>0</span>
+            <span className="font-mono font-bold text-rust-500">{form.toneValue}</span>
+            <span>100</span>
+          </div>
+        </div>
+
+        <Field label="Email Signature (HTML)">
+          <Textarea
+            value={form.signatureHtml}
+            onChange={e => setForm(f => ({ ...f, signatureHtml: e.target.value }))}
+            rows={5}
+            className="font-mono text-xs resize-none"
+            placeholder="<p>Best,<br>Nikhil Sood<br>Mynoted</p>"
+          />
+        </Field>
+      </div>
+      <div className="flex justify-end">
+        <Button className="bg-rust-500 hover:bg-rust-600 text-white" disabled={isPending} onClick={() => update({ data: form })}>
+          {isPending ? "Saving…" : "Save Brand Voice"}
+        </Button>
+      </div>
+    </>
+  );
+}
+
+// ─── Integrations Tab ─────────────────────────────────────────────────────────
+const PROVIDER_META: Record<string, { name: string; emoji: string; description: string }> = {
+  gmail:       { name: "Gmail", emoji: "📧", description: "Send outreach and receive replies via Google Workspace." },
+  outlook:     { name: "Outlook", emoji: "📬", description: "Microsoft 365 email sending and inbox sync." },
+  linkedin:    { name: "LinkedIn", emoji: "💼", description: "Connect for profile enrichment and InMail sequences." },
+  hubspot:     { name: "HubSpot", emoji: "🟠", description: "Sync leads, contacts, and deal stages bidirectionally." },
+  salesforce:  { name: "Salesforce", emoji: "☁️", description: "Push qualified leads and activities to your CRM." },
+  slack:       { name: "Slack", emoji: "🔔", description: "Get approval alerts and notifications in Slack." },
+  clay:        { name: "Clay", emoji: "🏺", description: "Pull enriched lead data from Clay tables." },
+  apollo:      { name: "Apollo", emoji: "🚀", description: "Source leads from Apollo.io company and contact database." },
+  hunter:      { name: "Hunter.io", emoji: "🔍", description: "Verify email addresses before sending." },
+  fullenrich:  { name: "Fullenrich", emoji: "⚡", description: "Waterfall email enrichment for harder-to-find contacts." },
+  webhooks:    { name: "Webhooks", emoji: "🔗", description: "Send events to any external endpoint via HTTP POST." },
+};
+
+function IntegrationsTab() {
+  const { data, isLoading, refetch } = useListIntegrations({ query: { queryKey: ["listIntegrations"] } });
+  const { mutate: connect, isPending: connecting } = useConnectIntegration({
+    mutation: { onSuccess: () => { toast.success("Connected"); refetch(); }, onError: () => toast.error("Connection failed") },
+  });
+  const { mutate: disconnect, isPending: disconnecting } = useDisconnectIntegration({
+    mutation: { onSuccess: () => { toast.success("Disconnected"); refetch(); }, onError: () => toast.error("Disconnect failed") },
+  });
+
+  if (isLoading) return <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-lg" />)}</div>;
+
+  return (
+    <>
+      <SectionHeader title="Integrations" description="Connect external tools to power lead sourcing, CRM sync, and notifications." />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {(data ?? []).map(int => {
+          const meta = PROVIDER_META[int.provider] ?? { name: int.provider, emoji: "🔌", description: "" };
+          const isConnected = int.status === "connected";
+          return (
+            <div key={int.id} className="bg-white border border-paper-200 rounded-lg p-4 flex gap-3">
+              <div className="text-2xl shrink-0 mt-0.5">{meta.emoji}</div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="text-sm font-semibold text-ink-900">{meta.name}</span>
+                  <Badge className={cn("text-[10px] h-4 px-1.5 border", isConnected ? "bg-green-50 text-green-700 border-green-200" : int.status === "errored" ? "bg-red-50 text-red-600 border-red-200" : "bg-paper-100 text-ink-500 border-paper-200")}>
+                    {int.status}
+                  </Badge>
+                </div>
+                <p className="text-xs text-ink-500 leading-relaxed mb-2">{meta.description}</p>
+                {int.accountEmail && <p className="text-xs font-mono text-ink-400 mb-2 truncate">{int.accountEmail}</p>}
+                {int.errorMessage && <p className="text-xs text-red-500 mb-2">{int.errorMessage}</p>}
+                <Button
+                  size="sm"
+                  variant={isConnected ? "outline" : "default"}
+                  className={cn("h-7 text-xs", isConnected ? "border-paper-300 text-ink-600" : "bg-rust-500 hover:bg-rust-600 text-white")}
+                  disabled={connecting || disconnecting}
+                  onClick={() => isConnected ? disconnect({ provider: int.provider }) : connect({ provider: int.provider })}
+                >
+                  {isConnected ? "Disconnect" : "Connect"}
+                </Button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+// ─── Team Tab ─────────────────────────────────────────────────────────────────
+const ROLE_STYLES: Record<string, string> = {
+  OWNER: "bg-ink-900 text-white",
+  ADMIN: "bg-rust-100 text-rust-700 border-rust-200",
+  MEMBER: "bg-paper-100 text-ink-700 border-paper-200",
+};
+
+function TeamTab() {
+  const { data, isLoading, refetch } = useListTeamMembers({ query: { queryKey: ["listTeamMembers"] } });
+  const { mutate: invite, isPending: inviting } = useInviteTeamMember({
+    mutation: { onSuccess: () => { toast.success("Invitation sent"); refetch(); setInviteOpen(false); }, onError: () => toast.error("Invite failed") },
+  });
+  const { mutate: remove } = useRemoveTeamMember({
+    mutation: { onSuccess: () => { toast.success("Member removed"); refetch(); }, onError: () => toast.error("Remove failed") },
+  });
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteForm, setInviteForm] = useState({ name: "", email: "", role: "MEMBER" as "ADMIN" | "MEMBER" });
+
+  return (
+    <>
+      <SectionHeader title="Team" description="Manage who has access to this workspace." />
+      <div className="bg-white border border-paper-200 rounded-lg overflow-hidden">
+        <div className="px-4 py-3 border-b border-paper-200 flex justify-between items-center bg-paper-50">
+          <span className="text-xs font-semibold text-ink-500 uppercase tracking-wide">Members</span>
+          <Button size="sm" className="h-7 text-xs bg-rust-500 hover:bg-rust-600 text-white" onClick={() => setInviteOpen(true)}>
+            <Plus className="h-3.5 w-3.5 mr-1" /> Invite
+          </Button>
+        </div>
+        {isLoading ? (
+          <div className="p-4 space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+        ) : (
+          <div className="divide-y divide-paper-100">
+            {(data ?? []).map(m => (
+              <div key={m.id} className="px-4 py-3 flex items-center gap-3">
+                <div className="h-8 w-8 rounded-full bg-paper-200 flex items-center justify-center font-serif text-sm text-ink-700 shrink-0">
+                  {m.name[0]}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-ink-900">{m.name}</p>
+                  <p className="text-xs text-ink-400 font-mono truncate">{m.email}</p>
+                </div>
+                <Badge className={cn("text-[10px] border", ROLE_STYLES[m.role])}>{m.role}</Badge>
+                <Badge variant="outline" className="text-[10px] border-paper-200 text-ink-500">{m.status}</Badge>
+                {m.role !== "OWNER" && (
+                  <button onClick={() => remove({ userId: m.id })} className="text-ink-300 hover:text-red-400 transition-colors ml-1">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle className="font-serif">Invite team member</DialogTitle></DialogHeader>
+          <div className="space-y-3 py-2">
+            <Field label="Name"><Input value={inviteForm.name} onChange={e => setInviteForm(f => ({ ...f, name: e.target.value }))} /></Field>
+            <Field label="Email"><Input type="email" value={inviteForm.email} onChange={e => setInviteForm(f => ({ ...f, email: e.target.value }))} /></Field>
+            <Field label="Role">
+              <Select value={inviteForm.role} onValueChange={(v: "ADMIN" | "MEMBER") => setInviteForm(f => ({ ...f, role: v }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ADMIN">Admin</SelectItem>
+                  <SelectItem value="MEMBER">Member</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setInviteOpen(false)}>Cancel</Button>
+            <Button className="bg-rust-500 hover:bg-rust-600 text-white" disabled={inviting || !inviteForm.email || !inviteForm.name} onClick={() => invite({ data: inviteForm })}>
+              {inviting ? "Sending…" : "Send Invite"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+// ─── Billing Tab ──────────────────────────────────────────────────────────────
+function BillingTab() {
+  const { data, isLoading } = useGetBilling({ query: { queryKey: ["getBilling"] } });
+
+  if (isLoading) return <FormSkeleton rows={5} />;
+  if (!data) return <div className="text-ink-400 text-sm">Billing data unavailable</div>;
+
+  return (
+    <>
+      <SectionHeader title="Billing & Usage" description="Plan, credits, and invoice history." />
+      <div className="bg-white border border-paper-200 rounded-lg p-5 space-y-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs text-ink-400 uppercase tracking-wide">Current Plan</p>
+            <p className="text-2xl font-serif font-semibold text-ink-900 mt-0.5">{data.plan}</p>
+          </div>
+          <Button size="sm" className="bg-rust-500 hover:bg-rust-600 text-white">Upgrade</Button>
+        </div>
+        <Separator />
+        <UsageBar label="Credits" used={data.creditsTotal - data.creditsRemaining} total={data.creditsTotal} unit="" />
+        <UsageBar label="Sends this month" used={data.sendsThisMonth} total={data.sendsLimit} unit="" />
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-ink-600">Seats</span>
+          <span className="font-mono text-ink-900">{data.seats} / {data.seatsLimit}</span>
+        </div>
+      </div>
+
+      {data.invoices.length > 0 && (
+        <div className="bg-white border border-paper-200 rounded-lg overflow-hidden">
+          <div className="px-4 py-3 border-b border-paper-200 bg-paper-50">
+            <span className="text-xs font-semibold text-ink-500 uppercase tracking-wide">Invoices</span>
+          </div>
+          <div className="divide-y divide-paper-100">
+            {data.invoices.map(inv => (
+              <div key={inv.id} className="px-4 py-3 flex items-center gap-3">
+                <div className="flex-1">
+                  <p className="text-sm text-ink-900">{new Date(inv.date).toLocaleDateString("en-IN", { year: "numeric", month: "short", day: "numeric" })}</p>
+                </div>
+                <span className="font-mono text-sm text-ink-700">${(inv.amount / 100).toFixed(2)}</span>
+                <Badge variant="outline" className={cn("text-[10px] border", inv.status === "paid" ? "bg-green-50 text-green-700 border-green-200" : "bg-paper-100 text-ink-500")}>{inv.status}</Badge>
+                <a href={inv.downloadUrl} className="text-xs text-rust-500 hover:underline">PDF</a>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function UsageBar({ label, used, total, unit }: { label: string; used: number; total: number; unit: string }) {
+  const pct = total > 0 ? Math.round((used / total) * 100) : 0;
+  const color = pct >= 90 ? "bg-rust-500" : pct >= 70 ? "bg-amber-400" : "bg-ink-700";
+  return (
+    <div>
+      <div className="flex justify-between text-sm mb-1.5">
+        <span className="text-ink-600">{label}</span>
+        <span className="font-mono text-ink-900">{used.toLocaleString()}{unit} / {total.toLocaleString()}{unit}</span>
+      </div>
+      <div className="h-2 bg-paper-200 rounded-full overflow-hidden">
+        <div className={cn("h-full rounded-full transition-all", color)} style={{ width: `${pct}%` }} />
+      </div>
+      <p className="text-[10px] text-ink-400 mt-1 text-right">{pct}% used</p>
+    </div>
+  );
+}
+
+// ─── API Keys Tab ─────────────────────────────────────────────────────────────
+function ApiKeysTab() {
+  const { data, isLoading, refetch } = useListApiKeys({ query: { queryKey: ["listApiKeys"] } });
+  const { mutate: create, isPending: creating } = useCreateApiKey({
+    mutation: {
+      onSuccess: (d) => { setNewKey(d.fullKey); refetch(); setKeyName(""); },
+      onError: () => toast.error("Failed to create key"),
+    },
+  });
+  const { mutate: revoke } = useRevokeApiKey({
+    mutation: { onSuccess: () => { toast.success("Key revoked"); refetch(); }, onError: () => toast.error("Revoke failed") },
+  });
+  const [keyName, setKeyName] = useState("");
+  const [newKey, setNewKey] = useState<string | null>(null);
+  const [showNew, setShowNew] = useState(false);
+
+  return (
+    <>
+      <SectionHeader title="API Keys" description="Programmatic access to the Workforce OS API." />
+
+      {newKey && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+          <p className="text-sm font-medium text-green-800 mb-2">API key created — copy it now, it won't be shown again.</p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 font-mono text-xs bg-white border border-green-200 rounded px-3 py-2 break-all">
+              {showNew ? newKey : newKey.replace(/./g, "•")}
+            </code>
+            <button onClick={() => setShowNew(v => !v)} className="text-green-600 hover:text-green-800 shrink-0">
+              {showNew ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+            <button onClick={() => { navigator.clipboard.writeText(newKey); toast.success("Copied!"); }} className="text-green-600 hover:text-green-800 shrink-0">
+              <Copy className="h-4 w-4" />
+            </button>
+          </div>
+          <button onClick={() => setNewKey(null)} className="text-xs text-green-600 mt-2 hover:underline">Dismiss</button>
+        </div>
+      )}
+
+      <div className="bg-white border border-paper-200 rounded-lg overflow-hidden">
+        <div className="px-4 py-3 border-b border-paper-200 bg-paper-50 flex items-center gap-2">
+          <Input
+            placeholder="Key name (e.g. production-webhook)"
+            value={keyName}
+            onChange={e => setKeyName(e.target.value)}
+            className="h-8 text-sm flex-1"
+            onKeyDown={e => e.key === "Enter" && keyName.trim() && create({ data: { name: keyName.trim() } })}
+          />
+          <Button size="sm" className="h-8 text-xs bg-rust-500 hover:bg-rust-600 text-white shrink-0" disabled={creating || !keyName.trim()} onClick={() => create({ data: { name: keyName.trim() } })}>
+            {creating ? "Creating…" : "Create Key"}
+          </Button>
+        </div>
+        {isLoading ? (
+          <div className="p-4 space-y-3">{Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
+        ) : (data ?? []).length === 0 ? (
+          <div className="py-10 text-center text-ink-400 text-sm">No API keys yet.</div>
+        ) : (
+          <div className="divide-y divide-paper-100">
+            {(data ?? []).map(k => (
+              <div key={k.id} className="px-4 py-3 flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-ink-900">{k.name}</p>
+                  <p className="text-xs font-mono text-ink-400">{k.prefix}••••••••</p>
+                </div>
+                <div className="text-right text-xs text-ink-400 shrink-0">
+                  {k.lastUsedAt
+                    ? <span>Last used {new Date(k.lastUsedAt).toLocaleDateString()}</span>
+                    : <span className="text-ink-300">Never used</span>}
+                </div>
+                <button onClick={() => revoke({ id: k.id })} className="text-ink-300 hover:text-red-400 transition-colors ml-1">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+// ─── Notifications Tab ────────────────────────────────────────────────────────
+const NOTIF_EVENTS: { key: keyof NotificationPrefs; label: string; description: string }[] = [
+  { key: "approvalQueueFull", label: "Approval queue full", description: "When pending queue exceeds 10 items." },
+  { key: "sendFailed",        label: "Send failed",         description: "When an approved email bounces or fails." },
+  { key: "suppressionHit",    label: "Suppression hit",     description: "When a lead matches the suppression list." },
+  { key: "weeklyReport",      label: "Weekly report",       description: "Summary of pipeline and outreach metrics." },
+  { key: "newReply",          label: "New reply",           description: "When a prospect replies to an outreach." },
+];
+
+function NotificationsTab() {
+  const { data, isLoading } = useGetNotificationPrefs({ query: { queryKey: ["getNotificationPrefs"] } });
+  const { mutate: update } = useUpdateNotificationPrefs({
+    mutation: { onSuccess: () => toast.success("Preferences saved"), onError: () => toast.error("Save failed") },
+  });
+  const [prefs, setPrefs] = useState<NotificationPrefs>({ emailEnabled: true, slackEnabled: false, approvalQueueFull: true, sendFailed: true, suppressionHit: false, weeklyReport: true, newReply: true });
+  const initialized = useRef(false);
+
+  useEffect(() => {
+    if (data && !initialized.current) { setPrefs({ ...data }); initialized.current = true; }
+  }, [data]);
+
+  const toggle = (key: keyof NotificationPrefs, val: boolean) => {
+    const next = { ...prefs, [key]: val };
+    setPrefs(next);
+    update({ data: next });
+  };
+
+  if (isLoading) return <FormSkeleton rows={7} />;
+
+  return (
+    <>
+      <SectionHeader title="Notifications" description="Choose how you want to be alerted about agent activity." />
+      <div className="bg-white border border-paper-200 rounded-lg p-5 space-y-4">
+        <div>
+          <p className="text-xs font-semibold text-ink-500 uppercase tracking-wide mb-3">Channels</p>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-ink-900">Email notifications</p>
+                <p className="text-xs text-ink-400">Receive alerts at your account email.</p>
+              </div>
+              <Switch checked={prefs.emailEnabled} onCheckedChange={v => toggle("emailEnabled", v)} />
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-ink-900">Slack notifications</p>
+                <p className="text-xs text-ink-400">Requires Slack integration to be connected.</p>
+              </div>
+              <Switch checked={prefs.slackEnabled} onCheckedChange={v => toggle("slackEnabled", v)} />
+            </div>
+          </div>
+        </div>
+        <Separator />
+        <div>
+          <p className="text-xs font-semibold text-ink-500 uppercase tracking-wide mb-3">Events</p>
+          <div className="space-y-3">
+            {NOTIF_EVENTS.map(({ key, label, description }) => (
+              <div key={key} className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-ink-900">{label}</p>
+                  <p className="text-xs text-ink-400">{description}</p>
+                </div>
+                <Switch checked={prefs[key]} onCheckedChange={v => toggle(key, v)} />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Shared helpers ───────────────────────────────────────────────────────────
+function SectionHeader({ title, description }: { title: string; description: string }) {
+  return (
+    <div>
+      <h2 className="font-serif text-xl font-semibold text-ink-900">{title}</h2>
+      <p className="text-sm text-ink-500 mt-0.5">{description}</p>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-sm font-medium text-ink-700">{label}</Label>
+      {children}
+    </div>
+  );
+}
+
+function TwoCol({ children }: { children: React.ReactNode }) {
+  return <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{children}</div>;
+}
+
+function FormSkeleton({ rows }: { rows: number }) {
+  return (
+    <div className="space-y-6">
+      <div><Skeleton className="h-7 w-40 mb-1" /><Skeleton className="h-4 w-64" /></div>
+      <div className="bg-white border border-paper-200 rounded-lg p-5 space-y-4">
+        {Array.from({ length: rows }).map((_, i) => (
+          <div key={i} className="space-y-1.5">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-9 w-full" />
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-function HealthItem({ label, active }: { label: string; active: boolean }) {
-  return (
-    <div className="flex items-center gap-2">
-      <div className={cn("h-2 w-2 rounded-full", active ? "bg-signal-positive" : "bg-ember-400")} />
-      <span className={cn("text-sm", active ? "text-paper-50" : "text-ember-400 font-medium")}>{label}</span>
-    </div>
-  );
-}
+function ChipField({ label, chips, onChange, placeholder }: { label: string; chips: string[]; onChange: (v: string[]) => void; placeholder?: string }) {
+  const [input, setInput] = useState("");
 
-function TabTrigger({ value, icon: Icon, label }: { value: string; icon: any; label: string }) {
+  const add = () => {
+    const val = input.trim();
+    if (val && !chips.includes(val)) { onChange([...chips, val]); }
+    setInput("");
+  };
+
   return (
-    <TabsTrigger 
-      value={value} 
-      className="justify-start gap-3 px-4 py-2.5 font-medium text-ink-700 data-[state=active]:bg-white data-[state=active]:text-ink-900 data-[state=active]:shadow-sm rounded-md transition-all border border-transparent data-[state=active]:border-paper-200 w-full"
-    >
-      <Icon className="h-4 w-4" />
-      {label}
-    </TabsTrigger>
+    <Field label={label}>
+      <div className="flex flex-wrap gap-1.5 p-2 border border-paper-200 rounded-lg min-h-[40px] bg-paper-50">
+        {chips.map(c => (
+          <span key={c} className="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-paper-300 rounded text-xs text-ink-800">
+            {c}
+            <button onClick={() => onChange(chips.filter(x => x !== c))} className="text-ink-300 hover:text-red-400">
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+        <input
+          className="flex-1 min-w-[120px] text-xs bg-transparent outline-none placeholder:text-ink-300 text-ink-900"
+          placeholder={placeholder}
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); add(); } }}
+        />
+      </div>
+      <p className="text-[10px] text-ink-400 mt-1">Press Enter or comma to add</p>
+    </Field>
   );
 }

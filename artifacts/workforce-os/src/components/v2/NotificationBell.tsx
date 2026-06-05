@@ -44,7 +44,8 @@ export function NotificationBell() {
             <div className="divide-y divide-paper-100">
               {notifications?.items.map((n) => (
                 <div key={n.id} className="p-4 hover:bg-paper-50 transition-colors cursor-pointer">
-                  <p className="text-sm text-ink-900 leading-snug">{n.message}</p>
+                  <p className="text-sm text-ink-900 leading-snug font-medium">{n.title}</p>
+                  <p className="text-xs text-ink-500 leading-snug mt-0.5">{n.body}</p>
                   <p className="text-[10px] text-ink-400 mt-1 uppercase font-tabular tracking-wider">
                     {formatDistanceToNow(new Date(n.createdAt), { addSuffix: true })}
                   </p>
