@@ -33,7 +33,7 @@ function daysAgo(d: number): Date {
   return new Date(Date.now() - d * 24 * 60 * 60 * 1000);
 }
 
-function pick<T>(arr: T[]): T {
+function pick<T>(arr: readonly T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
