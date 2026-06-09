@@ -93,18 +93,18 @@ export function AgentActivityStream({ filter = "all", collapsed = false }: Agent
             {!collapsed && (
               <div className="flex flex-col gap-1 min-w-0">
                 <div className="flex items-baseline justify-between gap-2">
-                  <span className="text-xs font-semibold text-ink-900 truncate">
+                  <span className="text-xs font-semibold text-ink-900 dark:text-paper-50 truncate">
                     {event.agentName}
                   </span>
                   <span className="text-[10px] text-ink-400 shrink-0 font-tabular">
                     {formatDistanceToNow(new Date(event.timestamp), { addSuffix: true })}
                   </span>
                 </div>
-                <p className="text-xs text-ink-700 leading-snug">
+                <p className="text-xs text-ink-700 dark:text-ink-300 leading-snug">
                   {event.action}
                 </p>
                 <div className="mt-1">
-                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-paper-200 text-ink-700">
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-paper-200 text-ink-700 dark:text-ink-300">
                     {event.stage}
                   </span>
                 </div>

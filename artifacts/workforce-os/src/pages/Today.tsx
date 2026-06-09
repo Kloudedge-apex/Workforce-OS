@@ -44,9 +44,9 @@ export default function Today() {
   };
 
   return (
-    <div className="flex flex-col h-full bg-paper-50 overflow-hidden">
+    <div className="flex flex-col h-full bg-paper-50 dark:bg-background overflow-hidden">
       {/* Top KPI Grid */}
-      <div className="p-6 border-b border-paper-200 bg-white shrink-0">
+      <div className="p-6 border-b border-paper-200 bg-white dark:bg-card shrink-0">
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <KpiTile
             label="Pending Approval"
@@ -86,8 +86,8 @@ export default function Today() {
       <div className="flex-1 flex flex-col md:flex-row min-h-0">
         {/* Left: Activity Stream */}
         <div className="flex-1 flex flex-col border-r border-paper-200 min-w-0">
-          <div className="p-4 border-b border-paper-200 bg-paper-50 flex items-center justify-between shrink-0">
-            <h3 className="font-serif text-lg text-ink-900">Live Activity</h3>
+          <div className="p-4 border-b border-paper-200 bg-paper-50 dark:bg-card flex items-center justify-between shrink-0">
+            <h3 className="font-serif text-lg text-ink-900 dark:text-paper-50">Live Activity</h3>
             <Tabs value={activeFilter} onValueChange={(v: any) => setActiveFilter(v)} className="h-8">
               <TabsList className="bg-paper-100 h-8">
                 <TabsTrigger value="all" className="text-[10px] px-2 h-6">All</TabsTrigger>
@@ -104,9 +104,9 @@ export default function Today() {
 
         {/* Right: Pending Queue */}
         <div className="w-full md:w-[400px] flex flex-col bg-paper-100 shrink-0 border-l border-paper-200">
-          <div className="p-4 border-b border-paper-200 bg-paper-50 flex items-center justify-between shrink-0">
+          <div className="p-4 border-b border-paper-200 bg-paper-50 dark:bg-card flex items-center justify-between shrink-0">
             <div>
-              <h3 className="font-serif text-lg text-ink-900">Pending Approval</h3>
+              <h3 className="font-serif text-lg text-ink-900 dark:text-paper-50">Pending Approval</h3>
               <p className="text-[10px] text-ink-400 uppercase font-mono tracking-wider">
                 {artifacts.length} Items remaining
               </p>
@@ -115,7 +115,7 @@ export default function Today() {
               <Button 
                 size="sm" 
                 variant="outline" 
-                className="h-8 text-xs bg-white border-rust-200 text-rust-500 hover:bg-rust-50 hover:text-rust-600"
+                className="h-8 text-xs bg-white dark:bg-card border-rust-200 text-rust-500 hover:bg-rust-50 hover:text-rust-600"
                 onClick={handleBulkApprove}
                 disabled={bulkApproveMut.isPending}
               >
@@ -166,7 +166,7 @@ function KpiTile({ label, value, delta, alert, positive }: { label: React.ReactN
         <div className="flex items-baseline gap-2 mt-1">
           <span className={cn(
             "font-tabular text-2xl font-bold tracking-tight",
-            alert ? "text-rust-500" : positive ? "text-signal-positive" : "text-ink-900"
+            alert ? "text-rust-500" : positive ? "text-signal-positive" : "text-ink-900 dark:text-paper-50"
           )}>
             {value}
           </span>
