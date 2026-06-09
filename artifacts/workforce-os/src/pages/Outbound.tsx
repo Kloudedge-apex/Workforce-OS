@@ -21,7 +21,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 import { EmptyState } from "@/components/states/EmptyState";
 import { ErrorState } from "@/components/states/ErrorState";
-import { springHover, useReducedMotionSafe } from "@/lib/motion";
+import { fadeIn, springHover, useReducedMotionSafe } from "@/lib/motion";
 
 export default function Outbound() {
   const [activeTab, setActiveTab] = useState<OutreachArtifactStatus | "ALL">("PENDING_REVIEW");
@@ -89,7 +89,17 @@ export default function Outbound() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 md:p-8">
-              <ArtifactList status={activeTab === "ALL" ? undefined : activeTab} />
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                  key={activeTab}
+                  variants={fadeIn}
+                  initial="hidden"
+                  animate="visible"
+                  exit="exit"
+                >
+                  <ArtifactList status={activeTab === "ALL" ? undefined : activeTab} />
+                </motion.div>
+              </AnimatePresence>
             </div>
           </Tabs>
         </div>
@@ -129,13 +139,34 @@ function ArtifactList({ status }: { status?: OutreachArtifactStatus }) {
   }
 
   if (items.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-32 text-center max-w-md mx-auto opacity-40">
-        <ShieldAlert className="w-16 h-16 text-ink-400 mb-4" />
-        <h3 className="font-serif text-xl text-ink-900 mb-2">Queue Clear</h3>
-        <p className="text-ink-400 text-sm">No items matching this status found.</p>
-      </div>
-    );
+    const empty: Partial<Record<OutreachArtifactStatus, { icon: typeof Inbox; title: string; description: string }>> = {
+      PENDING_REVIEW: {
+        icon: CheckCircle2,
+        title: "Queue clear",
+        description: "No drafts are waiting on your review. New drafts land here as agents finish them.",
+      },
+      APPROVED: {
+        icon: Check,
+        title: "Nothing approved yet",
+        description: "Approved drafts queue here before they send. Approve a pending draft to get started.",
+      },
+      SENT: {
+        icon: Send,
+        title: "No sends yet",
+        description: "Once approved drafts go out, they'll show up here with delivery status.",
+      },
+      REJECTED: {
+        icon: ThumbsDown,
+        title: "No rejections",
+        description: "Drafts you reject — and the reason why — collect here to tune future agent output.",
+      },
+    };
+    const e = (status && empty[status]) || {
+      icon: Inbox,
+      title: "Nothing outbound",
+      description: "No outbound drafts across any status yet. Agents will populate this queue as they run.",
+    };
+    return <EmptyState icon={e.icon} title={e.title} description={e.description} />;
   }
 
   if (status === "SENT") {
