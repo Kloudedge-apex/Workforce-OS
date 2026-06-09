@@ -9,6 +9,7 @@ import { PolicyBadge } from "./PolicyBadge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ChevronDown, Check, X, Edit2, AlertCircle, Quote } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { sanitizeHtml } from "@/lib/sanitize";
 import { toast } from "sonner";
 import { EvidenceTimeline } from "./EvidenceTimeline";
 import { Skeleton } from "../ui/skeleton";
@@ -75,7 +76,7 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
 
   return (
     <>
-      <Card className="p-5">
+      <Card className="p-5 bg-ink-0 border-paper-200 shadow-sm transition-shadow duration-200 hover:shadow-md">
         {/* Header */}
         <div className="flex justify-between items-start mb-4">
           <div className="flex gap-3 items-center">
@@ -103,7 +104,7 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
                 "prose prose-sm prose-ink max-w-none text-ink-700",
                 !bodyExpanded && "max-h-[160px] overflow-hidden"
               )}
-              dangerouslySetInnerHTML={{ __html: artifact.bodyHtml }}
+              dangerouslySetInnerHTML={{ __html: sanitizeHtml(artifact.bodyHtml) }}
             />
             {!bodyExpanded && (
               <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-paper-50 to-transparent flex items-end justify-center pb-1">

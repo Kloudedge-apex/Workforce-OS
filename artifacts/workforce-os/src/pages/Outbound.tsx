@@ -13,10 +13,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
-import { CheckCircle2, ShieldAlert, Check, XCircle, Ban, History } from "lucide-react";
+import { CheckCircle2, ShieldAlert, Check, XCircle, Ban, History, Inbox, Send, ThumbsDown } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useLocation } from "wouter";
+import { motion, AnimatePresence } from "framer-motion";
+import { Stagger, StaggerItem } from "@/components/motion/Stagger";
+import { EmptyState } from "@/components/states/EmptyState";
+import { ErrorState } from "@/components/states/ErrorState";
+import { springHover, useReducedMotionSafe } from "@/lib/motion";
 
 export default function Outbound() {
   const [activeTab, setActiveTab] = useState<OutreachArtifactStatus | "ALL">("PENDING_REVIEW");
@@ -106,7 +111,8 @@ export default function Outbound() {
 
 function ArtifactList({ status }: { status?: OutreachArtifactStatus }) {
   const [, setLocation] = useLocation();
-  const { data: draftsData, isLoading } = useListArtifacts(
+  const reduced = useReducedMotionSafe();
+  const { data: draftsData, isLoading, isError, refetch } = useListArtifacts(
     { status, limit: 20 },
     { query: { refetchInterval: 8000, queryKey: ["listArtifacts", status] } }
   );
@@ -177,12 +183,21 @@ function ArtifactList({ status }: { status?: OutreachArtifactStatus }) {
   }
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6 pb-12">
+    <Stagger className="max-w-3xl mx-auto space-y-6 pb-12">
       {items.map((item) => (
-        <div key={item.id} className="cursor-pointer transition-transform active:scale-[0.98]" onClick={() => setLocation(`/outbound/${item.id}`)}>
-          <ApprovalCard artifact={item} />
-        </div>
+        <StaggerItem key={item.id}>
+          <motion.div
+            className="cursor-pointer"
+            variants={reduced ? undefined : springHover}
+            initial="rest"
+            whileHover="hover"
+            whileTap="tap"
+            onClick={() => setLocation(`/outbound/${item.id}`)}
+          >
+            <ApprovalCard artifact={item} />
+          </motion.div>
+        </StaggerItem>
       ))}
-    </div>
+    </Stagger>
   );
 }
