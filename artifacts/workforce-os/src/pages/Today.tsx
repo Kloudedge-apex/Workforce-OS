@@ -149,7 +149,7 @@ export default function Today() {
 function KpiTile({ label, value, delta, alert, positive }: { label: string; value: string; delta: string; alert?: boolean; positive?: boolean }) {
   const isNegative = delta.startsWith("-");
   return (
-    <Card className="p-4 bg-paper-50 border-paper-200 flex flex-col justify-between shadow-none hover:border-paper-300 transition-colors">
+    <Card className="p-4 bg-ink-0 border-paper-200 flex flex-col justify-between shadow-sm transition-all duration-200 hover:shadow-md hover:border-paper-300 hover:-translate-y-0.5">
       <div>
         <span className="text-[10px] font-bold text-ink-400 uppercase tracking-widest">{label}</span>
         <div className="flex items-baseline gap-2 mt-1">
