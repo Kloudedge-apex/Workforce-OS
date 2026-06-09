@@ -1,32 +1,8 @@
 import React from "react";
 import { useListAgents } from "@workspace/api-client-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SparklineChart } from "@/components/v2/SparklineChart";
 import { cn } from "@/lib/utils";
-
-function SparklineChart({ data }: { data: number[] }) {
-  const max = Math.max(...data, 1);
-  const H = 24;
-  const W = 80;
-  const barW = Math.floor(W / data.length) - 1;
-  return (
-    <svg width={W} height={H} className="shrink-0">
-      {data.map((val, i) => {
-        const h = Math.max(1, Math.round((val / max) * H));
-        return (
-          <rect
-            key={i}
-            x={i * (barW + 1)}
-            y={H - h}
-            width={barW}
-            height={h}
-            className="fill-rust-300"
-            rx="1"
-          />
-        );
-      })}
-    </svg>
-  );
-}
 
 const STATUS_CONFIG = {
   running: { dot: "bg-amber-400 animate-pulse", label: "Running" },
@@ -75,7 +51,7 @@ export default function Agents() {
                       <h3 className="font-serif font-semibold text-ink-900">{agent.name}</h3>
                     </div>
                     <div className="flex items-center gap-3">
-                      <SparklineChart data={(agent.sparklineData ?? []) as number[]} />
+                      <SparklineChart data={agent.sparklineData} />
                       <div className="text-right">
                         <p className="text-xs font-mono text-rust-600 font-semibold">{agent.recentActivityCount}</p>
                         <p className="text-xs text-ink-400">events</p>
