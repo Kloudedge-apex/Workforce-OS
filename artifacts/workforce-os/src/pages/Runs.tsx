@@ -52,7 +52,9 @@ export default function Runs() {
       <div className="sticky top-0 z-10 bg-paper-100 border-b border-paper-200 px-6 py-4 flex items-center justify-between">
         <div>
           <h1 className="font-serif font-semibold text-ink-900 text-lg">Run History</h1>
-          <p className="text-xs text-ink-400 mt-0.5">Agent pipeline executions</p>
+          <p className="text-xs text-ink-400 mt-0.5">
+            <CountUp value={(data?.items ?? []).length} /> agent pipeline executions
+          </p>
         </div>
         <motion.div
           variants={reduced ? undefined : springHover}
@@ -105,11 +107,17 @@ export default function Runs() {
                   <th className="px-4 py-3 w-8" />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-paper-100">
+              <motion.tbody
+                className="divide-y divide-paper-100"
+                variants={reduced ? undefined : staggerContainer}
+                initial={reduced ? undefined : "hidden"}
+                animate={reduced ? undefined : "visible"}
+              >
                 {(data?.items ?? []).map((run) => (
-                  <tr
+                  <motion.tr
                     key={run.id}
-                    className="hover:bg-paper-50 cursor-pointer transition-colors"
+                    variants={reduced ? undefined : staggerItem}
+                    className="group cursor-pointer transition-all duration-200 hover:bg-paper-50 hover:shadow-sm hover:[transform:translateY(-1px)]"
                     onClick={() => navigate(`/runs/${run.id}`)}
                   >
                     <td className="px-4 py-3">
@@ -129,11 +137,11 @@ export default function Runs() {
                       {new Date(run.startedAt).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-3 text-ink-300">
-                      <ChevronRight className="h-4 w-4" />
+                      <ChevronRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-rust-400" />
                     </td>
-                  </tr>
+                  </motion.tr>
                 ))}
-              </tbody>
+              </motion.tbody>
             </table>
           </div>
         )}
