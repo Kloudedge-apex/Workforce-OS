@@ -9,8 +9,12 @@ import { AgentActivityStream } from "@/components/v2/AgentActivityStream";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowUpRight, ArrowDownRight, CheckCircle2 } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, CheckCircle2, Inbox } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CountUp } from "@/components/motion/CountUp";
+import { EmptyState } from "@/components/states/EmptyState";
+import { ErrorState } from "@/components/states/ErrorState";
+import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 import { toast } from "sonner";
 
 export default function Today() {
@@ -46,34 +50,34 @@ export default function Today() {
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <KpiTile
             label="Pending Approval"
-            value={kpisLoading ? "-" : (kpis?.artifactsPending ?? 0).toString()}
+            value={kpisLoading ? "-" : <CountUp value={kpis?.artifactsPending ?? 0} />}
             delta={computeDelta(kpis?.artifactsPending ?? 0, KPI_BASELINE.artifactsPending)}
             alert={!!kpis && kpis.artifactsPending > 5}
           />
           <KpiTile
             label="Sent Today"
-            value={kpisLoading ? "-" : (kpis?.artifactsSentToday ?? 0).toString()}
+            value={kpisLoading ? "-" : <CountUp value={kpis?.artifactsSentToday ?? 0} />}
             delta={computeDelta(kpis?.artifactsSentToday ?? 0, KPI_BASELINE.artifactsSentToday)}
           />
           <KpiTile
             label="Reply Rate 7d"
-            value={kpisLoading ? "-" : `${((kpis?.replyRate7d || 0) * 100).toFixed(1)}%`}
+            value={kpisLoading ? "-" : <CountUp value={(kpis?.replyRate7d ?? 0) * 100} decimals={1} suffix="%" />}
             delta={computeDelta(kpis?.replyRate7d ?? 0, KPI_BASELINE.replyRate7d)}
           />
           <KpiTile
             label="Meetings Booked"
-            value={kpisLoading ? "-" : (kpis?.qualifiedMeetingsBooked ?? 0).toString()}
+            value={kpisLoading ? "-" : <CountUp value={kpis?.qualifiedMeetingsBooked ?? 0} />}
             delta={computeDelta(kpis?.qualifiedMeetingsBooked ?? 0, KPI_BASELINE.qualifiedMeetingsBooked)}
             positive={!!kpis && kpis.qualifiedMeetingsBooked > 0}
           />
           <KpiTile
             label="Leads Sourced"
-            value={kpisLoading ? "-" : (kpis?.leadsSourcedToday ?? 0).toString()}
+            value={kpisLoading ? "-" : <CountUp value={kpis?.leadsSourcedToday ?? 0} />}
             delta={computeDelta(kpis?.leadsSourcedToday ?? 0, KPI_BASELINE.leadsSourcedToday)}
           />
           <KpiTile
             label="Leads Scored"
-            value={kpisLoading ? "-" : (kpis?.leadsScored ?? 0).toString()}
+            value={kpisLoading ? "-" : <CountUp value={kpis?.leadsScored ?? 0} />}
             delta={computeDelta(kpis?.leadsScored ?? 0, KPI_BASELINE.leadsScored)}
           />
         </div>
