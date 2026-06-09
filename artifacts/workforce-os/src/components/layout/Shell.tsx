@@ -17,6 +17,7 @@ import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { Logo, Wordmark } from "@/components/brand/Logo";
 import { useWorkspace, useCurrentUser } from "@/lib/workspace";
 import { cn } from "@/lib/utils";
+import { openCommandPalette } from "@/lib/openCommandPalette";
 
 const NAV_ITEMS = [
   { href: "/today", label: "Today", icon: LayoutDashboard },
@@ -92,7 +93,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button className="hidden md:flex items-center gap-2 px-2 py-1 text-xs text-ink-400 bg-paper-100 border border-paper-200 rounded shadow-sm hover:bg-paper-200 transition-colors mr-2">
+            <button
+              type="button"
+              aria-label="Open command palette"
+              onClick={openCommandPalette}
+              className="hidden md:flex items-center gap-2 px-2 py-1 text-xs text-ink-400 bg-paper-100 border border-paper-200 rounded shadow-sm hover-elevate active-elevate-2 transition-colors mr-2"
+            >
               <span>Search</span>
               <kbd className="font-mono bg-paper-200 px-1 rounded text-[10px]">⌘K</kbd>
             </button>
