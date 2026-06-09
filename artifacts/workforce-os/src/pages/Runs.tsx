@@ -1,17 +1,27 @@
 import React from "react";
 import { useLocation } from "wouter";
+import { motion } from "framer-motion";
 import { useListRuns, useTriggerRun } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Play, ChevronRight } from "lucide-react";
+import { Play, ChevronRight, Loader2, Inbox } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import {
+  staggerContainer,
+  staggerItem,
+  springHover,
+  useReducedMotionSafe,
+} from "@/lib/motion";
+import { CountUp } from "@/components/motion/CountUp";
+import { EmptyState } from "@/components/states/EmptyState";
+import { ErrorState } from "@/components/states/ErrorState";
 
 const STATUS_STYLES: Record<string, string> = {
   COMPLETED: "bg-green-100 text-green-800 border-green-200",
   RUNNING: "bg-amber-100 text-amber-800 border-amber-200 animate-pulse",
-  AWAITING_APPROVAL: "bg-rust-100 text-rust-800 border-rust-200",
+  AWAITING_APPROVAL: "bg-rust-100 text-rust-800 border-rust-200 dark:text-rust-300",
   FAILED: "bg-red-100 text-red-800 border-red-200",
 };
 
@@ -23,7 +33,8 @@ function formatMs(ms: number): string {
 
 export default function Runs() {
   const [, navigate] = useLocation();
-  const { data, isLoading, refetch } = useListRuns(
+  const reduced = useReducedMotionSafe();
+  const { data, isLoading, isError, refetch } = useListRuns(
     { page: 1, limit: 50 },
     { query: { queryKey: ["listRuns"], refetchInterval: 10000 } }
   );
@@ -36,22 +47,36 @@ export default function Runs() {
   });
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto bg-paper-50">
+    <div className="flex flex-col h-full overflow-y-auto bg-paper-50 dark:bg-background">
       {/* Header */}
       <div className="sticky top-0 z-10 bg-paper-100 border-b border-paper-200 px-6 py-4 flex items-center justify-between">
         <div>
-          <h1 className="font-serif font-semibold text-ink-900 text-lg">Run History</h1>
-          <p className="text-xs text-ink-400 mt-0.5">Agent pipeline executions</p>
+          <h1 className="font-serif font-semibold text-ink-900 dark:text-paper-50 text-lg">Run History</h1>
+          <p className="text-xs text-ink-400 mt-0.5">
+            <CountUp value={(data?.items ?? []).length} /> agent pipeline executions
+          </p>
         </div>
-        <Button
-          className="bg-rust-500 hover:bg-rust-600 text-white"
-          size="sm"
-          onClick={() => triggerRun()}
-          disabled={triggering}
+        <motion.div
+          variants={reduced ? undefined : springHover}
+          initial={reduced ? undefined : "rest"}
+          whileHover={reduced ? undefined : "hover"}
+          whileTap={reduced ? undefined : "tap"}
+          className="inline-flex"
         >
-          <Play className="h-4 w-4 mr-2" />
-          {triggering ? "Starting…" : "Trigger Run"}
-        </Button>
+          <Button
+            className="bg-rust-500 hover:bg-rust-600 text-white shadow-sm transition-shadow duration-200 hover:shadow-md"
+            size="sm"
+            onClick={() => triggerRun()}
+            disabled={triggering}
+          >
+            {triggering ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Play className="h-4 w-4 mr-2" />
+            )}
+            {triggering ? "Starting…" : "Trigger Run"}
+          </Button>
+        </motion.div>
       </div>
 
       <div className="p-6">
@@ -61,13 +86,39 @@ export default function Runs() {
               <Skeleton key={i} className="h-16 w-full rounded-lg" />
             ))}
           </div>
+        ) : isError ? (
+          <div className="bg-white dark:bg-card border border-paper-200 rounded-lg shadow-sm">
+            <ErrorState
+              title="Couldn't load run history"
+              description="We hit a snag fetching your pipeline runs. Please try again."
+              onRetry={() => refetch()}
+            />
+          </div>
         ) : (data?.items ?? []).length === 0 ? (
-          <div className="text-center py-16 text-ink-400">
-            <p className="text-sm">No runs yet</p>
-            <p className="text-xs mt-1">Click "Trigger Run" to start your first pipeline run</p>
+          <div className="bg-white dark:bg-card border border-paper-200 rounded-lg shadow-sm">
+            <EmptyState
+              icon={Inbox}
+              title="No runs yet"
+              description="Trigger your first pipeline run to start sourcing leads and drafting outreach."
+              action={
+                <Button
+                  className="bg-rust-500 hover:bg-rust-600 text-white shadow-sm transition-shadow duration-200 hover:shadow-md"
+                  size="sm"
+                  onClick={() => triggerRun()}
+                  disabled={triggering}
+                >
+                  {triggering ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="h-4 w-4 mr-2" />
+                  )}
+                  {triggering ? "Starting…" : "Trigger Run"}
+                </Button>
+              }
+            />
           </div>
         ) : (
-          <div className="bg-white border border-paper-200 rounded-lg overflow-hidden">
+          <div className="bg-white dark:bg-card border border-paper-200 rounded-lg overflow-hidden">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-paper-200 text-left">
@@ -82,11 +133,17 @@ export default function Runs() {
                   <th className="px-4 py-3 w-8" />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-paper-100">
+              <motion.tbody
+                className="divide-y divide-paper-100"
+                variants={reduced ? undefined : staggerContainer}
+                initial={reduced ? undefined : "hidden"}
+                animate={reduced ? undefined : "visible"}
+              >
                 {(data?.items ?? []).map((run) => (
-                  <tr
+                  <motion.tr
                     key={run.id}
-                    className="hover:bg-paper-50 cursor-pointer transition-colors"
+                    variants={reduced ? undefined : staggerItem}
+                    className="group cursor-pointer transition-all duration-200 hover:bg-paper-50 dark:hover:bg-ink-800 hover:shadow-sm hover:[transform:translateY(-1px)]"
                     onClick={() => navigate(`/runs/${run.id}`)}
                   >
                     <td className="px-4 py-3">
@@ -94,11 +151,11 @@ export default function Runs() {
                         {run.status.replace(/_/g, " ")}
                       </Badge>
                     </td>
-                    <td className="px-4 py-3 text-ink-700">
+                    <td className="px-4 py-3 text-ink-700 dark:text-ink-300">
                       {((run.agentsInvolved ?? []) as string[]).join(", ")}
                     </td>
-                    <td className="px-4 py-3 font-mono text-ink-700">{run.leadsSourced}</td>
-                    <td className="px-4 py-3 font-mono text-ink-700">{run.artifactsGenerated}</td>
+                    <td className="px-4 py-3 font-mono text-ink-700 dark:text-ink-300">{run.leadsSourced}</td>
+                    <td className="px-4 py-3 font-mono text-ink-700 dark:text-ink-300">{run.artifactsGenerated}</td>
                     <td className="px-4 py-3 font-mono text-ink-600">{formatMs(run.durationMs)}</td>
                     <td className="px-4 py-3 font-mono text-ink-600">${run.costUsd.toFixed(3)}</td>
                     <td className="px-4 py-3 text-ink-600 capitalize">{run.triggeredBy}</td>
@@ -106,11 +163,11 @@ export default function Runs() {
                       {new Date(run.startedAt).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-3 text-ink-300">
-                      <ChevronRight className="h-4 w-4" />
+                      <ChevronRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-rust-400" />
                     </td>
-                  </tr>
+                  </motion.tr>
                 ))}
-              </tbody>
+              </motion.tbody>
             </table>
           </div>
         )}
