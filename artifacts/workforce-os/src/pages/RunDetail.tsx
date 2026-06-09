@@ -26,6 +26,15 @@ const NODE_ICONS: Record<string, React.ReactNode> = {
   human_action: <User className="h-3.5 w-3.5" />,
 };
 
+// Type-colored markers for the timeline rail (mirrors components/v2/TimelineTree colorMap).
+const NODE_DOT_COLORS: Record<string, string> = {
+  agent_run: "bg-rust-500",
+  llm_call: "bg-signal-info",
+  evaluator: "bg-ember-400",
+  tool_call: "bg-ink-900",
+  human_action: "bg-paper-200 border border-ink-400",
+};
+
 interface TimelineNodeData {
   id: string;
   nodeType: string;
@@ -45,11 +54,20 @@ function TimelineNode({ node, depth = 0 }: { node: TimelineNodeData; depth?: num
   const hasChildren = (node.children ?? []).length > 0;
 
   return (
-    <div className={cn("relative", depth > 0 && "ml-4 pl-4 border-l border-paper-200")}>
+    <div className={cn("relative", depth > 0 && "ml-3 pl-5 border-l-2 border-paper-200")}>
+      {/* Type-colored marker pinned on the connector rail. */}
+      {depth > 0 && (
+        <span
+          className={cn(
+            "absolute left-[-7px] top-3.5 h-3 w-3 rounded-full ring-4 ring-paper-50",
+            NODE_DOT_COLORS[node.nodeType] ?? "bg-ink-400"
+          )}
+        />
+      )}
       <div
         className={cn(
-          "flex items-start gap-3 py-2 px-3 rounded-lg hover:bg-paper-50 transition-colors",
-          hasChildren && "cursor-pointer"
+          "flex items-start gap-3 py-2 px-3 rounded-lg transition-colors hover-elevate",
+          hasChildren && "cursor-pointer active-elevate-2"
         )}
         onClick={() => hasChildren && setExpanded(!expanded)}
       >
@@ -67,7 +85,16 @@ function TimelineNode({ node, depth = 0 }: { node: TimelineNodeData; depth?: num
             <span className="text-sm font-medium text-ink-900">{node.label}</span>
             <span className="text-xs text-ink-400 capitalize">{node.nodeType.replace(/_/g, " ")}</span>
             {node.score != null && (
-              <span className="text-xs font-mono text-green-700 bg-green-50 px-1.5 py-0.5 rounded">
+              <span
+                className={cn(
+                  "text-xs font-mono px-1.5 py-0.5 rounded font-tabular",
+                  node.score >= 0.85
+                    ? "text-signal-positive bg-signal-positive/10"
+                    : node.score >= 0.7
+                      ? "text-ember-500 bg-ember-400/15"
+                      : "text-rust-500 bg-rust-500/10"
+                )}
+              >
                 {Math.round(node.score * 100)}%
               </span>
             )}
@@ -210,7 +237,7 @@ export default function RunDetail() {
 
         {/* Timeline */}
         {(timeline ?? []).length > 0 && (
-          <div className="bg-white border border-paper-200 rounded-lg p-5">
+          <div className="bg-ink-0 border border-paper-200 rounded-xl p-5 shadow-sm">
             <h2 className="font-serif font-semibold text-ink-900 mb-4">Evidence Timeline</h2>
             <div className="space-y-1">
               {(timeline as TimelineNodeData[]).map((node) => (
