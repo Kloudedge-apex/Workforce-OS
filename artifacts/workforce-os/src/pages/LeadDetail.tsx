@@ -1,21 +1,26 @@
 import React from "react";
 import { useGetLead, useTriggerOutbound } from "@workspace/api-client-react";
+import type { Lead } from "@workspace/api-client-react";
 import { useRoute, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { 
-  ChevronLeft, 
-  Sparkles, 
-  Zap, 
-  Clock, 
-  Target, 
+import {
+  ChevronLeft,
+  Sparkles,
+  Zap,
+  Clock,
+  Target,
   Search,
-  MessageSquare
+  MessageSquare,
+  UserX,
 } from "lucide-react";
 import { ScoreRing } from "@/components/v2/ScoreRing";
 import { CohortBadge } from "@/components/v2/CohortBadge";
 import { EmailStatusBadge } from "@/components/v2/EmailStatusBadge";
+import { Stagger, StaggerItem } from "@/components/motion/Stagger";
+import { EmptyState } from "@/components/states/EmptyState";
+import { ErrorState } from "@/components/states/ErrorState";
 import { formatDistanceToNow } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
