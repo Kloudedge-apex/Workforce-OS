@@ -113,9 +113,77 @@ export default function Pipeline() {
                 <SelectItem value="qualified">Qualified</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" size="icon" className="shrink-0 bg-paper-50 border-paper-200">
-              <Filter className="h-4 w-4 text-ink-700" />
-            </Button>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="relative shrink-0 bg-paper-50 border-paper-200 transition-shadow duration-200 hover:shadow-sm active-elevate-2"
+                >
+                  <Filter className="h-4 w-4 text-ink-700" />
+                  {(minScore !== "0" || cohort !== "all") && (
+                    <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-rust-500 ring-2 ring-white dark:ring-card" />
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-64 bg-white dark:bg-card border-paper-200 dark:border-border shadow-md">
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">
+                      Minimum score
+                    </Label>
+                    <RadioGroup
+                      value={minScore}
+                      onValueChange={(v) => { setMinScore(v); setPage(1); }}
+                      className="grid grid-cols-2 gap-2"
+                    >
+                      {[["0", "Any"], ["80", "80+"], ["90", "90+"], ["95", "95+"]].map(([val, label]) => (
+                        <Label
+                          key={val}
+                          htmlFor={`score-${val}`}
+                          className="flex cursor-pointer items-center gap-2 rounded-md border border-paper-200 px-3 py-2 text-sm text-ink-700 dark:text-ink-300 hover-elevate has-[:checked]:border-rust-500 has-[:checked]:text-rust-500"
+                        >
+                          <RadioGroupItem id={`score-${val}`} value={val} className="sr-only" />
+                          <span className="font-tabular">{label}</span>
+                        </Label>
+                      ))}
+                    </RadioGroup>
+                  </div>
+                  <Separator className="bg-paper-200 dark:bg-border" />
+                  <div className="space-y-2">
+                    <Label className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">
+                      Cohort
+                    </Label>
+                    <RadioGroup
+                      value={cohort}
+                      onValueChange={(v) => { setCohort(v); setPage(1); }}
+                      className="grid grid-cols-3 gap-2"
+                    >
+                      {[["all", "All"], ["A", "A"], ["B", "B"]].map(([val, label]) => (
+                        <Label
+                          key={val}
+                          htmlFor={`cohort-${val}`}
+                          className="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-paper-200 px-3 py-2 text-sm text-ink-700 dark:text-ink-300 hover-elevate has-[:checked]:border-rust-500 has-[:checked]:text-rust-500"
+                        >
+                          <RadioGroupItem id={`cohort-${val}`} value={val} className="sr-only" />
+                          <span className="font-mono">{label}</span>
+                        </Label>
+                      ))}
+                    </RadioGroup>
+                  </div>
+                  {(minScore !== "0" || cohort !== "all") && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { setMinScore("0"); setCohort("all"); setPage(1); }}
+                      className="w-full text-ink-400 hover:text-ink-900 dark:hover:text-paper-50"
+                    >
+                      Clear filters
+                    </Button>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
           
           <div className="flex items-center gap-2">
