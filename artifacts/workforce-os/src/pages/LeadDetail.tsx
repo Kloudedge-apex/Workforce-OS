@@ -1,21 +1,26 @@
 import React from "react";
 import { useGetLead, useTriggerOutbound } from "@workspace/api-client-react";
+import type { Lead } from "@workspace/api-client-react";
 import { useRoute, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { 
-  ChevronLeft, 
-  Sparkles, 
-  Zap, 
-  Clock, 
-  Target, 
+import {
+  ChevronLeft,
+  Sparkles,
+  Zap,
+  Clock,
+  Target,
   Search,
-  MessageSquare
+  MessageSquare,
+  UserX,
 } from "lucide-react";
 import { ScoreRing } from "@/components/v2/ScoreRing";
 import { CohortBadge } from "@/components/v2/CohortBadge";
 import { EmailStatusBadge } from "@/components/v2/EmailStatusBadge";
+import { Stagger, StaggerItem } from "@/components/motion/Stagger";
+import { EmptyState } from "@/components/states/EmptyState";
+import { ErrorState } from "@/components/states/ErrorState";
 import { formatDistanceToNow } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -25,7 +30,7 @@ export default function LeadDetail() {
   const [, setLocation] = useLocation();
   const id = params?.id || "";
 
-  const { data: detailData, isLoading } = useGetLead(id, {
+  const { data: detailData, isLoading, isError, refetch } = useGetLead(id, {
     query: { enabled: !!id, queryKey: ["getLead", id] }
   });
 
@@ -54,11 +59,36 @@ export default function LeadDetail() {
     );
   }
 
+  if (isError) {
+    return (
+      <div className="flex h-full flex-col bg-paper-50">
+        <ErrorState
+          title="Couldn't load this lead"
+          description="The lead detail failed to load. Check your connection and try again."
+          onRetry={() => refetch()}
+        />
+      </div>
+    );
+  }
+
   if (!detailData) {
     return (
-      <div className="flex flex-col items-center justify-center h-full">
-        <p className="text-ink-400">Lead not found</p>
-        <Button variant="link" onClick={() => setLocation("/pipeline")}>Back to Pipeline</Button>
+      <div className="flex h-full flex-col bg-paper-50">
+        <EmptyState
+          icon={UserX}
+          title="Lead not found"
+          description="This lead may have been suppressed or removed from the pipeline."
+          action={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setLocation("/pipeline")}
+              className="hover-elevate active-elevate-2 border-paper-200"
+            >
+              Back to Pipeline
+            </Button>
+          }
+        />
       </div>
     );
   }
@@ -79,27 +109,31 @@ export default function LeadDetail() {
           Back to Pipeline
         </Button>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="bg-white border-paper-200">Edit Lead</Button>
-          <Button onClick={handleTrigger} className="bg-rust-500 hover:bg-rust-600 text-white" disabled={triggerMut.isPending}>
+          <Button
+            onClick={handleTrigger}
+            className="bg-rust-500 hover:bg-rust-600 text-white hover-elevate active-elevate-2 transition-colors"
+            disabled={triggerMut.isPending}
+          >
             <Zap className="h-4 w-4 mr-2" />
             Trigger Outbound
           </Button>
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto w-full p-6 md:p-10 space-y-8">
+      <Stagger className="max-w-6xl mx-auto w-full p-6 md:p-10 space-y-8">
         {/* Hero Card */}
-        <Card className="p-8 border-paper-200 shadow-sm overflow-hidden relative">
+        <StaggerItem>
+          <Card className="p-8 bg-ink-0 border-paper-200 shadow-sm transition-shadow duration-200 hover:shadow-md overflow-hidden relative">
           <div className="absolute top-0 right-0 p-8">
             <ScoreRing score={lead.score} size={80} strokeWidth={6} />
           </div>
           <div className="flex flex-col md:flex-row md:items-center gap-6">
-            <div className="h-20 w-20 rounded-full bg-paper-100 border border-paper-200 flex items-center justify-center text-3xl font-serif text-ink-900">
+            <div className="h-20 w-20 rounded-full bg-paper-100 border border-paper-200 flex items-center justify-center text-3xl font-serif text-ink-900 dark:text-paper-50">
               {lead.name.charAt(0)}
             </div>
             <div>
-              <h1 className="font-serif text-3xl font-semibold text-ink-900">{lead.name}</h1>
-              <p className="text-lg text-ink-700 mt-1">{lead.title} @ {lead.company}</p>
+              <h1 className="font-serif text-3xl font-semibold text-ink-900 dark:text-paper-50">{lead.name}</h1>
+              <p className="text-lg text-ink-700 mt-1 dark:text-paper-200">{lead.title} @ {lead.company}</p>
               <div className="flex flex-wrap items-center gap-3 mt-4">
                 <CohortBadge cohort={lead.cohort} />
                 <EmailStatusBadge status={lead.emailStatus} />
@@ -108,44 +142,50 @@ export default function LeadDetail() {
               </div>
             </div>
           </div>
-        </Card>
+          </Card>
+        </StaggerItem>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-8">
-            <section>
-              <div className="flex items-center gap-2 mb-4">
-                <Sparkles className="h-5 w-5 text-rust-500" />
-                <h3 className="font-serif text-xl font-semibold text-ink-900">Research Brief</h3>
-              </div>
-              <Card className="p-6 border-paper-200 bg-white prose prose-ink max-w-none text-ink-700 shadow-sm leading-relaxed">
-                {researchBrief}
-              </Card>
-            </section>
+            <StaggerItem>
+              <section>
+                <div className="flex items-center gap-2 mb-4">
+                  <Sparkles className="h-5 w-5 text-rust-500" />
+                  <h3 className="font-serif text-xl font-semibold text-ink-900">Research Brief</h3>
+                </div>
+                <Card className="p-6 border-paper-200 bg-ink-0 prose prose-ink max-w-none text-ink-700 dark:text-paper-200 shadow-sm transition-shadow duration-200 hover:shadow-md leading-relaxed">
+                  {researchBrief}
+                </Card>
+              </section>
+            </StaggerItem>
 
-            <section>
-              <div className="flex items-center gap-2 mb-4">
-                <Target className="h-5 w-5 text-ink-900" />
-                <h3 className="font-serif text-xl font-semibold text-ink-900">Score Breakdown</h3>
-              </div>
-              <Card className="p-6 border-paper-200 bg-white shadow-sm space-y-6">
-                <ScoreBar label="Firmographic Fit" score={scoreBreakdown.fit} />
-                <ScoreBar label="Intent Signals" score={scoreBreakdown.intent} />
-                <ScoreBar label="Prior Engagement" score={scoreBreakdown.engagement} />
-                <ScoreBar label="Timing / Urgency" score={scoreBreakdown.timing} />
-              </Card>
-            </section>
+            <StaggerItem>
+              <section>
+                <div className="flex items-center gap-2 mb-4">
+                  <Target className="h-5 w-5 text-ink-900" />
+                  <h3 className="font-serif text-xl font-semibold text-ink-900">Score Breakdown</h3>
+                </div>
+                <Card className="p-6 border-paper-200 bg-ink-0 shadow-sm transition-shadow duration-200 hover:shadow-md space-y-6">
+                  <ScoreBar label="Firmographic Fit" score={scoreBreakdown.fit} />
+                  <ScoreBar label="Intent Signals" score={scoreBreakdown.intent} />
+                  <ScoreBar label="Prior Engagement" score={scoreBreakdown.engagement} />
+                  <ScoreBar label="Timing / Urgency" score={scoreBreakdown.timing} />
+                </Card>
+              </section>
+            </StaggerItem>
           </div>
 
           {/* Sidebar */}
           <div className="space-y-8">
-            <section>
-              <div className="flex items-center gap-2 mb-4">
-                <Search className="h-5 w-5 text-ink-400" />
-                <h3 className="font-serif text-lg font-semibold text-ink-900">Recent Evidence</h3>
-              </div>
-              <div className="space-y-4">
-                {recentEvidenceEvents.map((evt) => (
+            <StaggerItem>
+              <section>
+                <div className="flex items-center gap-2 mb-4">
+                  <Search className="h-5 w-5 text-ink-400" />
+                  <h3 className="font-serif text-lg font-semibold text-ink-900">Recent Evidence</h3>
+                </div>
+                <div className="space-y-4">
+                  {recentEvidenceEvents.map((evt) => (
                   <div key={evt.id} className="relative pl-6 pb-4 last:pb-0">
                     <div className="absolute left-0 top-1.5 bottom-0 w-px bg-paper-200" />
                     <div className="absolute left-[-3px] top-1.5 h-1.5 w-1.5 rounded-full bg-rust-500" />
@@ -157,37 +197,50 @@ export default function LeadDetail() {
                     </div>
                   </div>
                 ))}
-              </div>
-            </section>
+                </div>
+              </section>
+            </StaggerItem>
 
-            <Card className="p-6 bg-rust-50 border-rust-100 shadow-sm">
-              <h4 className="font-serif font-semibold text-rust-900 mb-2">Intent Detected</h4>
-              <p className="text-sm text-rust-700 mb-4 leading-snug">
-                Lead recently interacted with your LinkedIn posts and visited your pricing page.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {lead.intentSignals.map((sig, i) => (
-                  <span key={i} className="text-[10px] px-2 py-1 bg-white border border-rust-200 rounded text-rust-600 font-medium">
-                    {sig.label}
-                  </span>
-                ))}
-              </div>
-            </Card>
+            <StaggerItem>
+              <Card className="p-6 bg-rust-50 border-rust-100 shadow-sm transition-shadow duration-200 hover:shadow-md">
+                <h4 className="font-serif font-semibold text-rust-900 dark:text-rust-300 mb-2">
+                  {lead.intentSignals.length ? "Intent Detected" : "Intent Pending"}
+                </h4>
+                <p className="text-sm text-rust-700 dark:text-rust-200 mb-4 leading-snug">
+                  {intentBlurb(lead.intentSignals)}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {lead.intentSignals.map((sig, i) => (
+                    <span
+                      key={i}
+                      className="text-[10px] px-2 py-1 bg-white border border-rust-200 rounded text-rust-600 font-medium"
+                    >
+                      {sig.label}
+                      <span className="ml-1 text-rust-400 font-tabular">
+                        {Math.round(sig.confidence * 100)}%
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              </Card>
+            </StaggerItem>
 
             {lead.lastContactedAt && (
-              <div className="flex items-center gap-3 p-4 bg-paper-100 rounded-lg border border-paper-200">
-                <MessageSquare className="h-4 w-4 text-ink-400" />
-                <div className="text-xs">
-                  <span className="text-ink-400 block uppercase tracking-wider font-mono">Last Contact</span>
-                  <span className="text-ink-900 font-medium">
-                    {formatDistanceToNow(new Date(lead.lastContactedAt), { addSuffix: true })}
-                  </span>
+              <StaggerItem>
+                <div className="flex items-center gap-3 p-4 bg-paper-100 rounded-lg border border-paper-200">
+                  <MessageSquare className="h-4 w-4 text-ink-400" />
+                  <div className="text-xs">
+                    <span className="text-ink-400 block uppercase tracking-wider font-mono">Last Contact</span>
+                    <span className="text-ink-900 font-medium">
+                      {formatDistanceToNow(new Date(lead.lastContactedAt), { addSuffix: true })}
+                    </span>
+                  </div>
                 </div>
-              </div>
+              </StaggerItem>
             )}
           </div>
         </div>
-      </div>
+        </Stagger>
     </div>
   );
 }
@@ -197,16 +250,37 @@ function ScoreBar({ label, score }: { label: string; score: number }) {
   return (
     <div>
       <div className="flex justify-between items-end mb-2">
-        <span className="text-xs font-medium text-ink-700">{label}</span>
-        <span className="text-xs font-tabular font-bold text-ink-900">{score}%</span>
+        <span className="text-xs font-medium text-ink-700 dark:text-paper-200">{label}</span>
+        <span className="text-xs font-tabular font-bold text-ink-900 dark:text-paper-50">{score}%</span>
       </div>
       <div className="h-2 w-full bg-paper-100 rounded-full overflow-hidden">
-        <div 
-          className={cn("h-full rounded-full transition-all duration-500", color)} 
-          style={{ width: `${score}%` }} 
+        <div
+          className={cn("h-full rounded-full transition-all duration-500", color)}
+          style={{ width: `${score}%` }}
         />
       </div>
     </div>
   );
+}
+
+/**
+ * Build a human sentence from the lead's real intent signals (confidence is 0–1).
+ * Falls back to neutral copy when the lead has no signals.
+ */
+function intentBlurb(signals: Lead["intentSignals"]): string {
+  if (!signals.length) {
+    return "No intent signals detected yet. We'll surface them here as evidence arrives.";
+  }
+  const sorted = [...signals].sort((a, b) => b.confidence - a.confidence);
+  const top = sorted[0];
+  const pct = Math.round(top.confidence * 100);
+  const rest = sorted.slice(1, 3).map((s) => s.label);
+  const restPhrase =
+    rest.length === 0
+      ? ""
+      : rest.length === 1
+        ? `, alongside ${rest[0]}`
+        : `, alongside ${rest[0]} and ${rest[1]}`;
+  return `Strongest signal: ${top.label} (${pct}% confidence)${restPhrase}.`;
 }
 

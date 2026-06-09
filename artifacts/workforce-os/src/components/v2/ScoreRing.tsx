@@ -1,5 +1,6 @@
 import React from "react";
 import { cn } from "@/lib/utils";
+import { CountUp } from "@/components/motion/CountUp";
 
 interface ScoreRingProps {
   score: number;
@@ -41,9 +42,10 @@ export function ScoreRing({ score, size = 48, strokeWidth = 4, className }: Scor
           cy={size / 2}
         />
       </svg>
-      <span className="absolute font-tabular text-sm font-bold text-ink-900">
-        {score}
-      </span>
+      <CountUp
+        value={score}
+        className="absolute font-tabular text-sm font-bold text-ink-900 dark:text-paper-50"
+      />
     </div>
   );
 }
