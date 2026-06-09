@@ -1,11 +1,12 @@
 import { Switch, Route, Router as WouterRouter, Redirect, useLocation } from "wouter";
 import { AnimatePresence } from "framer-motion";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, QueryErrorResetBoundary } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Shell } from "@/components/layout/Shell";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { PageTransition } from "@/components/motion/PageTransition";
+import { ErrorBoundary } from "@/components/states/ErrorBoundary";
 import Today from "@/pages/Today";
 import Pipeline from "@/pages/Pipeline";
 import LeadDetail from "@/pages/LeadDetail";
@@ -64,7 +65,13 @@ function App() {
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-            <Router />
+            <QueryErrorResetBoundary>
+              {({ reset }) => (
+                <ErrorBoundary onReset={reset}>
+                  <Router />
+                </ErrorBoundary>
+              )}
+            </QueryErrorResetBoundary>
           </WouterRouter>
           <Toaster position="bottom-right" className="bg-ink-900 text-paper-50 border-none font-sans font-medium" />
         </TooltipProvider>
