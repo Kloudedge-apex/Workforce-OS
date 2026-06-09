@@ -84,6 +84,14 @@ export function CommandPalette() {
             <Inbox className="mr-2 h-4 w-4" />
             <span>Conversations</span>
           </CommandItem>
+          <CommandItem onSelect={() => runCommand(() => setLocation("/runs"))}>
+            <History className="mr-2 h-4 w-4" />
+            <span>Runs</span>
+          </CommandItem>
+          <CommandItem onSelect={() => runCommand(() => setLocation("/agents"))}>
+            <Bot className="mr-2 h-4 w-4" />
+            <span>Agents</span>
+          </CommandItem>
           <CommandItem onSelect={() => runCommand(() => setLocation("/settings"))}>
             <Settings className="mr-2 h-4 w-4" />
             <span>Settings</span>
