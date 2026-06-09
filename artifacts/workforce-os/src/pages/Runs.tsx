@@ -1,12 +1,22 @@
 import React from "react";
 import { useLocation } from "wouter";
+import { motion } from "framer-motion";
 import { useListRuns, useTriggerRun } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Play, ChevronRight } from "lucide-react";
+import { Play, ChevronRight, Loader2, Inbox } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import {
+  staggerContainer,
+  staggerItem,
+  springHover,
+  useReducedMotionSafe,
+} from "@/lib/motion";
+import { CountUp } from "@/components/motion/CountUp";
+import { EmptyState } from "@/components/states/EmptyState";
+import { ErrorState } from "@/components/states/ErrorState";
 
 const STATUS_STYLES: Record<string, string> = {
   COMPLETED: "bg-green-100 text-green-800 border-green-200",
@@ -23,6 +33,7 @@ function formatMs(ms: number): string {
 
 export default function Runs() {
   const [, navigate] = useLocation();
+  const reduced = useReducedMotionSafe();
   const { data, isLoading, refetch } = useListRuns(
     { page: 1, limit: 50 },
     { query: { queryKey: ["listRuns"], refetchInterval: 10000 } }
@@ -43,15 +54,27 @@ export default function Runs() {
           <h1 className="font-serif font-semibold text-ink-900 text-lg">Run History</h1>
           <p className="text-xs text-ink-400 mt-0.5">Agent pipeline executions</p>
         </div>
-        <Button
-          className="bg-rust-500 hover:bg-rust-600 text-white"
-          size="sm"
-          onClick={() => triggerRun()}
-          disabled={triggering}
+        <motion.div
+          variants={reduced ? undefined : springHover}
+          initial={reduced ? undefined : "rest"}
+          whileHover={reduced ? undefined : "hover"}
+          whileTap={reduced ? undefined : "tap"}
+          className="inline-flex"
         >
-          <Play className="h-4 w-4 mr-2" />
-          {triggering ? "Starting…" : "Trigger Run"}
-        </Button>
+          <Button
+            className="bg-rust-500 hover:bg-rust-600 text-white shadow-sm transition-shadow duration-200 hover:shadow-md"
+            size="sm"
+            onClick={() => triggerRun()}
+            disabled={triggering}
+          >
+            {triggering ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Play className="h-4 w-4 mr-2" />
+            )}
+            {triggering ? "Starting…" : "Trigger Run"}
+          </Button>
+        </motion.div>
       </div>
 
       <div className="p-6">
