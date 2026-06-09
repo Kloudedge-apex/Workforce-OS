@@ -128,12 +128,12 @@ export default function LeadDetail() {
             <ScoreRing score={lead.score} size={80} strokeWidth={6} />
           </div>
           <div className="flex flex-col md:flex-row md:items-center gap-6">
-            <div className="h-20 w-20 rounded-full bg-paper-100 border border-paper-200 flex items-center justify-center text-3xl font-serif text-ink-900">
+            <div className="h-20 w-20 rounded-full bg-paper-100 border border-paper-200 flex items-center justify-center text-3xl font-serif text-ink-900 dark:text-paper-50">
               {lead.name.charAt(0)}
             </div>
             <div>
-              <h1 className="font-serif text-3xl font-semibold text-ink-900">{lead.name}</h1>
-              <p className="text-lg text-ink-700 mt-1">{lead.title} @ {lead.company}</p>
+              <h1 className="font-serif text-3xl font-semibold text-ink-900 dark:text-paper-50">{lead.name}</h1>
+              <p className="text-lg text-ink-700 mt-1 dark:text-paper-200">{lead.title} @ {lead.company}</p>
               <div className="flex flex-wrap items-center gap-3 mt-4">
                 <CohortBadge cohort={lead.cohort} />
                 <EmailStatusBadge status={lead.emailStatus} />
@@ -154,7 +154,7 @@ export default function LeadDetail() {
                   <Sparkles className="h-5 w-5 text-rust-500" />
                   <h3 className="font-serif text-xl font-semibold text-ink-900">Research Brief</h3>
                 </div>
-                <Card className="p-6 border-paper-200 bg-ink-0 prose prose-ink max-w-none text-ink-700 shadow-sm transition-shadow duration-200 hover:shadow-md leading-relaxed">
+                <Card className="p-6 border-paper-200 bg-ink-0 prose prose-ink max-w-none text-ink-700 dark:text-paper-200 shadow-sm transition-shadow duration-200 hover:shadow-md leading-relaxed">
                   {researchBrief}
                 </Card>
               </section>
@@ -203,10 +203,10 @@ export default function LeadDetail() {
 
             <StaggerItem>
               <Card className="p-6 bg-rust-50 border-rust-100 shadow-sm transition-shadow duration-200 hover:shadow-md">
-                <h4 className="font-serif font-semibold text-rust-900 mb-2">
+                <h4 className="font-serif font-semibold text-rust-900 dark:text-rust-300 mb-2">
                   {lead.intentSignals.length ? "Intent Detected" : "Intent Pending"}
                 </h4>
-                <p className="text-sm text-rust-700 mb-4 leading-snug">
+                <p className="text-sm text-rust-700 dark:text-rust-200 mb-4 leading-snug">
                   {intentBlurb(lead.intentSignals)}
                 </p>
                 <div className="flex flex-wrap gap-2">
@@ -250,8 +250,8 @@ function ScoreBar({ label, score }: { label: string; score: number }) {
   return (
     <div>
       <div className="flex justify-between items-end mb-2">
-        <span className="text-xs font-medium text-ink-700">{label}</span>
-        <span className="text-xs font-tabular font-bold text-ink-900">{score}%</span>
+        <span className="text-xs font-medium text-ink-700 dark:text-paper-200">{label}</span>
+        <span className="text-xs font-tabular font-bold text-ink-900 dark:text-paper-50">{score}%</span>
       </div>
       <div className="h-2 w-full bg-paper-100 rounded-full overflow-hidden">
         <div

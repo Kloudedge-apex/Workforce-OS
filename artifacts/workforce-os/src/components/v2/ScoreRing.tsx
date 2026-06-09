@@ -44,7 +44,7 @@ export function ScoreRing({ score, size = 48, strokeWidth = 4, className }: Scor
       </svg>
       <CountUp
         value={score}
-        className="absolute font-tabular text-sm font-bold text-ink-900"
+        className="absolute font-tabular text-sm font-bold text-ink-900 dark:text-paper-50"
       />
     </div>
   );
