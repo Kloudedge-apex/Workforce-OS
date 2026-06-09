@@ -1,6 +1,8 @@
 import React, { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { OutreachArtifact, OutreachArtifactStatus } from "@workspace/api-client-react";
 import { useApproveArtifact, useRejectArtifact } from "@workspace/api-client-react";
+import { cardEnter, useReducedMotionSafe } from "@/lib/motion";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -19,6 +21,7 @@ interface ApprovalCardProps {
 }
 
 export function ApprovalCard({ artifact }: ApprovalCardProps) {
+  const reduced = useReducedMotionSafe();
   const [localStatus, setLocalStatus] = useState<OutreachArtifactStatus>(artifact.status);
   const [rejectMode, setRejectMode] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
@@ -51,26 +54,43 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
     }
   };
 
+  const motionProps = reduced
+    ? {}
+    : {
+        variants: cardEnter,
+        initial: "hidden" as const,
+        animate: "visible" as const,
+        exit: "exit" as const,
+      };
+
   if (localStatus === "SENT") {
     return (
-      <Card className="p-4 bg-signal-positive/5 border-signal-positive/20 flex flex-col justify-center items-center text-center animate-in fade-in duration-500">
-        <div className="h-10 w-10 bg-signal-positive rounded-full flex items-center justify-center mb-3">
-          <Check className="h-5 w-5 text-white" />
-        </div>
-        <h4 className="font-serif text-lg text-ink-900">Sent to {artifact.recipient.name}</h4>
-        <p className="text-sm text-ink-700 mt-1">Approval recorded.</p>
-      </Card>
+      <AnimatePresence mode="wait">
+        <motion.div key="sent" {...motionProps}>
+          <Card className="p-4 bg-signal-positive/5 border-signal-positive/20 shadow-sm flex flex-col justify-center items-center text-center">
+            <div className="h-10 w-10 bg-signal-positive rounded-full flex items-center justify-center mb-3">
+              <Check className="h-5 w-5 text-white" />
+            </div>
+            <h4 className="font-serif text-lg text-ink-900">Sent to {artifact.recipient.name}</h4>
+            <p className="text-sm text-ink-700 mt-1">Approval recorded.</p>
+          </Card>
+        </motion.div>
+      </AnimatePresence>
     );
   }
 
   if (localStatus === "REJECTED") {
     return (
-      <Card className="p-4 bg-paper-100 border-paper-200 flex flex-col justify-center items-center text-center animate-in fade-in">
-        <div className="h-10 w-10 bg-ink-400 rounded-full flex items-center justify-center mb-3">
-          <X className="h-5 w-5 text-white" />
-        </div>
-        <h4 className="font-serif text-lg text-ink-900">Rejected draft for {artifact.recipient.name}</h4>
-      </Card>
+      <AnimatePresence mode="wait">
+        <motion.div key="rejected" {...motionProps}>
+          <Card className="p-4 bg-paper-100 border-paper-200 shadow-sm flex flex-col justify-center items-center text-center">
+            <div className="h-10 w-10 bg-ink-400 rounded-full flex items-center justify-center mb-3">
+              <X className="h-5 w-5 text-white" />
+            </div>
+            <h4 className="font-serif text-lg text-ink-900">Rejected draft for {artifact.recipient.name}</h4>
+          </Card>
+        </motion.div>
+      </AnimatePresence>
     );
   }
 
