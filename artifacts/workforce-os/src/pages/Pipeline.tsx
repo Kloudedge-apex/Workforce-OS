@@ -6,29 +6,43 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, Filter, Ban, ChevronLeft, ChevronRight } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Separator } from "@/components/ui/separator";
+import { Search, Filter, Ban, ChevronLeft, ChevronRight, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useLocation } from "wouter";
+import { motion } from "framer-motion";
 import { CohortBadge } from "@/components/v2/CohortBadge";
 import { EmailStatusBadge } from "@/components/v2/EmailStatusBadge";
+import { CountUp } from "@/components/motion/CountUp";
+import { EmptyState } from "@/components/states/EmptyState";
+import { ErrorState } from "@/components/states/ErrorState";
+import { staggerContainer, staggerItem, useReducedMotionSafe } from "@/lib/motion";
 
 export default function Pipeline() {
   const [, setLocation] = useLocation();
+  const reduced = useReducedMotionSafe();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
   const [stage, setStage] = useState<string>("all");
+  const [minScore, setMinScore] = useState<string>("0");
+  const [cohort, setCohort] = useState<string>("all");
   const [page, setPage] = useState(1);
   const limit = 20;
 
-  const { data: leadsData, isLoading: listLoading } = useListLeads(
-    { 
-      q: search || undefined, 
-      stage: stage === "all" ? undefined : stage, 
-      limit, 
-      page 
+  const { data: leadsData, isLoading: listLoading, isError, refetch } = useListLeads(
+    {
+      q: search || undefined,
+      stage: stage === "all" ? undefined : stage,
+      minScore: minScore === "0" ? undefined : Number(minScore),
+      cohort: cohort === "all" ? undefined : cohort,
+      limit,
+      page
     },
-    { query: { queryKey: ["listLeads", search, stage, page] } }
+    { query: { queryKey: ["listLeads", search, stage, minScore, cohort, page] } }
   );
 
   const leads = leadsData?.items || [];
