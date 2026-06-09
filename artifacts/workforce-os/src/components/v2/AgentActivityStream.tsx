@@ -4,6 +4,10 @@ import { useGetActivityStream } from "@workspace/api-client-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDistanceToNow } from "date-fns";
 import { cn } from "@/lib/utils";
+import { Activity } from "lucide-react";
+import { Stagger, StaggerItem } from "@/components/motion/Stagger";
+import { EmptyState } from "@/components/states/EmptyState";
+import { ErrorState } from "@/components/states/ErrorState";
 
 interface AgentActivityStreamProps {
   filter?: "all" | "outbound" | "pipeline" | "conversations";
@@ -20,7 +24,7 @@ const agentColorMap: Record<string, string> = {
 };
 
 export function AgentActivityStream({ filter = "all", collapsed = false }: AgentActivityStreamProps) {
-  const { data: stream, isLoading } = useGetActivityStream(
+  const { data: stream, isLoading, isError, refetch } = useGetActivityStream(
     { filter },
     { query: { refetchInterval: 5000, queryKey: ["getActivityStream", filter] } }
   );
@@ -43,45 +47,72 @@ export function AgentActivityStream({ filter = "all", collapsed = false }: Agent
     );
   }
 
-  if (!stream || stream.length === 0) {
+  if (isError) {
+    if (collapsed) {
+      return (
+        <div className="flex items-center justify-center p-8 text-sm text-signal-critical" role="alert">
+          <span className="h-2 w-2 rounded-full bg-signal-critical" />
+        </div>
+      );
+    }
     return (
-      <div className="flex items-center justify-center p-8 text-sm text-ink-400">
-        <span className="relative flex h-2 w-2 mr-2">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-ink-400 opacity-75"></span>
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-ink-400"></span>
-        </span>
-        {!collapsed && "Agents are idle"}
-      </div>
+      <ErrorState
+        title="Activity feed unavailable"
+        description="We couldn't reach the agent activity stream. It will reconnect automatically — or retry now."
+        onRetry={() => refetch()}
+      />
+    );
+  }
+
+  if (!stream || stream.length === 0) {
+    if (collapsed) {
+      return (
+        <div className="flex items-center justify-center p-8 text-sm text-ink-400">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-ink-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-ink-400"></span>
+          </span>
+        </div>
+      );
+    }
+    return (
+      <EmptyState
+        icon={Activity}
+        title="Agents are idle"
+        description="No activity right now. As your agents source, draft, and send, their work will stream here live."
+      />
     );
   }
 
   return (
-    <div className="flex flex-col p-4 gap-4" aria-live="polite">
-      {stream.map((event: ActivityEvent) => (
-        <div key={event.id} className="flex items-start gap-3 transition-opacity animate-in fade-in duration-300">
-          <div className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", agentColorMap[event.agentType] || "bg-ink-400")} />
-          {!collapsed && (
-            <div className="flex flex-col gap-1 min-w-0">
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="text-xs font-semibold text-ink-900 truncate">
-                  {event.agentName}
-                </span>
-                <span className="text-[10px] text-ink-400 shrink-0 font-tabular">
-                  {formatDistanceToNow(new Date(event.timestamp), { addSuffix: true })}
-                </span>
+    <Stagger className="flex flex-col p-4 gap-4">
+      <div aria-live="polite" className="contents">
+        {stream.map((event: ActivityEvent) => (
+          <StaggerItem key={event.id} className="flex items-start gap-3">
+            <div className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", agentColorMap[event.agentType] || "bg-ink-400")} />
+            {!collapsed && (
+              <div className="flex flex-col gap-1 min-w-0">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-xs font-semibold text-ink-900 truncate">
+                    {event.agentName}
+                  </span>
+                  <span className="text-[10px] text-ink-400 shrink-0 font-tabular">
+                    {formatDistanceToNow(new Date(event.timestamp), { addSuffix: true })}
+                  </span>
+                </div>
+                <p className="text-xs text-ink-700 leading-snug">
+                  {event.action}
+                </p>
+                <div className="mt-1">
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-paper-200 text-ink-700">
+                    {event.stage}
+                  </span>
+                </div>
               </div>
-              <p className="text-xs text-ink-700 leading-snug">
-                {event.action}
-              </p>
-              <div className="mt-1">
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-paper-200 text-ink-700">
-                  {event.stage}
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
+            )}
+          </StaggerItem>
+        ))}
+      </div>
+    </Stagger>
   );
 }
