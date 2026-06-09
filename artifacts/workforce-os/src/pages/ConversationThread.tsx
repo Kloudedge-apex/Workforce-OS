@@ -9,6 +9,9 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { sanitizeHtml } from "@/lib/sanitize";
 import { Stagger, StaggerItem } from "@/components/motion/Stagger";
+import { CountUp } from "@/components/motion/CountUp";
+import { motion } from "framer-motion";
+import { cardEnter, springHover, useReducedMotionSafe } from "@/lib/motion";
 
 const SENTIMENT_STYLES = {
   positive: "bg-green-100 text-green-800 border-green-200",
@@ -18,6 +21,7 @@ const SENTIMENT_STYLES = {
 };
 
 export default function ConversationThread() {
+  const reduced = useReducedMotionSafe();
   const [, params] = useRoute("/conversations/:id");
   const [, navigate] = useLocation();
   const id = params?.id ?? "";
@@ -99,44 +103,63 @@ export default function ConversationThread() {
 
         {/* Reply intelligence sidebar */}
         {ri && (
-          <div className="w-full lg:w-72 shrink-0 border-t lg:border-t-0 lg:border-l border-paper-200 bg-white overflow-y-auto">
+          <motion.div
+            className="w-full lg:w-72 shrink-0 border-t lg:border-t-0 lg:border-l border-paper-200 bg-ink-0 shadow-md overflow-y-auto"
+            variants={reduced ? undefined : cardEnter}
+            initial={reduced ? undefined : "hidden"}
+            animate={reduced ? undefined : "visible"}
+          >
             <div className="p-4 space-y-4">
               <div>
                 <p className="text-xs font-semibold text-ink-500 uppercase tracking-wide mb-2">Reply Intelligence</p>
                 <Badge className={cn("text-xs border", SENTIMENT_STYLES[ri.sentiment])}>
-                  {ri.sentiment} · {Math.round(ri.sentimentConfidence * 100)}%
+                  {ri.sentiment} · <CountUp value={ri.sentimentConfidence * 100} suffix="%" />
                 </Badge>
               </div>
 
               <div>
                 <p className="text-xs font-semibold text-ink-500 uppercase tracking-wide mb-2">Next Best Action</p>
-                <div className="bg-rust-50 border border-rust-200 rounded-lg p-3">
+                <div className="bg-rust-50 border border-rust-200 rounded-lg p-3 shadow-sm">
                   <p className="text-sm text-rust-900">{ri.nextBestAction}</p>
                   <p className="text-xs text-rust-500 mt-1 capitalize">{ri.nextBestActionType?.replace(/_/g, " ")}</p>
                 </div>
               </div>
 
               <div className="space-y-2">
-                <Button
-                  className="w-full bg-rust-500 hover:bg-rust-600 text-white"
-                  size="sm"
-                  onClick={() => draftReply({ id })}
-                  disabled={drafting}
+                <motion.div
+                  variants={reduced ? undefined : springHover}
+                  initial="rest"
+                  whileHover="hover"
+                  whileTap="tap"
                 >
-                  <Sparkles className="h-4 w-4 mr-2" />
-                  {drafting ? "Drafting…" : "Draft Reply"}
-                </Button>
-                <Button
-                  variant="outline"
-                  className="w-full border-paper-300"
-                  size="sm"
-                  onClick={() => archive({ id })}
+                  <Button
+                    className="w-full bg-rust-500 hover:bg-rust-600 text-white"
+                    size="sm"
+                    onClick={() => draftReply({ id })}
+                    disabled={drafting}
+                  >
+                    <Sparkles className="h-4 w-4 mr-2" />
+                    {drafting ? "Drafting…" : "Draft Reply"}
+                  </Button>
+                </motion.div>
+                <motion.div
+                  variants={reduced ? undefined : springHover}
+                  initial="rest"
+                  whileHover="hover"
+                  whileTap="tap"
                 >
-                  <Archive className="h-4 w-4 mr-2" /> Archive
-                </Button>
+                  <Button
+                    variant="outline"
+                    className="w-full border-paper-300"
+                    size="sm"
+                    onClick={() => archive({ id })}
+                  >
+                    <Archive className="h-4 w-4 mr-2" /> Archive
+                  </Button>
+                </motion.div>
               </div>
             </div>
-          </div>
+          </motion.div>
         )}
       </div>
     </div>
