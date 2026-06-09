@@ -34,7 +34,7 @@ function formatMs(ms: number): string {
 export default function Runs() {
   const [, navigate] = useLocation();
   const reduced = useReducedMotionSafe();
-  const { data, isLoading, refetch } = useListRuns(
+  const { data, isLoading, isError, refetch } = useListRuns(
     { page: 1, limit: 50 },
     { query: { queryKey: ["listRuns"], refetchInterval: 10000 } }
   );
@@ -86,10 +86,36 @@ export default function Runs() {
               <Skeleton key={i} className="h-16 w-full rounded-lg" />
             ))}
           </div>
+        ) : isError ? (
+          <div className="bg-white border border-paper-200 rounded-lg shadow-sm">
+            <ErrorState
+              title="Couldn't load run history"
+              description="We hit a snag fetching your pipeline runs. Please try again."
+              onRetry={() => refetch()}
+            />
+          </div>
         ) : (data?.items ?? []).length === 0 ? (
-          <div className="text-center py-16 text-ink-400">
-            <p className="text-sm">No runs yet</p>
-            <p className="text-xs mt-1">Click "Trigger Run" to start your first pipeline run</p>
+          <div className="bg-white border border-paper-200 rounded-lg shadow-sm">
+            <EmptyState
+              icon={Inbox}
+              title="No runs yet"
+              description="Trigger your first pipeline run to start sourcing leads and drafting outreach."
+              action={
+                <Button
+                  className="bg-rust-500 hover:bg-rust-600 text-white shadow-sm transition-shadow duration-200 hover:shadow-md"
+                  size="sm"
+                  onClick={() => triggerRun()}
+                  disabled={triggering}
+                >
+                  {triggering ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="h-4 w-4 mr-2" />
+                  )}
+                  {triggering ? "Starting…" : "Trigger Run"}
+                </Button>
+              }
+            />
           </div>
         ) : (
           <div className="bg-white border border-paper-200 rounded-lg overflow-hidden">
