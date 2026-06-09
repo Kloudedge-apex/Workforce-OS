@@ -12,7 +12,10 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, CheckCircle2, XCircle, ShieldOff } from "lucide-react";
+import { ArrowLeft, CheckCircle2, XCircle, ShieldOff, FileX2 } from "lucide-react";
+import { EmptyState } from "@/components/states/EmptyState";
+import { ErrorState } from "@/components/states/ErrorState";
+import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
@@ -64,7 +67,7 @@ export default function ArtifactDetail() {
   const [rejectReason, setRejectReason] = React.useState("");
   const reduced = useReducedMotionSafe();
 
-  const { data, isLoading, refetch } = useGetArtifact(id, {
+  const { data, isLoading, isError, refetch } = useGetArtifact(id, {
     query: { queryKey: ["getArtifact", id], enabled: !!id },
   });
 
@@ -85,7 +88,35 @@ export default function ArtifactDetail() {
     </div>
   );
 
-  if (!data) return <div className="p-6 text-ink-400">Artifact not found</div>;
+  if (isError) return (
+    <div className="flex h-full items-center justify-center bg-paper-50">
+      <ErrorState
+        title="Couldn't load this draft"
+        description="The artifact failed to load. Check your connection and try again."
+        onRetry={() => refetch()}
+      />
+    </div>
+  );
+
+  if (!data) return (
+    <div className="flex h-full items-center justify-center bg-paper-50">
+      <EmptyState
+        icon={FileX2}
+        title="Artifact not found"
+        description="This draft may have been deleted or never existed."
+        action={
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-paper-300 hover-elevate active-elevate-2"
+            onClick={() => navigate("/outbound")}
+          >
+            <ArrowLeft className="h-4 w-4 mr-1.5" /> Back to Outbound
+          </Button>
+        }
+      />
+    </div>
+  );
 
   const scores = data.evaluatorScores as { pii: number; hallucination: number; citationCoverage: number; toxicity: number };
   const isPending = data.status === "PENDING_REVIEW";
@@ -111,9 +142,9 @@ export default function ArtifactDetail() {
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto w-full p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <Stagger className="max-w-5xl mx-auto w-full p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Email preview */}
-        <div className="lg:col-span-2 space-y-4">
+        <StaggerItem className="lg:col-span-2 space-y-4">
           <motion.div
             className="bg-white border border-paper-200 rounded-xl overflow-hidden shadow-md transition-shadow hover:shadow-lg"
             variants={reduced ? undefined : springHover}
@@ -146,10 +177,10 @@ export default function ArtifactDetail() {
               </div>
             </div>
           )}
-        </div>
+        </StaggerItem>
 
         {/* Sidebar */}
-        <div className="space-y-4">
+        <StaggerItem className="space-y-4">
           {/* Actions */}
           {isPending && (
             <div className="bg-white border border-paper-200 rounded-lg p-4 space-y-2">
@@ -216,8 +247,8 @@ export default function ArtifactDetail() {
               );
             })}
           </div>
-        </div>
-      </div>
+        </StaggerItem>
+      </Stagger>
 
       {/* Reject dialog */}
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
