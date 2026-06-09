@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   useGetOrgSettings, useUpdateOrgSettings, useGetOrgHealth,
   useGetIcpProfile, useUpdateIcpProfile,
@@ -18,7 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
@@ -27,9 +28,14 @@ import {
   Building, Shield, Link as LinkIcon, Users, CreditCard,
   Key, Bell, Map, Layers, Mic, AlertCircle, CheckCircle2,
   ChevronUp, ChevronDown, Plus, Trash2, Copy, Eye, EyeOff, X,
+  KeyRound, Plug, ArrowUpRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { IntegrationLogo } from "@/components/brand/IntegrationLogo";
+import { fadeSlideUp, useReducedMotionSafe } from "@/lib/motion";
+import { CountUp } from "@/components/motion/CountUp";
+import { EmptyState } from "@/components/states/EmptyState";
+import { ErrorState } from "@/components/states/ErrorState";
 import { cn } from "@/lib/utils";
 
 // ─── Tab config ─────────────────────────────────────────────────────────────
@@ -101,17 +107,7 @@ export default function Settings() {
 
         {/* Content */}
         <main className="flex-1 overflow-y-auto p-6 md:p-8">
-          <div className="max-w-3xl mx-auto space-y-6">
-            {activeTab === "org"           && <OrgTab />}
-            {activeTab === "icp"           && <IcpTab />}
-            {activeTab === "cadence"       && <CadenceTab />}
-            {activeTab === "brand"         && <BrandTab />}
-            {activeTab === "integrations"  && <IntegrationsTab />}
-            {activeTab === "team"          && <TeamTab />}
-            {activeTab === "billing"       && <BillingTab />}
-            {activeTab === "apikeys"       && <ApiKeysTab />}
-            {activeTab === "notifications" && <NotificationsTab />}
-          </div>
+          <TabPanel tabId={activeTab} />
         </main>
       </div>
     </div>
@@ -120,16 +116,23 @@ export default function Settings() {
 
 // ─── Health Bar ───────────────────────────────────────────────────────────────
 function HealthBar() {
-  const { data: health, isLoading } = useGetOrgHealth({ query: { queryKey: ["getOrgHealth"] } });
-  if (isLoading) return <div className="h-10 bg-ink-900" />;
-  const ok = !health || health.blockers.length === 0;
+  const { data: health, isLoading, isError } = useGetOrgHealth({ query: { queryKey: ["getOrgHealth"] } });
+  if (isLoading) return <div className="h-10 bg-ink-900 animate-pulse" />;
+  if (isError || !health)
+    return (
+      <div className="shrink-0 px-6 py-2.5 flex items-center gap-3 bg-ember-500">
+        <AlertCircle className="h-4 w-4 text-white shrink-0" />
+        <span className="text-sm text-white font-medium">Health status unavailable — could not reach the workspace health check.</span>
+      </div>
+    );
+  const ok = health.blockers.length === 0;
   return (
     <div className={cn("shrink-0 px-6 py-2.5 flex items-center gap-4 flex-wrap", ok ? "bg-ink-900" : "bg-ember-500")}>
       {ok
         ? <CheckCircle2 className="h-4 w-4 text-green-400 shrink-0" />
         : <AlertCircle className="h-4 w-4 text-white shrink-0" />}
       <span className="text-sm text-white font-medium">
-        {ok ? "Workspace healthy" : `${health!.blockers.length} blocker${health!.blockers.length !== 1 ? "s" : ""}: ${health!.blockers.join(", ")}`}
+        {ok ? "Workspace healthy" : `${health.blockers.length} blocker${health.blockers.length !== 1 ? "s" : ""}: ${health.blockers.join(", ")}`}
       </span>
       {health && (
         <div className="flex items-center gap-4 ml-auto text-xs">
@@ -153,7 +156,7 @@ function HealthDot({ label, ok }: { label: string; ok: boolean }) {
 
 // ─── Org Tab ──────────────────────────────────────────────────────────────────
 function OrgTab() {
-  const { data, isLoading } = useGetOrgSettings({ query: { queryKey: ["getOrgSettings"] } });
+  const { data, isLoading, isError, refetch } = useGetOrgSettings({ query: { queryKey: ["getOrgSettings"] } });
   const { mutate: update, isPending } = useUpdateOrgSettings({
     mutation: { onSuccess: () => toast.success("Settings saved"), onError: () => toast.error("Save failed") },
   });
@@ -173,12 +176,10 @@ function OrgTab() {
     }
   }, [data]);
 
-  if (isLoading) return <FormSkeleton rows={6} />;
-
   return (
-    <>
+    <TabBoundary isLoading={isLoading} isError={isError} onRetry={() => refetch()} skeleton={<FormSkeleton rows={6} />}>
       <SectionHeader title="Organization" description="Core workspace settings and compliance configuration." />
-      <div className="bg-white border border-paper-200 rounded-lg p-5 space-y-4">
+      <SettingsCard className="p-5 space-y-4">
         <TwoCol>
           <Field label="Organization Name">
             <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
@@ -204,12 +205,12 @@ function OrgTab() {
         <Field label="Unsubscribe URL">
           <Input value={form.unsubscribeUrl} onChange={e => setForm(f => ({ ...f, unsubscribeUrl: e.target.value }))} placeholder="https://app.mynoted.ai/unsubscribe" />
         </Field>
-      </div>
+      </SettingsCard>
 
-      <div className="bg-white border border-paper-200 border-l-4 border-l-rust-500 rounded-lg p-5">
+      <SettingsCard className="border-l-4 border-l-rust-500 p-5">
         <div className="flex items-center justify-between">
           <div>
-            <p className="font-medium text-ink-900">Live Send Enabled</p>
+            <p className="font-medium text-ink-900 dark:text-paper-50">Live Send Enabled</p>
             <p className="text-sm text-ink-500 mt-0.5">When off, agents operate in dry-run mode — no emails are dispatched.</p>
           </div>
           <Switch
@@ -217,7 +218,7 @@ function OrgTab() {
             onCheckedChange={v => setForm(f => ({ ...f, liveSendEnabled: v }))}
           />
         </div>
-      </div>
+      </SettingsCard>
 
       <div className="flex justify-end">
         <Button
@@ -228,13 +229,13 @@ function OrgTab() {
           {isPending ? "Saving…" : "Save Changes"}
         </Button>
       </div>
-    </>
+    </TabBoundary>
   );
 }
 
 // ─── ICP Tab ──────────────────────────────────────────────────────────────────
 function IcpTab() {
-  const { data, isLoading } = useGetIcpProfile({ query: { queryKey: ["getIcpProfile"] } });
+  const { data, isLoading, isError, refetch } = useGetIcpProfile({ query: { queryKey: ["getIcpProfile"] } });
   const { mutate: update, isPending } = useUpdateIcpProfile({
     mutation: { onSuccess: () => toast.success("ICP saved"), onError: () => toast.error("Save failed") },
   });
@@ -245,12 +246,10 @@ function IcpTab() {
     if (data && !initialized.current) { setProfile({ ...data }); initialized.current = true; }
   }, [data]);
 
-  if (isLoading) return <FormSkeleton rows={5} />;
-
   return (
-    <>
+    <TabBoundary isLoading={isLoading} isError={isError} onRetry={() => refetch()} skeleton={<FormSkeleton rows={5} />}>
       <SectionHeader title="Ideal Customer Profile" description="Define which leads the SDR agent should source and target." />
-      <div className="bg-white border border-paper-200 rounded-lg p-5 space-y-5">
+      <SettingsCard className="p-5 space-y-5">
         <ChipField label="Industries" chips={profile.industries} onChange={v => setProfile(p => ({ ...p, industries: v }))} placeholder="e.g. SaaS, Fintech" />
         <ChipField label="Target Titles" chips={profile.titles} onChange={v => setProfile(p => ({ ...p, titles: v }))} placeholder="e.g. Head of Growth" />
         <ChipField label="Target Geographies" chips={profile.geos} onChange={v => setProfile(p => ({ ...p, geos: v }))} placeholder="e.g. India, USA, UAE" />
@@ -261,19 +260,19 @@ function IcpTab() {
         <Separator />
         <ChipField label="Seed Domains" chips={profile.seedDomains} onChange={v => setProfile(p => ({ ...p, seedDomains: v }))} placeholder="e.g. acme.com" />
         <ChipField label="Exclusion Domains" chips={profile.exclusionDomains} onChange={v => setProfile(p => ({ ...p, exclusionDomains: v }))} placeholder="e.g. competitor.com" />
-      </div>
+      </SettingsCard>
       <div className="flex justify-end">
         <Button className="bg-rust-500 hover:bg-rust-600 text-white" disabled={isPending} onClick={() => update({ data: profile })}>
           {isPending ? "Saving…" : "Save ICP"}
         </Button>
       </div>
-    </>
+    </TabBoundary>
   );
 }
 
 // ─── Cadence Tab ──────────────────────────────────────────────────────────────
 function CadenceTab() {
-  const { data, isLoading } = useGetCadence({ query: { queryKey: ["getCadence"] } });
+  const { data, isLoading, isError, refetch } = useGetCadence({ query: { queryKey: ["getCadence"] } });
   const { mutate: update, isPending } = useUpdateCadence({
     mutation: { onSuccess: () => toast.success("Cadence saved"), onError: () => toast.error("Save failed") },
   });
@@ -303,14 +302,12 @@ function CadenceTab() {
 
   const removeStage = (idx: number) => setStages(s => s.filter((_, i) => i !== idx).map((st, i) => ({ ...st, position: i })));
 
-  if (isLoading) return <FormSkeleton rows={4} />;
-
   return (
-    <>
+    <TabBoundary isLoading={isLoading} isError={isError} onRetry={() => refetch()} skeleton={<FormSkeleton rows={4} />}>
       <SectionHeader title="Outreach Cadence" description="Define the sequence of touchpoints the Content Agent follows." />
       <div className="space-y-2">
         {stages.map((stage, idx) => (
-          <div key={stage.id} className="bg-white border border-paper-200 rounded-lg p-4 flex items-center gap-3">
+          <SettingsCard key={stage.id} className="p-4 flex items-center gap-3 hover-elevate">
             <div className="flex flex-col gap-0.5">
               <button onClick={() => move(idx, -1)} disabled={idx === 0} className="text-ink-300 hover:text-ink-700 disabled:opacity-20"><ChevronUp className="h-3.5 w-3.5" /></button>
               <button onClick={() => move(idx, 1)} disabled={idx === stages.length - 1} className="text-ink-300 hover:text-ink-700 disabled:opacity-20"><ChevronDown className="h-3.5 w-3.5" /></button>
@@ -339,7 +336,7 @@ function CadenceTab() {
             <button onClick={() => removeStage(idx)} className="text-ink-300 hover:text-red-400 transition-colors">
               <Trash2 className="h-4 w-4" />
             </button>
-          </div>
+          </SettingsCard>
         ))}
         <Button variant="outline" className="w-full border-dashed border-paper-300 text-ink-500 hover:text-ink-900" onClick={addStage}>
           <Plus className="h-4 w-4 mr-2" /> Add Stage
@@ -350,13 +347,13 @@ function CadenceTab() {
           {isPending ? "Saving…" : "Save Cadence"}
         </Button>
       </div>
-    </>
+    </TabBoundary>
   );
 }
 
 // ─── Brand Voice Tab ──────────────────────────────────────────────────────────
 function BrandTab() {
-  const { data, isLoading } = useGetStyleConfig({ query: { queryKey: ["getStyleConfig"] } });
+  const { data, isLoading, isError, refetch } = useGetStyleConfig({ query: { queryKey: ["getStyleConfig"] } });
   const { mutate: update, isPending } = useUpdateStyleConfig({
     mutation: { onSuccess: () => toast.success("Brand voice saved"), onError: () => toast.error("Save failed") },
   });
@@ -374,14 +371,12 @@ function BrandTab() {
     { id: "warm", label: "Warm" },
   ];
 
-  if (isLoading) return <FormSkeleton rows={4} />;
-
   return (
-    <>
+    <TabBoundary isLoading={isLoading} isError={isError} onRetry={() => refetch()} skeleton={<FormSkeleton rows={4} />}>
       <SectionHeader title="Brand Voice" description="Control how the Content Agent writes your outreach." />
-      <div className="bg-white border border-paper-200 rounded-lg p-5 space-y-6">
+      <SettingsCard className="p-5 space-y-6">
         <div>
-          <Label className="text-sm font-medium text-ink-700 mb-3 block">Voice Preset</Label>
+          <Label className="text-sm font-medium text-ink-700 dark:text-ink-300 mb-3 block">Voice Preset</Label>
           <div className="flex flex-wrap gap-2">
             {PRESETS.map(p => (
               <button
@@ -402,7 +397,7 @@ function BrandTab() {
 
         <div>
           <div className="flex justify-between mb-3">
-            <Label className="text-sm font-medium text-ink-700">Tone</Label>
+            <Label className="text-sm font-medium text-ink-700 dark:text-ink-300">Tone</Label>
             <div className="flex gap-4 text-xs text-ink-400">
               <span>Formal</span>
               <span>Conversational</span>
@@ -430,13 +425,13 @@ function BrandTab() {
             placeholder="<p>Best,<br>Nikhil Sood<br>Mynoted</p>"
           />
         </Field>
-      </div>
+      </SettingsCard>
       <div className="flex justify-end">
         <Button className="bg-rust-500 hover:bg-rust-600 text-white" disabled={isPending} onClick={() => update({ data: form })}>
           {isPending ? "Saving…" : "Save Brand Voice"}
         </Button>
       </div>
-    </>
+    </TabBoundary>
   );
 }
 
@@ -456,7 +451,7 @@ const PROVIDER_META: Record<string, { name: string; description: string }> = {
 };
 
 function IntegrationsTab() {
-  const { data, isLoading, refetch } = useListIntegrations({ query: { queryKey: ["listIntegrations"] } });
+  const { data, isLoading, isError, refetch } = useListIntegrations({ query: { queryKey: ["listIntegrations"] } });
   const { mutate: connect, isPending: connecting } = useConnectIntegration({
     mutation: { onSuccess: () => { toast.success("Connected"); refetch(); }, onError: () => toast.error("Connection failed") },
   });
@@ -465,6 +460,8 @@ function IntegrationsTab() {
   });
 
   if (isLoading) return <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-lg" />)}</div>;
+  if (isError) return <ErrorState description="We couldn't load your integrations just now. Please try again." onRetry={() => refetch()} />;
+  if ((data ?? []).length === 0) return <EmptyState icon={Plug} title="No integrations available" description="Connect Gmail, a CRM, or an enrichment provider to power sourcing and outreach." />;
 
   return (
     <>
@@ -474,11 +471,11 @@ function IntegrationsTab() {
           const meta = PROVIDER_META[int.provider] ?? { name: int.provider, description: "" };
           const isConnected = int.status === "connected";
           return (
-            <div key={int.id} className="bg-white border border-paper-200 rounded-lg p-4 flex gap-3">
+            <SettingsCard key={int.id} className="p-4 flex gap-3 hover-elevate">
               <IntegrationLogo provider={int.provider} size={28} className="mt-0.5" />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-0.5">
-                  <span className="text-sm font-semibold text-ink-900">{meta.name}</span>
+                  <span className="text-sm font-semibold text-ink-900 dark:text-paper-50">{meta.name}</span>
                   <Badge className={cn("text-[10px] h-4 px-1.5 border", isConnected ? "bg-green-50 text-green-700 border-green-200" : int.status === "errored" ? "bg-red-50 text-red-600 border-red-200" : "bg-paper-100 text-ink-500 border-paper-200")}>
                     {int.status}
                   </Badge>
@@ -496,7 +493,7 @@ function IntegrationsTab() {
                   {isConnected ? "Disconnect" : "Connect"}
                 </Button>
               </div>
-            </div>
+            </SettingsCard>
           );
         })}
       </div>
@@ -508,11 +505,11 @@ function IntegrationsTab() {
 const ROLE_STYLES: Record<string, string> = {
   OWNER: "bg-ink-900 text-white",
   ADMIN: "bg-rust-100 text-rust-700 border-rust-200",
-  MEMBER: "bg-paper-100 text-ink-700 border-paper-200",
+  MEMBER: "bg-paper-100 text-ink-700 dark:text-paper-50 border-paper-200",
 };
 
 function TeamTab() {
-  const { data, isLoading, refetch } = useListTeamMembers({ query: { queryKey: ["listTeamMembers"] } });
+  const { data, isLoading, isError, refetch } = useListTeamMembers({ query: { queryKey: ["listTeamMembers"] } });
   const { mutate: invite, isPending: inviting } = useInviteTeamMember({
     mutation: { onSuccess: () => { toast.success("Invitation sent"); refetch(); setInviteOpen(false); }, onError: () => toast.error("Invite failed") },
   });
@@ -525,7 +522,7 @@ function TeamTab() {
   return (
     <>
       <SectionHeader title="Team" description="Manage who has access to this workspace." />
-      <div className="bg-white border border-paper-200 rounded-lg overflow-hidden">
+      <SettingsCard className="overflow-hidden">
         <div className="px-4 py-3 border-b border-paper-200 flex justify-between items-center bg-paper-50">
           <span className="text-xs font-semibold text-ink-500 uppercase tracking-wide">Members</span>
           <Button size="sm" className="h-7 text-xs bg-rust-500 hover:bg-rust-600 text-white" onClick={() => setInviteOpen(true)}>
@@ -534,15 +531,17 @@ function TeamTab() {
         </div>
         {isLoading ? (
           <div className="p-4 space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+        ) : isError ? (
+          <ErrorState description="We couldn't load your team just now. Please try again." onRetry={() => refetch()} />
         ) : (
           <div className="divide-y divide-paper-100">
             {(data ?? []).map(m => (
               <div key={m.id} className="px-4 py-3 flex items-center gap-3">
-                <div className="h-8 w-8 rounded-full bg-paper-200 flex items-center justify-center font-serif text-sm text-ink-700 shrink-0">
+                <div className="h-8 w-8 rounded-full bg-paper-200 flex items-center justify-center font-serif text-sm text-ink-700 dark:text-paper-50 shrink-0">
                   {m.name[0]}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-ink-900">{m.name}</p>
+                  <p className="text-sm font-medium text-ink-900 dark:text-paper-50">{m.name}</p>
                   <p className="text-xs text-ink-400 font-mono truncate">{m.email}</p>
                 </div>
                 <Badge className={cn("text-[10px] border", ROLE_STYLES[m.role])}>{m.role}</Badge>
@@ -556,7 +555,7 @@ function TeamTab() {
             ))}
           </div>
         )}
-      </div>
+      </SettingsCard>
 
       <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
         <DialogContent>
@@ -588,51 +587,92 @@ function TeamTab() {
 
 // ─── Billing Tab ──────────────────────────────────────────────────────────────
 function BillingTab() {
-  const { data, isLoading } = useGetBilling({ query: { queryKey: ["getBilling"] } });
+  const { data, isLoading, isError, refetch } = useGetBilling({ query: { queryKey: ["getBilling"] } });
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
 
-  if (isLoading) return <FormSkeleton rows={5} />;
-  if (!data) return <div className="text-ink-400 text-sm">Billing data unavailable</div>;
+  if (!isLoading && !isError && !data) return null; // unreachable; satisfies narrowing
+  const billing = data!; // safe inside boundary
 
   return (
-    <>
+    <TabBoundary
+      isLoading={isLoading}
+      isError={isError || (!isLoading && !data)}
+      onRetry={() => refetch()}
+      skeleton={<FormSkeleton rows={5} />}
+    >
       <SectionHeader title="Billing & Usage" description="Plan, credits, and invoice history." />
-      <div className="bg-white border border-paper-200 rounded-lg p-5 space-y-5">
+      <SettingsCard className="p-5 space-y-5">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs text-ink-400 uppercase tracking-wide">Current Plan</p>
-            <p className="text-2xl font-serif font-semibold text-ink-900 mt-0.5">{data.plan}</p>
+            <p className="text-2xl font-serif font-semibold text-ink-900 dark:text-paper-50 mt-0.5">{billing.plan}</p>
+            <p className="text-xs text-ink-400 mt-1">
+              <CountUp value={billing.creditsRemaining} /> credits remaining
+            </p>
           </div>
-          <Button size="sm" className="bg-rust-500 hover:bg-rust-600 text-white">Upgrade</Button>
+          <Button
+            size="sm"
+            className="bg-rust-500 hover:bg-rust-600 text-white active-elevate-2"
+            onClick={() => setUpgradeOpen(true)}
+          >
+            Upgrade <ArrowUpRight className="h-3.5 w-3.5 ml-1" />
+          </Button>
         </div>
         <Separator />
-        <UsageBar label="Credits" used={data.creditsTotal - data.creditsRemaining} total={data.creditsTotal} unit="" />
-        <UsageBar label="Sends this month" used={data.sendsThisMonth} total={data.sendsLimit} unit="" />
+        <UsageBar label="Credits" used={billing.creditsTotal - billing.creditsRemaining} total={billing.creditsTotal} unit="" />
+        <UsageBar label="Sends this month" used={billing.sendsThisMonth} total={billing.sendsLimit} unit="" />
         <div className="flex items-center justify-between text-sm">
           <span className="text-ink-600">Seats</span>
-          <span className="font-mono text-ink-900">{data.seats} / {data.seatsLimit}</span>
+          <span className="font-mono text-ink-900 dark:text-paper-50">
+            <CountUp value={billing.seats} /> / <CountUp value={billing.seatsLimit} />
+          </span>
         </div>
-      </div>
+      </SettingsCard>
 
-      {data.invoices.length > 0 && (
-        <div className="bg-white border border-paper-200 rounded-lg overflow-hidden">
+      {billing.invoices.length > 0 && (
+        <SettingsCard className="overflow-hidden">
           <div className="px-4 py-3 border-b border-paper-200 bg-paper-50">
             <span className="text-xs font-semibold text-ink-500 uppercase tracking-wide">Invoices</span>
           </div>
           <div className="divide-y divide-paper-100">
-            {data.invoices.map(inv => (
+            {billing.invoices.map(inv => (
               <div key={inv.id} className="px-4 py-3 flex items-center gap-3">
                 <div className="flex-1">
-                  <p className="text-sm text-ink-900">{new Date(inv.date).toLocaleDateString("en-IN", { year: "numeric", month: "short", day: "numeric" })}</p>
+                  <p className="text-sm text-ink-900 dark:text-paper-50">{new Date(inv.date).toLocaleDateString("en-IN", { year: "numeric", month: "short", day: "numeric" })}</p>
                 </div>
-                <span className="font-mono text-sm text-ink-700">${(inv.amount / 100).toFixed(2)}</span>
+                <span className="font-mono text-sm text-ink-700 dark:text-paper-200">${(inv.amount / 100).toFixed(2)}</span>
                 <Badge variant="outline" className={cn("text-[10px] border", inv.status === "paid" ? "bg-green-50 text-green-700 border-green-200" : "bg-paper-100 text-ink-500")}>{inv.status}</Badge>
                 <a href={inv.downloadUrl} className="text-xs text-rust-500 hover:underline">PDF</a>
               </div>
             ))}
           </div>
-        </div>
+        </SettingsCard>
       )}
-    </>
+
+      <Dialog open={upgradeOpen} onOpenChange={setUpgradeOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="font-serif">Upgrade your plan</DialogTitle>
+            <DialogDescription>
+              You're currently on the <span className="font-medium text-ink-900 dark:text-paper-50">{billing.plan}</span> plan.
+              Confirm and our team will reach out to tailor a plan to your sending volume and seats.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUpgradeOpen(false)}>Cancel</Button>
+            <Button
+              className="bg-rust-500 hover:bg-rust-600 text-white"
+              onClick={() => {
+                setUpgradeOpen(false);
+                toast.success("Upgrade request sent — our team will reach out shortly.");
+              }}
+            >
+              Confirm upgrade
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </TabBoundary>
   );
 }
 
@@ -643,7 +683,7 @@ function UsageBar({ label, used, total, unit }: { label: string; used: number; t
     <div>
       <div className="flex justify-between text-sm mb-1.5">
         <span className="text-ink-600">{label}</span>
-        <span className="font-mono text-ink-900">{used.toLocaleString()}{unit} / {total.toLocaleString()}{unit}</span>
+        <span className="font-mono text-ink-900 dark:text-paper-50">{used.toLocaleString()}{unit} / {total.toLocaleString()}{unit}</span>
       </div>
       <div className="h-2 bg-paper-200 rounded-full overflow-hidden">
         <div className={cn("h-full rounded-full transition-all", color)} style={{ width: `${pct}%` }} />
@@ -655,7 +695,7 @@ function UsageBar({ label, used, total, unit }: { label: string; used: number; t
 
 // ─── API Keys Tab ─────────────────────────────────────────────────────────────
 function ApiKeysTab() {
-  const { data, isLoading, refetch } = useListApiKeys({ query: { queryKey: ["listApiKeys"] } });
+  const { data, isLoading, isError, refetch } = useListApiKeys({ query: { queryKey: ["listApiKeys"] } });
   const { mutate: create, isPending: creating } = useCreateApiKey({
     mutation: {
       onSuccess: (d) => { setNewKey(d.fullKey); refetch(); setKeyName(""); },
@@ -691,7 +731,7 @@ function ApiKeysTab() {
         </div>
       )}
 
-      <div className="bg-white border border-paper-200 rounded-lg overflow-hidden">
+      <SettingsCard className="overflow-hidden">
         <div className="px-4 py-3 border-b border-paper-200 bg-paper-50 flex items-center gap-2">
           <Input
             placeholder="Key name (e.g. production-webhook)"
@@ -706,14 +746,20 @@ function ApiKeysTab() {
         </div>
         {isLoading ? (
           <div className="p-4 space-y-3">{Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
+        ) : isError ? (
+          <ErrorState description="We couldn't load your API keys just now. Please try again." onRetry={() => refetch()} />
         ) : (data ?? []).length === 0 ? (
-          <div className="py-10 text-center text-ink-400 text-sm">No API keys yet.</div>
+          <EmptyState
+            icon={KeyRound}
+            title="No API keys yet"
+            description="Create a key above to access the Workforce OS API programmatically."
+          />
         ) : (
           <div className="divide-y divide-paper-100">
             {(data ?? []).map(k => (
               <div key={k.id} className="px-4 py-3 flex items-center gap-3">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-ink-900">{k.name}</p>
+                  <p className="text-sm font-medium text-ink-900 dark:text-paper-50">{k.name}</p>
                   <p className="text-xs font-mono text-ink-400">{k.prefix}••••••••</p>
                 </div>
                 <div className="text-right text-xs text-ink-400 shrink-0">
@@ -728,7 +774,7 @@ function ApiKeysTab() {
             ))}
           </div>
         )}
-      </div>
+      </SettingsCard>
     </>
   );
 }
@@ -743,7 +789,7 @@ const NOTIF_EVENTS: { key: keyof NotificationPrefs; label: string; description: 
 ];
 
 function NotificationsTab() {
-  const { data, isLoading } = useGetNotificationPrefs({ query: { queryKey: ["getNotificationPrefs"] } });
+  const { data, isLoading, isError, refetch } = useGetNotificationPrefs({ query: { queryKey: ["getNotificationPrefs"] } });
   const { mutate: update } = useUpdateNotificationPrefs({
     mutation: { onSuccess: () => toast.success("Preferences saved"), onError: () => toast.error("Save failed") },
   });
@@ -760,25 +806,23 @@ function NotificationsTab() {
     update({ data: next });
   };
 
-  if (isLoading) return <FormSkeleton rows={7} />;
-
   return (
-    <>
+    <TabBoundary isLoading={isLoading} isError={isError} onRetry={() => refetch()} skeleton={<FormSkeleton rows={7} />}>
       <SectionHeader title="Notifications" description="Choose how you want to be alerted about agent activity." />
-      <div className="bg-white border border-paper-200 rounded-lg p-5 space-y-4">
+      <SettingsCard className="p-5 space-y-4">
         <div>
           <p className="text-xs font-semibold text-ink-500 uppercase tracking-wide mb-3">Channels</p>
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-ink-900">Email notifications</p>
+                <p className="text-sm font-medium text-ink-900 dark:text-paper-50">Email notifications</p>
                 <p className="text-xs text-ink-400">Receive alerts at your account email.</p>
               </div>
               <Switch checked={prefs.emailEnabled} onCheckedChange={v => toggle("emailEnabled", v)} />
             </div>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-ink-900">Slack notifications</p>
+                <p className="text-sm font-medium text-ink-900 dark:text-paper-50">Slack notifications</p>
                 <p className="text-xs text-ink-400">Requires Slack integration to be connected.</p>
               </div>
               <Switch checked={prefs.slackEnabled} onCheckedChange={v => toggle("slackEnabled", v)} />
@@ -792,7 +836,7 @@ function NotificationsTab() {
             {NOTIF_EVENTS.map(({ key, label, description }) => (
               <div key={key} className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-ink-900">{label}</p>
+                  <p className="text-sm font-medium text-ink-900 dark:text-paper-50">{label}</p>
                   <p className="text-xs text-ink-400">{description}</p>
                 </div>
                 <Switch checked={prefs[key]} onCheckedChange={v => toggle(key, v)} />
@@ -800,8 +844,50 @@ function NotificationsTab() {
             ))}
           </div>
         </div>
-      </div>
-    </>
+      </SettingsCard>
+    </TabBoundary>
+  );
+}
+
+// ─── Tab panel (per-tab crossfade) ─────────────────────────────────────────────
+/**
+ * Renders the active tab inside an AnimatePresence keyed on `tabId`, so switching
+ * tabs crossfades only the content column while the persistent rail + health bar stay
+ * fixed. The router-level PageTransition keys on the full `/settings/<tab>` location,
+ * which would otherwise crossfade the whole shell on every tab click; keeping the shell
+ * markup identical across tabs makes that outer crossfade a no-op and lets this inner
+ * AnimatePresence own the motion at the correct granularity.
+ */
+function TabPanel({ tabId }: { tabId: TabId }) {
+  const reduced = useReducedMotionSafe();
+  const body = (
+    <div className="max-w-3xl mx-auto space-y-6">
+      {tabId === "org"           && <OrgTab />}
+      {tabId === "icp"           && <IcpTab />}
+      {tabId === "cadence"       && <CadenceTab />}
+      {tabId === "brand"         && <BrandTab />}
+      {tabId === "integrations"  && <IntegrationsTab />}
+      {tabId === "team"          && <TeamTab />}
+      {tabId === "billing"       && <BillingTab />}
+      {tabId === "apikeys"       && <ApiKeysTab />}
+      {tabId === "notifications" && <NotificationsTab />}
+    </div>
+  );
+
+  if (reduced) return body;
+
+  return (
+    <AnimatePresence mode="wait" initial={false}>
+      <motion.div
+        key={tabId}
+        variants={fadeSlideUp}
+        initial="hidden"
+        animate="visible"
+        exit="exit"
+      >
+        {body}
+      </motion.div>
+    </AnimatePresence>
   );
 }
 
@@ -818,7 +904,7 @@ function SectionHeader({ title, description }: { title: string; description: str
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-sm font-medium text-ink-700">{label}</Label>
+      <Label className="text-sm font-medium text-ink-700 dark:text-ink-300">{label}</Label>
       {children}
     </div>
   );
@@ -826,6 +912,53 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function TwoCol({ children }: { children: React.ReactNode }) {
   return <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{children}</div>;
+}
+
+/**
+ * Shared settings surface: warm depth (shadow-sm → shadow-md on hover) on a
+ * dark-mode-safe bg-ink-0 panel. Replaces the flat `bg-white border border-paper-200
+ * rounded-lg` boxes repeated across all nine tabs so the depth language is applied once.
+ */
+function SettingsCard({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div
+      className={cn(
+        "bg-ink-0 border border-paper-200 rounded-lg shadow-sm hover:shadow-md transition-shadow",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+/**
+ * Shared loading/error gate for a settings tab. Renders the skeleton while loading, an
+ * <ErrorState> with retry on query failure, and the tab body otherwise. Centralizes the
+ * error handling that every tab previously omitted (no tab read `isError`).
+ */
+function TabBoundary({
+  isLoading,
+  isError,
+  onRetry,
+  skeleton,
+  children,
+}: {
+  isLoading: boolean;
+  isError: boolean;
+  onRetry: () => void;
+  skeleton: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  if (isLoading) return <>{skeleton}</>;
+  if (isError)
+    return (
+      <ErrorState
+        description="We couldn't load these settings just now. Please try again."
+        onRetry={onRetry}
+      />
+    );
+  return <>{children}</>;
 }
 
 function FormSkeleton({ rows }: { rows: number }) {
