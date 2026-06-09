@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatDistanceToNow, format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { sanitizeHtml } from "@/lib/sanitize";
 import { Sparkles, Bot, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
@@ -40,12 +41,24 @@ export function ConversationThread({ mode, conversation, detail, selected, onSel
     };
 
     return (
-      <div 
+      <div
+        role="button"
+        tabIndex={0}
+        aria-pressed={selected}
         className={cn(
-          "p-4 border-b border-paper-200 cursor-pointer hover:bg-paper-100 transition-colors flex gap-3 relative",
-          selected && "bg-paper-100"
+          "hover-elevate active-elevate-2 p-4 pl-5 border-b border-paper-200 cursor-pointer transition-colors flex gap-3 relative",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rust-500/40 focus-visible:ring-inset",
+          selected
+            ? "bg-paper-100 before:absolute before:left-0 before:top-0 before:bottom-0 before:w-0.5 before:bg-rust-500"
+            : "hover:bg-paper-100/60"
         )}
         onClick={() => onSelect?.(conversation.id)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onSelect?.(conversation.id);
+          }
+        }}
       >
         {conversation.unread && (
           <div className="absolute left-2 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-rust-500" />
@@ -150,9 +163,9 @@ export function ConversationThread({ mode, conversation, detail, selected, onSel
                       {format(new Date(msg.sentAt), "MMM d, h:mm a")}
                     </span>
                   </div>
-                  <div 
+                  <div
                     className="prose prose-sm prose-ink max-w-none text-ink-700 leading-relaxed"
-                    dangerouslySetInnerHTML={{ __html: msg.bodyHtml }}
+                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(msg.bodyHtml) }}
                   />
                 </div>
               </div>
