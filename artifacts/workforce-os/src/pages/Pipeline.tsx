@@ -6,29 +6,43 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, Filter, Ban, ChevronLeft, ChevronRight } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Separator } from "@/components/ui/separator";
+import { Search, Filter, Ban, ChevronLeft, ChevronRight, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useLocation } from "wouter";
+import { motion } from "framer-motion";
 import { CohortBadge } from "@/components/v2/CohortBadge";
 import { EmailStatusBadge } from "@/components/v2/EmailStatusBadge";
+import { CountUp } from "@/components/motion/CountUp";
+import { EmptyState } from "@/components/states/EmptyState";
+import { ErrorState } from "@/components/states/ErrorState";
+import { staggerContainer, staggerItem, useReducedMotionSafe } from "@/lib/motion";
 
 export default function Pipeline() {
   const [, setLocation] = useLocation();
+  const reduced = useReducedMotionSafe();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
   const [stage, setStage] = useState<string>("all");
+  const [minScore, setMinScore] = useState<string>("0");
+  const [cohort, setCohort] = useState<string>("all");
   const [page, setPage] = useState(1);
   const limit = 20;
 
-  const { data: leadsData, isLoading: listLoading } = useListLeads(
-    { 
-      q: search || undefined, 
-      stage: stage === "all" ? undefined : stage, 
-      limit, 
-      page 
+  const { data: leadsData, isLoading: listLoading, isError, refetch } = useListLeads(
+    {
+      q: search || undefined,
+      stage: stage === "all" ? undefined : stage,
+      minScore: minScore === "0" ? undefined : Number(minScore),
+      cohort: cohort === "all" ? undefined : cohort,
+      limit,
+      page
     },
-    { query: { queryKey: ["listLeads", search, stage, page] } }
+    { query: { queryKey: ["listLeads", search, stage, minScore, cohort, page] } }
   );
 
   const leads = leadsData?.items || [];
@@ -99,9 +113,77 @@ export default function Pipeline() {
                 <SelectItem value="qualified">Qualified</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" size="icon" className="shrink-0 bg-paper-50 border-paper-200">
-              <Filter className="h-4 w-4 text-ink-700" />
-            </Button>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="relative shrink-0 bg-paper-50 border-paper-200 transition-shadow duration-200 hover:shadow-sm active-elevate-2"
+                >
+                  <Filter className="h-4 w-4 text-ink-700" />
+                  {(minScore !== "0" || cohort !== "all") && (
+                    <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-rust-500 ring-2 ring-white dark:ring-card" />
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-64 bg-white dark:bg-card border-paper-200 dark:border-border shadow-md">
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">
+                      Minimum score
+                    </Label>
+                    <RadioGroup
+                      value={minScore}
+                      onValueChange={(v) => { setMinScore(v); setPage(1); }}
+                      className="grid grid-cols-2 gap-2"
+                    >
+                      {[["0", "Any"], ["80", "80+"], ["90", "90+"], ["95", "95+"]].map(([val, label]) => (
+                        <Label
+                          key={val}
+                          htmlFor={`score-${val}`}
+                          className="flex cursor-pointer items-center gap-2 rounded-md border border-paper-200 px-3 py-2 text-sm text-ink-700 dark:text-ink-300 hover-elevate has-[:checked]:border-rust-500 has-[:checked]:text-rust-500"
+                        >
+                          <RadioGroupItem id={`score-${val}`} value={val} className="sr-only" />
+                          <span className="font-tabular">{label}</span>
+                        </Label>
+                      ))}
+                    </RadioGroup>
+                  </div>
+                  <Separator className="bg-paper-200 dark:bg-border" />
+                  <div className="space-y-2">
+                    <Label className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">
+                      Cohort
+                    </Label>
+                    <RadioGroup
+                      value={cohort}
+                      onValueChange={(v) => { setCohort(v); setPage(1); }}
+                      className="grid grid-cols-3 gap-2"
+                    >
+                      {[["all", "All"], ["A", "A"], ["B", "B"]].map(([val, label]) => (
+                        <Label
+                          key={val}
+                          htmlFor={`cohort-${val}`}
+                          className="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-paper-200 px-3 py-2 text-sm text-ink-700 dark:text-ink-300 hover-elevate has-[:checked]:border-rust-500 has-[:checked]:text-rust-500"
+                        >
+                          <RadioGroupItem id={`cohort-${val}`} value={val} className="sr-only" />
+                          <span className="font-mono">{label}</span>
+                        </Label>
+                      ))}
+                    </RadioGroup>
+                  </div>
+                  {(minScore !== "0" || cohort !== "all") && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { setMinScore("0"); setCohort("all"); setPage(1); }}
+                      className="w-full text-ink-400 hover:text-ink-900 dark:hover:text-paper-50"
+                    >
+                      Clear filters
+                    </Button>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
           
           <div className="flex items-center gap-2">
@@ -141,7 +223,12 @@ export default function Pipeline() {
               <th className="px-4 py-3 font-semibold text-ink-400 uppercase text-[10px] tracking-wider text-right">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-paper-100">
+          <motion.tbody
+            className="divide-y divide-paper-100"
+            variants={reduced ? undefined : staggerContainer}
+            initial={reduced ? undefined : "hidden"}
+            animate={reduced ? undefined : "visible"}
+          >
             {listLoading ? (
               Array.from({ length: 10 }).map((_, i) => (
                 <tr key={i}>
@@ -155,21 +242,32 @@ export default function Pipeline() {
                   <td className="p-4"><Skeleton className="h-8 w-20 ml-auto" /></td>
                 </tr>
               ))
+            ) : isError ? (
+              <tr>
+                <td colSpan={8} className="p-0">
+                  <ErrorState
+                    title="Couldn't load the pipeline"
+                    description="The leads service didn't respond. Your data is safe — try again."
+                    onRetry={() => refetch()}
+                  />
+                </td>
+              </tr>
             ) : leads.length === 0 ? (
               <tr>
-                <td colSpan={8} className="py-20 text-center text-ink-400">
-                  <div className="flex flex-col items-center">
-                    <Search className="h-12 w-12 opacity-10 mb-4" />
-                    <p className="text-lg font-serif">No leads found</p>
-                    <p className="text-sm">Try adjusting your filters or search query.</p>
-                  </div>
+                <td colSpan={8} className="p-0">
+                  <EmptyState
+                    icon={Search}
+                    title="No leads found"
+                    description="No leads match your current search, stage, or filters. Try widening them — or clear filters to see everything."
+                  />
                 </td>
               </tr>
             ) : (
               leads.map(lead => (
-                <tr 
-                  key={lead.id} 
-                  className="group hover:bg-paper-50 transition-colors cursor-pointer"
+                <motion.tr
+                  key={lead.id}
+                  variants={reduced ? undefined : staggerItem}
+                  className="group cursor-pointer transition-all duration-200 hover:bg-paper-50 hover:shadow-sm hover:[transform:translateY(-1px)]"
                   onClick={() => setLocation(`/pipeline/${lead.id}`)}
                 >
                   <td className="p-4" onClick={e => e.stopPropagation()}>
@@ -187,7 +285,7 @@ export default function Pipeline() {
                     </div>
                   </td>
                   <td className="px-4 py-3 text-center">
-                    <Badge className={cn("font-tabular font-bold h-8 w-10 justify-center", getScoreColor(lead.score))}>
+                    <Badge className={cn("font-tabular font-bold h-8 w-10 justify-center shadow-xs", getScoreColor(lead.score))}>
                       {lead.score}
                     </Badge>
                   </td>
@@ -215,14 +313,20 @@ export default function Pipeline() {
                     </div>
                   </td>
                   <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
-                    <Button variant="ghost" size="sm" className="h-8 text-ink-400 hover:text-ink-900">
-                      Edit
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setLocation(`/pipeline/${lead.id}`)}
+                      className="h-8 gap-1 text-ink-400 transition-all hover:text-rust-500 active:scale-95"
+                    >
+                      View
+                      <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
                     </Button>
                   </td>
-                </tr>
+                </motion.tr>
               ))
             )}
-          </tbody>
+          </motion.tbody>
         </table>
       </div>
 
@@ -231,7 +335,7 @@ export default function Pipeline() {
         <p className="text-xs text-ink-400">
           Showing <span className="font-tabular font-semibold text-ink-900">{(page - 1) * limit + 1}</span>-
           <span className="font-tabular font-semibold text-ink-900">{Math.min(page * limit, total)}</span> of 
-          <span className="font-tabular font-semibold text-ink-900 ml-1">{total}</span> leads
+          <span className="font-tabular font-semibold text-ink-900 ml-1"><CountUp value={total} /></span> leads
         </p>
         <div className="flex items-center gap-2">
           <Button 
