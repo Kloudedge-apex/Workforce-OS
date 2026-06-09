@@ -164,6 +164,12 @@
   --app-font-serif: 'Lora', Georgia, serif;
   --app-font-mono: Menlo, monospace;
   --radius: .5rem;
+
+  /* elevate system — translucent ink overlays for hover/active feedback */
+  --elevate-1: hsl(20 8% 8% / 0.04);
+  --elevate-2: hsl(20 8% 8% / 0.08);
+  --button-outline: hsl(var(--ink-400) / 0.4);
+  --badge-outline: hsl(var(--ink-400) / 0.35);
 }
 
 .dark {
@@ -224,6 +230,12 @@
   --destructive-foreground: 0 0% 100%;
   --input: var(--ink-700);
   --ring: var(--rust-500);
+
+  /* elevate overlays invert to light in dark mode */
+  --elevate-1: hsl(42 30% 98% / 0.06);
+  --elevate-2: hsl(42 30% 98% / 0.12);
+  --button-outline: hsl(var(--ink-300) / 0.4);
+  --badge-outline: hsl(var(--ink-300) / 0.35);
 }
 
 @layer base {
@@ -238,4 +250,26 @@
 
 .font-tabular {
   font-variant-numeric: tabular-nums;
+}
+
+/* elevate utilities — referenced by button.tsx and badge.tsx */
+.hover-elevate,
+.active-elevate-2 {
+  position: relative;
+}
+.hover-elevate::after,
+.active-elevate-2::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background-color: transparent;
+  transition: background-color 0.15s ease;
+}
+.hover-elevate:hover::after {
+  background-color: var(--elevate-1);
+}
+.active-elevate-2:active::after {
+  background-color: var(--elevate-2);
 }
