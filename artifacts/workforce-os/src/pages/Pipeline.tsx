@@ -303,8 +303,14 @@ export default function Pipeline() {
                     </div>
                   </td>
                   <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
-                    <Button variant="ghost" size="sm" className="h-8 text-ink-400 hover:text-ink-900">
-                      Edit
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setLocation(`/pipeline/${lead.id}`)}
+                      className="h-8 gap-1 text-ink-400 transition-all hover:text-rust-500 active:scale-95"
+                    >
+                      View
+                      <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
                     </Button>
                   </td>
                 </motion.tr>
