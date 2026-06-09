@@ -20,7 +20,8 @@ export function CommandPalette() {
     const down = (e: KeyboardEvent) => {
       if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        setOpen((open) => !open);
+        // Synthetic events from openCommandPalette() are not trusted → open-only.
+        setOpen((prev) => (e.isTrusted ? !prev : true));
       }
     };
     document.addEventListener("keydown", down);
