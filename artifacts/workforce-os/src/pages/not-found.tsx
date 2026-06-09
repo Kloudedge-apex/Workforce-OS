@@ -1,21 +1,24 @@
-import { Card, CardContent } from "@/components/ui/card";
-import { AlertCircle } from "lucide-react";
+import { Link } from "wouter";
+import { Compass } from "lucide-react";
+import { EmptyState } from "@/components/states/EmptyState";
+import { Button } from "@/components/ui/button";
 
 export default function NotFound() {
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-gray-50">
-      <Card className="w-full max-w-md mx-4">
-        <CardContent className="pt-6">
-          <div className="flex mb-4 gap-2">
-            <AlertCircle className="h-8 w-8 text-red-500" />
-            <h1 className="text-2xl font-bold text-gray-900">404 Page Not Found</h1>
-          </div>
-
-          <p className="mt-4 text-sm text-gray-600">
-            Did you forget to add the page to the router?
-          </p>
-        </CardContent>
-      </Card>
+    <div className="min-h-[100dvh] w-full flex items-center justify-center bg-paper-50 px-4">
+      <div className="w-full max-w-md text-center">
+        <p className="font-serif text-rust-500 text-6xl font-semibold tracking-tight">404</p>
+        <EmptyState
+          icon={Compass}
+          title="This page wandered off"
+          description="The link is broken or the page has moved. Nothing's lost — let's get you back to where the work is."
+          action={
+            <Button asChild className="bg-rust-500 hover:bg-rust-600 text-white">
+              <Link href="/today">Back to Today</Link>
+            </Button>
+          }
+        />
+      </div>
     </div>
   );
 }
