@@ -20,7 +20,7 @@ import { toast } from "sonner";
 export default function Today() {
   const [activeFilter, setActiveFilter] = useState<"all" | "outbound" | "pipeline" | "conversations">("all");
   
-  const { data: artifactsData, isLoading: artifactsLoading } = useListPendingArtifacts(
+  const { data: artifactsData, isLoading: artifactsLoading, isError: artifactsError, refetch: refetchArtifacts } = useListPendingArtifacts(
     { page: 1, limit: 10 },
     { query: { refetchInterval: 8000, queryKey: ["listPendingArtifacts"] } }
   );
@@ -124,24 +124,32 @@ export default function Today() {
               </Button>
             )}
           </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="flex-1 overflow-y-auto p-4">
             {artifactsLoading ? (
-              <>
+              <div className="space-y-4">
                 <ApprovalCardSkeleton />
                 <ApprovalCardSkeleton />
-              </>
-            ) : artifacts.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-20 text-center opacity-40">
-                <CheckCircle2 className="h-12 w-12 text-ink-400 mb-4" />
-                <h3 className="font-serif text-lg text-ink-900">Queue Clear</h3>
-                <p className="text-xs text-ink-400 max-w-[200px] mt-1">
-                  All agent drafts have been reviewed or processed.
-                </p>
               </div>
+            ) : artifactsError ? (
+              <ErrorState
+                title="Couldn't load the queue"
+                description="The pending-approval queue failed to load. Your drafts are safe — try again."
+                onRetry={() => refetchArtifacts()}
+              />
+            ) : artifacts.length === 0 ? (
+              <EmptyState
+                icon={CheckCircle2}
+                title="Queue clear"
+                description="All agent drafts have been reviewed or processed. New drafts will appear here as agents work."
+              />
             ) : (
-              artifacts.map((a) => (
-                <ApprovalCard key={a.id} artifact={a} />
-              ))
+              <Stagger className="space-y-4">
+                {artifacts.map((a) => (
+                  <StaggerItem key={a.id}>
+                    <ApprovalCard artifact={a} />
+                  </StaggerItem>
+                ))}
+              </Stagger>
             )}
           </div>
         </div>
