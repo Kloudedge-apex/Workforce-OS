@@ -30,7 +30,7 @@ export default function LeadDetail() {
   const [, setLocation] = useLocation();
   const id = params?.id || "";
 
-  const { data: detailData, isLoading } = useGetLead(id, {
+  const { data: detailData, isLoading, isError, refetch } = useGetLead(id, {
     query: { enabled: !!id, queryKey: ["getLead", id] }
   });
 
@@ -59,11 +59,36 @@ export default function LeadDetail() {
     );
   }
 
+  if (isError) {
+    return (
+      <div className="flex h-full flex-col bg-paper-50">
+        <ErrorState
+          title="Couldn't load this lead"
+          description="The lead detail failed to load. Check your connection and try again."
+          onRetry={() => refetch()}
+        />
+      </div>
+    );
+  }
+
   if (!detailData) {
     return (
-      <div className="flex flex-col items-center justify-center h-full">
-        <p className="text-ink-400">Lead not found</p>
-        <Button variant="link" onClick={() => setLocation("/pipeline")}>Back to Pipeline</Button>
+      <div className="flex h-full flex-col bg-paper-50">
+        <EmptyState
+          icon={UserX}
+          title="Lead not found"
+          description="This lead may have been suppressed or removed from the pipeline."
+          action={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setLocation("/pipeline")}
+              className="hover-elevate active-elevate-2 border-paper-200"
+            >
+              Back to Pipeline
+            </Button>
+          }
+        />
       </div>
     );
   }
