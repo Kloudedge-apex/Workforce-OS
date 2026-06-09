@@ -55,7 +55,7 @@ export function Wordmark({ size = 28, className }: WordmarkProps) {
   return (
     <div className={cn("flex items-center gap-2.5 min-w-0", className)}>
       <Logo size={size} />
-      <span className="font-serif font-semibold tracking-tight text-ink-900 text-lg leading-none truncate">
+      <span className="font-serif font-semibold tracking-tight text-ink-900 dark:text-paper-50 text-lg leading-none truncate">
         Nikxius
       </span>
     </div>

@@ -10,10 +10,12 @@ import {
   Bot,
   MoreHorizontal
 } from "lucide-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { CommandPalette } from "@/components/layout/CommandPalette";
 import { NotificationBell } from "@/components/v2/NotificationBell";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
+import { Logo, Wordmark } from "@/components/brand/Logo";
+import { useWorkspace, useCurrentUser } from "@/lib/workspace";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -28,6 +30,8 @@ const NAV_ITEMS = [
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
+  const workspace = useWorkspace();
+  const user = useCurrentUser();
 
   const mobileNavItems = [
     NAV_ITEMS[0], // Today
@@ -42,8 +46,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex w-[220px] flex-col border-r border-paper-200 bg-paper-100 flex-shrink-0">
         <div className="p-4 border-b border-paper-200">
-          <h1 className="font-serif font-semibold text-ink-900 text-lg tracking-tight whitespace-nowrap overflow-hidden text-ellipsis">Mynoted Private Limited</h1>
-          <p className="text-xs text-ink-400 font-mono uppercase">Workspace</p>
+          <Wordmark />
+          <p className="mt-1 text-xs text-ink-400 font-mono uppercase truncate">{workspace.name}</p>
         </div>
         <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
           {NAV_ITEMS.map((item) => {
@@ -67,11 +71,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </nav>
         <div className="p-4 border-t border-paper-200 flex items-center gap-3">
           <Avatar className="h-8 w-8 bg-paper-200 border border-paper-200 text-ink-900">
-            <AvatarFallback className="font-serif bg-transparent text-ink-900">NS</AvatarFallback>
+            {user.avatarUrl && <AvatarImage src={user.avatarUrl} alt={user.name} />}
+            <AvatarFallback className="font-serif bg-transparent text-ink-900 dark:text-paper-50">{user.initials}</AvatarFallback>
           </Avatar>
           <div className="min-w-0">
-            <p className="text-sm font-medium text-ink-900 truncate">Nikhil Sood</p>
-            <p className="text-xs text-ink-400 truncate">Owner</p>
+            <p className="text-sm font-medium text-ink-900 dark:text-paper-50 truncate">{user.name}</p>
+            <p className="text-xs text-ink-400 truncate">{user.role}</p>
           </div>
         </div>
       </aside>
@@ -81,7 +86,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         {/* Topbar */}
         <header className="h-12 border-b border-paper-200 bg-paper-50 flex items-center justify-between px-4 flex-shrink-0">
           <div className="flex items-center gap-2">
-            <span className="md:hidden font-serif font-semibold text-ink-900">Mynoted</span>
+            <Logo size={20} className="md:hidden" />
             <div className="hidden md:flex items-center text-xs text-ink-400">
               <span>{NAV_ITEMS.find(i => location.startsWith(i.href))?.label || "Workspace"}</span>
             </div>
