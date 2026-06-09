@@ -6,12 +6,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, ChevronDown, ChevronRight as ChevronRightIcon, Bot, Zap, FlaskConical, Wrench, User } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { motion } from "framer-motion";
+import { cardEnter, springHover, useReducedMotionSafe } from "@/lib/motion";
+import { Stagger, StaggerItem } from "@/components/motion/Stagger";
+import { CountUp } from "@/components/motion/CountUp";
 
 const STATUS_STYLES: Record<string, string> = {
-  COMPLETED: "bg-green-100 text-green-800 border-green-200",
-  RUNNING: "bg-amber-100 text-amber-800 border-amber-200",
+  COMPLETED: "bg-signal-positive/10 text-signal-positive border-signal-positive/20",
+  RUNNING: "bg-ember-400/15 text-ember-500 border-ember-400/30",
   AWAITING_APPROVAL: "bg-rust-100 text-rust-800 border-rust-200",
-  FAILED: "bg-red-100 text-red-800 border-red-200",
+  FAILED: "bg-rust-500/10 text-rust-500 border-rust-500/20",
 };
 
 const NODE_ICONS: Record<string, React.ReactNode> = {
@@ -96,6 +100,7 @@ function TimelineNode({ node, depth = 0 }: { node: TimelineNodeData; depth?: num
 }
 
 export default function RunDetail() {
+  const reduced = useReducedMotionSafe();
   const [, params] = useRoute("/runs/:id");
   const [, navigate] = useLocation();
   const id = params?.id ?? "";
@@ -131,29 +136,72 @@ export default function RunDetail() {
 
       <div className="max-w-4xl mx-auto w-full p-6 space-y-6">
         {/* Summary */}
-        <div className="bg-white border border-paper-200 rounded-lg p-5">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div>
-              <p className="text-xs text-ink-400 uppercase tracking-wide">Leads sourced</p>
-              <p className="text-xl font-mono font-semibold text-ink-900 mt-1">{run.leadsSourced}</p>
-            </div>
-            <div>
-              <p className="text-xs text-ink-400 uppercase tracking-wide">Drafts generated</p>
-              <p className="text-xl font-mono font-semibold text-ink-900 mt-1">{run.artifactsGenerated}</p>
-            </div>
-            <div>
-              <p className="text-xs text-ink-400 uppercase tracking-wide">Duration</p>
-              <p className="text-xl font-mono font-semibold text-ink-900 mt-1">
-                {run.durationMs > 0 ? `${(run.durationMs / 1000).toFixed(1)}s` : "—"}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-ink-400 uppercase tracking-wide">Cost</p>
-              <p className="text-xl font-mono font-semibold text-ink-900 mt-1">${run.costUsd.toFixed(3)}</p>
-            </div>
-          </div>
-          <div className="mt-4 flex flex-wrap gap-3 text-xs text-ink-500">
-            <span>Agents: {((run.agentsInvolved ?? []) as string[]).join(", ")}</span>
+        <div className="space-y-4">
+          <Stagger className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <StaggerItem>
+              <motion.div
+                className="bg-ink-0 border border-paper-200 rounded-xl p-4 shadow-sm transition-shadow hover:shadow-md"
+                variants={reduced ? undefined : springHover}
+                initial="rest"
+                whileHover="hover"
+              >
+                <p className="text-xs text-ink-400 uppercase tracking-wide">Leads sourced</p>
+                <CountUp
+                  value={run.leadsSourced}
+                  className="block text-xl font-mono font-semibold text-ink-900 mt-1 font-tabular"
+                />
+              </motion.div>
+            </StaggerItem>
+            <StaggerItem>
+              <motion.div
+                className="bg-ink-0 border border-paper-200 rounded-xl p-4 shadow-sm transition-shadow hover:shadow-md"
+                variants={reduced ? undefined : springHover}
+                initial="rest"
+                whileHover="hover"
+              >
+                <p className="text-xs text-ink-400 uppercase tracking-wide">Drafts generated</p>
+                <CountUp
+                  value={run.artifactsGenerated}
+                  className="block text-xl font-mono font-semibold text-ink-900 mt-1 font-tabular"
+                />
+              </motion.div>
+            </StaggerItem>
+            <StaggerItem>
+              <motion.div
+                className="bg-ink-0 border border-paper-200 rounded-xl p-4 shadow-sm transition-shadow hover:shadow-md"
+                variants={reduced ? undefined : springHover}
+                initial="rest"
+                whileHover="hover"
+              >
+                <p className="text-xs text-ink-400 uppercase tracking-wide">Duration</p>
+                {run.durationMs > 0 ? (
+                  <CountUp
+                    value={run.durationMs / 1000}
+                    decimals={1}
+                    suffix="s"
+                    className="block text-xl font-mono font-semibold text-ink-900 mt-1 font-tabular"
+                  />
+                ) : (
+                  <p className="text-xl font-mono font-semibold text-ink-900 mt-1">—</p>
+                )}
+              </motion.div>
+            </StaggerItem>
+            <StaggerItem>
+              <motion.div
+                className="bg-ink-0 border border-paper-200 rounded-xl p-4 shadow-sm transition-shadow hover:shadow-md"
+                variants={reduced ? undefined : springHover}
+                initial="rest"
+                whileHover="hover"
+              >
+                <p className="text-xs text-ink-400 uppercase tracking-wide">Cost</p>
+                <p className="text-xl font-mono font-semibold text-ink-900 mt-1 font-tabular">
+                  $<CountUp value={run.costUsd} decimals={3} />
+                </p>
+              </motion.div>
+            </StaggerItem>
+          </Stagger>
+          <div className="flex flex-wrap gap-3 text-xs text-ink-500">
+            <span>Agents: {run.agentsInvolved.join(", ")}</span>
             <span>Triggered by: {run.triggeredBy}</span>
             <span>Started: {new Date(run.startedAt).toLocaleString()}</span>
             {run.completedAt && <span>Completed: {new Date(run.completedAt).toLocaleString()}</span>}
