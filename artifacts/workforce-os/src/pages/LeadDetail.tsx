@@ -193,19 +193,29 @@ export default function LeadDetail() {
               </div>
             </section>
 
-            <Card className="p-6 bg-rust-50 border-rust-100 shadow-sm">
-              <h4 className="font-serif font-semibold text-rust-900 mb-2">Intent Detected</h4>
-              <p className="text-sm text-rust-700 mb-4 leading-snug">
-                Lead recently interacted with your LinkedIn posts and visited your pricing page.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {lead.intentSignals.map((sig, i) => (
-                  <span key={i} className="text-[10px] px-2 py-1 bg-white border border-rust-200 rounded text-rust-600 font-medium">
-                    {sig.label}
-                  </span>
-                ))}
-              </div>
-            </Card>
+            <StaggerItem>
+              <Card className="p-6 bg-rust-50 border-rust-100 shadow-sm transition-shadow duration-200 hover:shadow-md">
+                <h4 className="font-serif font-semibold text-rust-900 mb-2">
+                  {lead.intentSignals.length ? "Intent Detected" : "Intent Pending"}
+                </h4>
+                <p className="text-sm text-rust-700 mb-4 leading-snug">
+                  {intentBlurb(lead.intentSignals)}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {lead.intentSignals.map((sig, i) => (
+                    <span
+                      key={i}
+                      className="text-[10px] px-2 py-1 bg-white border border-rust-200 rounded text-rust-600 font-medium"
+                    >
+                      {sig.label}
+                      <span className="ml-1 text-rust-400 font-tabular">
+                        {Math.round(sig.confidence * 100)}%
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              </Card>
+            </StaggerItem>
 
             {lead.lastContactedAt && (
               <div className="flex items-center gap-3 p-4 bg-paper-100 rounded-lg border border-paper-200">
@@ -234,12 +244,33 @@ function ScoreBar({ label, score }: { label: string; score: number }) {
         <span className="text-xs font-tabular font-bold text-ink-900">{score}%</span>
       </div>
       <div className="h-2 w-full bg-paper-100 rounded-full overflow-hidden">
-        <div 
-          className={cn("h-full rounded-full transition-all duration-500", color)} 
-          style={{ width: `${score}%` }} 
+        <div
+          className={cn("h-full rounded-full transition-all duration-500", color)}
+          style={{ width: `${score}%` }}
         />
       </div>
     </div>
   );
+}
+
+/**
+ * Build a human sentence from the lead's real intent signals (confidence is 0–1).
+ * Falls back to neutral copy when the lead has no signals.
+ */
+function intentBlurb(signals: Lead["intentSignals"]): string {
+  if (!signals.length) {
+    return "No intent signals detected yet. We'll surface them here as evidence arrives.";
+  }
+  const sorted = [...signals].sort((a, b) => b.confidence - a.confidence);
+  const top = sorted[0];
+  const pct = Math.round(top.confidence * 100);
+  const rest = sorted.slice(1, 3).map((s) => s.label);
+  const restPhrase =
+    rest.length === 0
+      ? ""
+      : rest.length === 1
+        ? `, alongside ${rest[0]}`
+        : `, alongside ${rest[0]} and ${rest[1]}`;
+  return `Strongest signal: ${top.label} (${pct}% confidence)${restPhrase}.`;
 }
 
