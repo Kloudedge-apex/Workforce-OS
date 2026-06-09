@@ -7,7 +7,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/states/EmptyState";
 import { ErrorState } from "@/components/states/ErrorState";
 import { Stagger, StaggerItem } from "@/components/motion/Stagger";
-import { Search, Inbox, SearchX } from "lucide-react";
+import { motion } from "framer-motion";
+import { cardEnter, useReducedMotionSafe } from "@/lib/motion";
+import { Search, Inbox, SearchX, MessageSquareText } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const FILTERS = [
@@ -21,6 +23,7 @@ export default function Conversations() {
   const [activeFilter, setActiveFilter] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const reduced = useReducedMotionSafe();
 
   const queryParams: any = { limit: 50 };
   if (activeFilter === "needs_reply") queryParams.needsReply = true;
@@ -58,8 +61,8 @@ export default function Conversations() {
     <div className="flex h-full min-w-0">
       {/* Thread List (Left) */}
       <div className="w-full md:w-[40%] md:min-w-[320px] md:max-w-[420px] border-r border-paper-200 bg-paper-50 flex flex-col h-full shrink-0">
-        <div className="p-4 border-b border-paper-200 space-y-4 shrink-0 bg-white">
-          <h2 className="font-serif text-2xl font-semibold text-ink-900">Inbox</h2>
+        <div className="p-4 border-b border-paper-200 space-y-4 shrink-0 bg-ink-0 shadow-sm z-10">
+          <h2 className="font-serif text-2xl font-semibold text-ink-900 dark:text-paper-50">Inbox</h2>
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-ink-400" />
             <Input
@@ -140,11 +143,11 @@ export default function Conversations() {
       {/* Detail View (Right) */}
       <div className="hidden md:flex flex-col flex-1 bg-paper-50 min-w-0">
         {!selectedId ? (
-          <div className="flex flex-col items-center justify-center h-full text-ink-400">
-            <Inbox className="w-16 h-16 mb-4 opacity-10" />
-            <h3 className="font-serif text-xl text-ink-900 mb-2">No conversation selected</h3>
-            <p className="text-sm max-w-sm text-center">Select a thread from the list to view the full message history and AI analysis.</p>
-          </div>
+          <EmptyState
+            icon={MessageSquareText}
+            title="No conversation selected"
+            description="Select a thread from the list to view the full message history and AI analysis."
+          />
         ) : detailLoading || !detailData ? (
           <div className="p-6 space-y-6 h-full flex flex-col">
             <Skeleton className="h-16 w-full" />
@@ -154,7 +157,15 @@ export default function Conversations() {
             </div>
           </div>
         ) : (
-          <ConversationThread mode="full" detail={detailData} />
+          <motion.div
+            key={selectedId}
+            variants={reduced ? undefined : cardEnter}
+            initial={reduced ? false : "hidden"}
+            animate={reduced ? false : "visible"}
+            className="flex flex-col h-full min-w-0"
+          >
+            <ConversationThread mode="full" detail={detailData} />
+          </motion.div>
         )}
       </div>
     </div>
