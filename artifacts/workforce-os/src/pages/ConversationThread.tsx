@@ -8,6 +8,7 @@ import { ArrowLeft, Archive, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { sanitizeHtml } from "@/lib/sanitize";
+import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 
 const SENTIMENT_STYLES = {
   positive: "bg-green-100 text-green-800 border-green-200",
@@ -71,11 +72,11 @@ export default function ConversationThread() {
 
       <div className="flex-1 flex flex-col lg:flex-row gap-0 overflow-hidden">
         {/* Message thread */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <Stagger className="flex-1 overflow-y-auto p-4 space-y-4">
           {messages.map((msg) => {
             const isOut = msg.direction === "outbound";
             return (
-              <div key={msg.id} className={cn("flex", isOut ? "justify-end" : "justify-start")}>
+              <StaggerItem key={msg.id} className={cn("flex", isOut ? "justify-end" : "justify-start")}>
                 <div className={cn(
                   "max-w-[80%] rounded-lg px-4 py-3 shadow-sm",
                   isOut
@@ -91,10 +92,10 @@ export default function ConversationThread() {
                     {msg.senderName} · {new Date(msg.sentAt).toLocaleString()}
                   </p>
                 </div>
-              </div>
+              </StaggerItem>
             );
           })}
-        </div>
+        </Stagger>
 
         {/* Reply intelligence sidebar */}
         {ri && (
