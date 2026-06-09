@@ -2,6 +2,11 @@ import React from "react";
 import { useListAgents } from "@workspace/api-client-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SparklineChart } from "@/components/v2/SparklineChart";
+import { Stagger, StaggerItem } from "@/components/motion/Stagger";
+import { CountUp } from "@/components/motion/CountUp";
+import { EmptyState } from "@/components/states/EmptyState";
+import { ErrorState } from "@/components/states/ErrorState";
+import { Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const STATUS_CONFIG = {
@@ -20,7 +25,7 @@ const AGENT_DESCRIPTIONS: Record<string, string> = {
 };
 
 export default function Agents() {
-  const { data: agents, isLoading } = useListAgents({
+  const { data: agents, isLoading, isError, refetch } = useListAgents({
     query: { queryKey: ["listAgents"], refetchInterval: 10000 },
   });
 
@@ -39,54 +44,71 @@ export default function Agents() {
               <Skeleton key={i} className="h-36 rounded-lg" />
             ))}
           </div>
+        ) : isError ? (
+          <ErrorState
+            title="Couldn't load your agents"
+            description="The agent roster failed to load. Check your connection and try again."
+            onRetry={() => refetch()}
+          />
+        ) : (agents ?? []).length === 0 ? (
+          <EmptyState
+            icon={Bot}
+            title="No agents yet"
+            description="Your workspace has no agents configured. Agents appear here once your workforce is provisioned."
+          />
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Stagger className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {(agents ?? []).map((agent) => {
               const statusCfg = STATUS_CONFIG[agent.status as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.idle;
               return (
-                <div key={agent.id} className="bg-white border border-paper-200 rounded-lg p-5">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <div className={cn("w-2.5 h-2.5 rounded-full shrink-0", statusCfg.dot)} />
-                      <h3 className="font-serif font-semibold text-ink-900">{agent.name}</h3>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <SparklineChart data={agent.sparklineData} />
-                      <div className="text-right">
-                        <p className="text-xs font-mono text-rust-600 font-semibold">{agent.recentActivityCount}</p>
-                        <p className="text-xs text-ink-400">events</p>
+                <StaggerItem key={agent.id}>
+                  <div className="hover-elevate active-elevate-2 bg-ink-0 border border-paper-200 rounded-lg p-5 shadow-sm transition-shadow duration-200 hover:shadow-md">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <div className={cn("w-2.5 h-2.5 rounded-full shrink-0", statusCfg.dot)} />
+                        <h3 className="font-serif font-semibold text-ink-900 dark:text-paper-50">{agent.name}</h3>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <SparklineChart data={agent.sparklineData} />
+                        <div className="text-right">
+                          <CountUp
+                            value={agent.recentActivityCount}
+                            className="block text-xs font-mono text-rust-600 font-semibold"
+                          />
+                          <p className="text-xs text-ink-400">events</p>
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <p className="text-xs text-ink-500 mb-3 leading-relaxed">
-                    {AGENT_DESCRIPTIONS[agent.type] ?? "AI agent handling automated tasks."}
-                  </p>
+                    <p className="text-xs text-ink-500 mb-3 leading-relaxed">
+                      {AGENT_DESCRIPTIONS[agent.type] ?? "AI agent handling automated tasks."}
+                    </p>
 
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-xs text-ink-400">
-                        {statusCfg.label}
-                        {agent.lastActionAt && (
-                          <span className="ml-1 text-ink-300">
-                            · {new Date(agent.lastActionAt).toLocaleTimeString()}
-                          </span>
-                        )}
-                      </p>
-                      {agent.lastAction && (
-                        <p className="text-xs text-ink-600 mt-0.5 truncate max-w-[200px]">
-                          {agent.lastAction}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs text-ink-400">
+                          {statusCfg.label}
+                          {agent.lastActionAt && (
+                            <span className="ml-1 text-ink-300">
+                              · {new Date(agent.lastActionAt).toLocaleTimeString()}
+                            </span>
+                          )}
                         </p>
-                      )}
+                        {agent.lastAction && (
+                          <p className="text-xs text-ink-600 mt-0.5 truncate max-w-[200px]">
+                            {agent.lastAction}
+                          </p>
+                        )}
+                      </div>
+                      <span className="text-xs text-ink-300 font-mono capitalize px-2 py-0.5 bg-paper-100 rounded">
+                        {agent.type}
+                      </span>
                     </div>
-                    <span className="text-xs text-ink-300 font-mono capitalize px-2 py-0.5 bg-paper-100 rounded">
-                      {agent.type}
-                    </span>
                   </div>
-                </div>
+                </StaggerItem>
               );
             })}
-          </div>
+          </Stagger>
         )}
       </div>
     </div>
