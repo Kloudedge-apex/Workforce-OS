@@ -15,6 +15,9 @@ import { Label } from "@/components/ui/label";
 import { ArrowLeft, CheckCircle2, XCircle, ShieldOff } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { motion } from "framer-motion";
+import { sanitizeHtml } from "@/lib/sanitize";
+import { springHover, useReducedMotionSafe } from "@/lib/motion";
 
 function ScoreBar({ label, value }: { label: string; value: number }) {
   const pct = Math.round(value * 100);
@@ -36,6 +39,7 @@ export default function ArtifactDetail() {
   const id = params?.id ?? "";
   const [rejectOpen, setRejectOpen] = React.useState(false);
   const [rejectReason, setRejectReason] = React.useState("");
+  const reduced = useReducedMotionSafe();
 
   const { data, isLoading, refetch } = useGetArtifact(id, {
     query: { queryKey: ["getArtifact", id], enabled: !!id },
@@ -87,7 +91,12 @@ export default function ArtifactDetail() {
       <div className="max-w-5xl mx-auto w-full p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Email preview */}
         <div className="lg:col-span-2 space-y-4">
-          <div className="bg-white border border-paper-200 rounded-lg overflow-hidden">
+          <motion.div
+            className="bg-white border border-paper-200 rounded-xl overflow-hidden shadow-md transition-shadow hover:shadow-lg"
+            variants={reduced ? undefined : springHover}
+            initial="rest"
+            whileHover="hover"
+          >
             <div className="px-5 py-4 border-b border-paper-100 bg-paper-50">
               <p className="text-xs text-ink-400 uppercase tracking-wide mb-1">Subject</p>
               <p className="text-sm font-medium text-ink-900">{data.subject}</p>
@@ -95,10 +104,10 @@ export default function ArtifactDetail() {
             <div className="px-5 py-4">
               <div
                 className="text-sm text-ink-800 leading-relaxed prose prose-sm max-w-none"
-                dangerouslySetInnerHTML={{ __html: data.bodyHtml }}
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(data.bodyHtml) }}
               />
             </div>
-          </div>
+          </motion.div>
 
           {/* Citations */}
           {(data.citations ?? []).length > 0 && (
