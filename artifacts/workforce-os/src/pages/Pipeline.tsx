@@ -242,14 +242,24 @@ export default function Pipeline() {
                   <td className="p-4"><Skeleton className="h-8 w-20 ml-auto" /></td>
                 </tr>
               ))
+            ) : isError ? (
+              <tr>
+                <td colSpan={8} className="p-0">
+                  <ErrorState
+                    title="Couldn't load the pipeline"
+                    description="The leads service didn't respond. Your data is safe — try again."
+                    onRetry={() => refetch()}
+                  />
+                </td>
+              </tr>
             ) : leads.length === 0 ? (
               <tr>
-                <td colSpan={8} className="py-20 text-center text-ink-400">
-                  <div className="flex flex-col items-center">
-                    <Search className="h-12 w-12 opacity-10 mb-4" />
-                    <p className="text-lg font-serif">No leads found</p>
-                    <p className="text-sm">Try adjusting your filters or search query.</p>
-                  </div>
+                <td colSpan={8} className="p-0">
+                  <EmptyState
+                    icon={Search}
+                    title="No leads found"
+                    description="No leads match your current search, stage, or filters. Try widening them — or clear filters to see everything."
+                  />
                 </td>
               </tr>
             ) : (
