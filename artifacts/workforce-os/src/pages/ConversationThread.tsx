@@ -4,9 +4,10 @@ import { useGetConversation, useDraftReply, useArchiveConversation } from "@work
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, MessageSquare, Archive, Sparkles } from "lucide-react";
+import { ArrowLeft, Archive, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { sanitizeHtml } from "@/lib/sanitize";
 
 const SENTIMENT_STYLES = {
   positive: "bg-green-100 text-green-800 border-green-200",
@@ -76,15 +77,15 @@ export default function ConversationThread() {
             return (
               <div key={msg.id} className={cn("flex", isOut ? "justify-end" : "justify-start")}>
                 <div className={cn(
-                  "max-w-[80%] rounded-lg px-4 py-3",
+                  "max-w-[80%] rounded-lg px-4 py-3 shadow-sm",
                   isOut
                     ? "bg-ink-900 text-paper-50"
-                    : "bg-white border border-paper-200 text-ink-900"
+                    : "bg-ink-0 border border-paper-200 text-ink-900 dark:text-paper-50"
                 )}>
                   <div
                     className="text-sm leading-relaxed prose prose-sm max-w-none"
                     style={{ color: "inherit" }}
-                    dangerouslySetInnerHTML={{ __html: msg.bodyHtml }}
+                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(msg.bodyHtml) }}
                   />
                   <p className={cn("text-xs mt-2", isOut ? "text-paper-400" : "text-ink-400")}>
                     {msg.senderName} · {new Date(msg.sentAt).toLocaleString()}
