@@ -29,6 +29,7 @@ import {
   ChevronUp, ChevronDown, Plus, Trash2, Copy, Eye, EyeOff, X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { IntegrationLogo } from "@/components/brand/IntegrationLogo";
 import { cn } from "@/lib/utils";
 
 // ─── Tab config ─────────────────────────────────────────────────────────────
@@ -440,18 +441,18 @@ function BrandTab() {
 }
 
 // ─── Integrations Tab ─────────────────────────────────────────────────────────
-const PROVIDER_META: Record<string, { name: string; emoji: string; description: string }> = {
-  gmail:       { name: "Gmail", emoji: "📧", description: "Send outreach and receive replies via Google Workspace." },
-  outlook:     { name: "Outlook", emoji: "📬", description: "Microsoft 365 email sending and inbox sync." },
-  linkedin:    { name: "LinkedIn", emoji: "💼", description: "Connect for profile enrichment and InMail sequences." },
-  hubspot:     { name: "HubSpot", emoji: "🟠", description: "Sync leads, contacts, and deal stages bidirectionally." },
-  salesforce:  { name: "Salesforce", emoji: "☁️", description: "Push qualified leads and activities to your CRM." },
-  slack:       { name: "Slack", emoji: "🔔", description: "Get approval alerts and notifications in Slack." },
-  clay:        { name: "Clay", emoji: "🏺", description: "Pull enriched lead data from Clay tables." },
-  apollo:      { name: "Apollo", emoji: "🚀", description: "Source leads from Apollo.io company and contact database." },
-  hunter:      { name: "Hunter.io", emoji: "🔍", description: "Verify email addresses before sending." },
-  fullenrich:  { name: "Fullenrich", emoji: "⚡", description: "Waterfall email enrichment for harder-to-find contacts." },
-  webhooks:    { name: "Webhooks", emoji: "🔗", description: "Send events to any external endpoint via HTTP POST." },
+const PROVIDER_META: Record<string, { name: string; description: string }> = {
+  gmail:       { name: "Gmail", description: "Send outreach and receive replies via Google Workspace." },
+  outlook:     { name: "Outlook", description: "Microsoft 365 email sending and inbox sync." },
+  linkedin:    { name: "LinkedIn", description: "Connect for profile enrichment and InMail sequences." },
+  hubspot:     { name: "HubSpot", description: "Sync leads, contacts, and deal stages bidirectionally." },
+  salesforce:  { name: "Salesforce", description: "Push qualified leads and activities to your CRM." },
+  slack:       { name: "Slack", description: "Get approval alerts and notifications in Slack." },
+  clay:        { name: "Clay", description: "Pull enriched lead data from Clay tables." },
+  apollo:      { name: "Apollo", description: "Source leads from Apollo.io company and contact database." },
+  hunter:      { name: "Hunter.io", description: "Verify email addresses before sending." },
+  fullenrich:  { name: "Fullenrich", description: "Waterfall email enrichment for harder-to-find contacts." },
+  webhooks:    { name: "Webhooks", description: "Send events to any external endpoint via HTTP POST." },
 };
 
 function IntegrationsTab() {
@@ -470,11 +471,11 @@ function IntegrationsTab() {
       <SectionHeader title="Integrations" description="Connect external tools to power lead sourcing, CRM sync, and notifications." />
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {(data ?? []).map(int => {
-          const meta = PROVIDER_META[int.provider] ?? { name: int.provider, emoji: "🔌", description: "" };
+          const meta = PROVIDER_META[int.provider] ?? { name: int.provider, description: "" };
           const isConnected = int.status === "connected";
           return (
             <div key={int.id} className="bg-white border border-paper-200 rounded-lg p-4 flex gap-3">
-              <div className="text-2xl shrink-0 mt-0.5">{meta.emoji}</div>
+              <IntegrationLogo provider={int.provider} size={28} className="mt-0.5" />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-0.5">
                   <span className="text-sm font-semibold text-ink-900">{meta.name}</span>
