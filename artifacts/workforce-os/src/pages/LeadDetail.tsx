@@ -109,8 +109,11 @@ export default function LeadDetail() {
           Back to Pipeline
         </Button>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="bg-white border-paper-200">Edit Lead</Button>
-          <Button onClick={handleTrigger} className="bg-rust-500 hover:bg-rust-600 text-white" disabled={triggerMut.isPending}>
+          <Button
+            onClick={handleTrigger}
+            className="bg-rust-500 hover:bg-rust-600 text-white hover-elevate active-elevate-2 transition-colors"
+            disabled={triggerMut.isPending}
+          >
             <Zap className="h-4 w-4 mr-2" />
             Trigger Outbound
           </Button>
