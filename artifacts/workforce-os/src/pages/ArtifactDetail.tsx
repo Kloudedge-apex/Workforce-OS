@@ -183,23 +183,23 @@ export default function ArtifactDetail() {
         <StaggerItem className="space-y-4">
           {/* Actions */}
           {isPending && (
-            <div className="bg-white border border-paper-200 rounded-lg p-4 space-y-2">
+            <div className="bg-white border border-paper-200 rounded-xl p-4 space-y-2 shadow-sm">
               <Button
-                className="w-full bg-rust-500 hover:bg-rust-600 text-white"
+                className="w-full bg-rust-500 hover:bg-rust-600 text-white shadow-sm active-elevate-2"
                 onClick={() => approve({ id })}
               >
                 <CheckCircle2 className="h-4 w-4 mr-2" /> Approve
               </Button>
               <Button
                 variant="outline"
-                className="w-full border-paper-300"
+                className="w-full border-paper-300 hover-elevate active-elevate-2"
                 onClick={() => setRejectOpen(true)}
               >
                 <XCircle className="h-4 w-4 mr-2" /> Reject
               </Button>
               <Button
                 variant="ghost"
-                className="w-full text-ink-500"
+                className="w-full text-ink-500 hover-elevate active-elevate-2"
                 onClick={() => suppress({ id })}
               >
                 <ShieldOff className="h-4 w-4 mr-2" /> Suppress
@@ -208,7 +208,7 @@ export default function ArtifactDetail() {
           )}
 
           {/* Recipient */}
-          <div className="bg-white border border-paper-200 rounded-lg p-4">
+          <div className="bg-white border border-paper-200 rounded-xl p-4 shadow-sm">
             <h3 className="text-xs font-semibold text-ink-500 uppercase tracking-wide mb-3">Recipient</h3>
             <p className="text-sm font-medium text-ink-900">{data.recipient.name}</p>
             <p className="text-xs text-ink-500">{data.recipient.title}</p>
@@ -230,7 +230,7 @@ export default function ArtifactDetail() {
           )}
 
           {/* Send policy */}
-          <div className="bg-white border border-paper-200 rounded-lg p-4">
+          <div className="bg-white border border-paper-200 rounded-xl p-4 shadow-sm">
             <h3 className="text-xs font-semibold text-ink-500 uppercase tracking-wide mb-3">Send Policy</h3>
             {([
               { key: "liveSendEnabled", label: "Live send enabled" },
@@ -241,7 +241,7 @@ export default function ArtifactDetail() {
               const ok = key === "recipientSuppressed" ? !data.sendPolicy[key] : data.sendPolicy[key];
               return (
                 <div key={key} className="flex items-center gap-2 py-1">
-                  <div className={cn("w-1.5 h-1.5 rounded-full", ok ? "bg-green-500" : "bg-red-400")} />
+                  <div className={cn("w-1.5 h-1.5 rounded-full", ok ? "bg-signal-positive" : "bg-rust-500")} />
                   <span className="text-xs text-ink-600">{label}</span>
                 </div>
               );
