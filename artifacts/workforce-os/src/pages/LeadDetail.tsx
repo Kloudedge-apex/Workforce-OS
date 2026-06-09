@@ -120,9 +120,10 @@ export default function LeadDetail() {
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto w-full p-6 md:p-10 space-y-8">
+      <Stagger className="max-w-6xl mx-auto w-full p-6 md:p-10 space-y-8">
         {/* Hero Card */}
-        <Card className="p-8 border-paper-200 shadow-sm overflow-hidden relative">
+        <StaggerItem>
+          <Card className="p-8 bg-ink-0 border-paper-200 shadow-sm transition-shadow duration-200 hover:shadow-md overflow-hidden relative">
           <div className="absolute top-0 right-0 p-8">
             <ScoreRing score={lead.score} size={80} strokeWidth={6} />
           </div>
@@ -141,44 +142,50 @@ export default function LeadDetail() {
               </div>
             </div>
           </div>
-        </Card>
+          </Card>
+        </StaggerItem>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-8">
-            <section>
-              <div className="flex items-center gap-2 mb-4">
-                <Sparkles className="h-5 w-5 text-rust-500" />
-                <h3 className="font-serif text-xl font-semibold text-ink-900">Research Brief</h3>
-              </div>
-              <Card className="p-6 border-paper-200 bg-white prose prose-ink max-w-none text-ink-700 shadow-sm leading-relaxed">
-                {researchBrief}
-              </Card>
-            </section>
+            <StaggerItem>
+              <section>
+                <div className="flex items-center gap-2 mb-4">
+                  <Sparkles className="h-5 w-5 text-rust-500" />
+                  <h3 className="font-serif text-xl font-semibold text-ink-900">Research Brief</h3>
+                </div>
+                <Card className="p-6 border-paper-200 bg-ink-0 prose prose-ink max-w-none text-ink-700 shadow-sm transition-shadow duration-200 hover:shadow-md leading-relaxed">
+                  {researchBrief}
+                </Card>
+              </section>
+            </StaggerItem>
 
-            <section>
-              <div className="flex items-center gap-2 mb-4">
-                <Target className="h-5 w-5 text-ink-900" />
-                <h3 className="font-serif text-xl font-semibold text-ink-900">Score Breakdown</h3>
-              </div>
-              <Card className="p-6 border-paper-200 bg-white shadow-sm space-y-6">
-                <ScoreBar label="Firmographic Fit" score={scoreBreakdown.fit} />
-                <ScoreBar label="Intent Signals" score={scoreBreakdown.intent} />
-                <ScoreBar label="Prior Engagement" score={scoreBreakdown.engagement} />
-                <ScoreBar label="Timing / Urgency" score={scoreBreakdown.timing} />
-              </Card>
-            </section>
+            <StaggerItem>
+              <section>
+                <div className="flex items-center gap-2 mb-4">
+                  <Target className="h-5 w-5 text-ink-900" />
+                  <h3 className="font-serif text-xl font-semibold text-ink-900">Score Breakdown</h3>
+                </div>
+                <Card className="p-6 border-paper-200 bg-ink-0 shadow-sm transition-shadow duration-200 hover:shadow-md space-y-6">
+                  <ScoreBar label="Firmographic Fit" score={scoreBreakdown.fit} />
+                  <ScoreBar label="Intent Signals" score={scoreBreakdown.intent} />
+                  <ScoreBar label="Prior Engagement" score={scoreBreakdown.engagement} />
+                  <ScoreBar label="Timing / Urgency" score={scoreBreakdown.timing} />
+                </Card>
+              </section>
+            </StaggerItem>
           </div>
 
           {/* Sidebar */}
           <div className="space-y-8">
-            <section>
-              <div className="flex items-center gap-2 mb-4">
-                <Search className="h-5 w-5 text-ink-400" />
-                <h3 className="font-serif text-lg font-semibold text-ink-900">Recent Evidence</h3>
-              </div>
-              <div className="space-y-4">
-                {recentEvidenceEvents.map((evt) => (
+            <StaggerItem>
+              <section>
+                <div className="flex items-center gap-2 mb-4">
+                  <Search className="h-5 w-5 text-ink-400" />
+                  <h3 className="font-serif text-lg font-semibold text-ink-900">Recent Evidence</h3>
+                </div>
+                <div className="space-y-4">
+                  {recentEvidenceEvents.map((evt) => (
                   <div key={evt.id} className="relative pl-6 pb-4 last:pb-0">
                     <div className="absolute left-0 top-1.5 bottom-0 w-px bg-paper-200" />
                     <div className="absolute left-[-3px] top-1.5 h-1.5 w-1.5 rounded-full bg-rust-500" />
@@ -190,8 +197,9 @@ export default function LeadDetail() {
                     </div>
                   </div>
                 ))}
-              </div>
-            </section>
+                </div>
+              </section>
+            </StaggerItem>
 
             <StaggerItem>
               <Card className="p-6 bg-rust-50 border-rust-100 shadow-sm transition-shadow duration-200 hover:shadow-md">
@@ -218,19 +226,21 @@ export default function LeadDetail() {
             </StaggerItem>
 
             {lead.lastContactedAt && (
-              <div className="flex items-center gap-3 p-4 bg-paper-100 rounded-lg border border-paper-200">
-                <MessageSquare className="h-4 w-4 text-ink-400" />
-                <div className="text-xs">
-                  <span className="text-ink-400 block uppercase tracking-wider font-mono">Last Contact</span>
-                  <span className="text-ink-900 font-medium">
-                    {formatDistanceToNow(new Date(lead.lastContactedAt), { addSuffix: true })}
-                  </span>
+              <StaggerItem>
+                <div className="flex items-center gap-3 p-4 bg-paper-100 rounded-lg border border-paper-200">
+                  <MessageSquare className="h-4 w-4 text-ink-400" />
+                  <div className="text-xs">
+                    <span className="text-ink-400 block uppercase tracking-wider font-mono">Last Contact</span>
+                    <span className="text-ink-900 font-medium">
+                      {formatDistanceToNow(new Date(lead.lastContactedAt), { addSuffix: true })}
+                    </span>
+                  </div>
                 </div>
-              </div>
+              </StaggerItem>
             )}
           </div>
         </div>
-      </div>
+        </Stagger>
     </div>
   );
 }
