@@ -82,7 +82,7 @@ function TimelineNode({ node, depth = 0 }: { node: TimelineNodeData; depth?: num
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-medium text-ink-900">{node.label}</span>
+            <span className="text-sm font-medium text-ink-900 dark:text-paper-50">{node.label}</span>
             <span className="text-xs text-ink-400 capitalize">{node.nodeType.replace(/_/g, " ")}</span>
             {node.score != null && (
               <span
@@ -175,7 +175,7 @@ export default function RunDetail() {
                 <p className="text-xs text-ink-400 uppercase tracking-wide">Leads sourced</p>
                 <CountUp
                   value={run.leadsSourced}
-                  className="block text-xl font-mono font-semibold text-ink-900 mt-1 font-tabular"
+                  className="block text-xl font-mono font-semibold text-ink-900 dark:text-paper-50 mt-1 font-tabular"
                 />
               </motion.div>
             </StaggerItem>
@@ -189,7 +189,7 @@ export default function RunDetail() {
                 <p className="text-xs text-ink-400 uppercase tracking-wide">Drafts generated</p>
                 <CountUp
                   value={run.artifactsGenerated}
-                  className="block text-xl font-mono font-semibold text-ink-900 mt-1 font-tabular"
+                  className="block text-xl font-mono font-semibold text-ink-900 dark:text-paper-50 mt-1 font-tabular"
                 />
               </motion.div>
             </StaggerItem>
@@ -206,10 +206,10 @@ export default function RunDetail() {
                     value={run.durationMs / 1000}
                     decimals={1}
                     suffix="s"
-                    className="block text-xl font-mono font-semibold text-ink-900 mt-1 font-tabular"
+                    className="block text-xl font-mono font-semibold text-ink-900 dark:text-paper-50 mt-1 font-tabular"
                   />
                 ) : (
-                  <p className="text-xl font-mono font-semibold text-ink-900 mt-1">—</p>
+                  <p className="text-xl font-mono font-semibold text-ink-900 dark:text-paper-50 mt-1">—</p>
                 )}
               </motion.div>
             </StaggerItem>
@@ -221,7 +221,7 @@ export default function RunDetail() {
                 whileHover="hover"
               >
                 <p className="text-xs text-ink-400 uppercase tracking-wide">Cost</p>
-                <p className="text-xl font-mono font-semibold text-ink-900 mt-1 font-tabular">
+                <p className="text-xl font-mono font-semibold text-ink-900 dark:text-paper-50 mt-1 font-tabular">
                   $<CountUp value={run.costUsd} decimals={3} />
                 </p>
               </motion.div>
@@ -238,12 +238,14 @@ export default function RunDetail() {
         {/* Timeline */}
         {(timeline ?? []).length > 0 && (
           <div className="bg-ink-0 border border-paper-200 rounded-xl p-5 shadow-sm">
-            <h2 className="font-serif font-semibold text-ink-900 mb-4">Evidence Timeline</h2>
-            <div className="space-y-1">
+            <h2 className="font-serif font-semibold text-ink-900 dark:text-paper-50 mb-4">Evidence Timeline</h2>
+            <Stagger className="space-y-1">
               {(timeline as TimelineNodeData[]).map((node) => (
-                <TimelineNode key={node.id} node={node} />
+                <StaggerItem key={node.id}>
+                  <TimelineNode node={node} />
+                </StaggerItem>
               ))}
-            </div>
+            </Stagger>
           </div>
         )}
       </div>
