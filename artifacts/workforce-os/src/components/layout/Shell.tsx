@@ -13,6 +13,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { CommandPalette } from "@/components/layout/CommandPalette";
 import { NotificationBell } from "@/components/v2/NotificationBell";
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -53,9 +54,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 href={item.href}
                 className={cn(
                   "flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors",
-                  active 
-                    ? "bg-rust-500 text-white shadow-sm" 
-                    : "text-ink-700 hover:bg-paper-200 hover:text-ink-900"
+                  active
+                    ? "bg-rust-500 text-white shadow-sm"
+                    : "text-ink-700 hover:bg-paper-200 hover:text-ink-900 dark:text-ink-300 dark:hover:text-paper-50"
                 )}
               >
                 <item.icon className="h-4 w-4" />
@@ -90,6 +91,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
               <span>Search</span>
               <kbd className="font-mono bg-paper-200 px-1 rounded text-[10px]">⌘K</kbd>
             </button>
+            <ThemeToggle />
             <NotificationBell />
           </div>
         </header>

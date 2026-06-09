@@ -41,6 +41,25 @@
   agents, settings, notfound. All light (no theme provider exists pre-F5).
 - Detail-route IDs used: lead_006, art_001, conv_001, run_001.
 
+## Dark-mode known gap (carried into the route sweep)
+
+F5 mounts `next-themes` (class strategy) + a topbar `ThemeToggle`; `.dark` toggles correctly and
+dark tokens resolve. Verified light+dark in `docs/superpowers/after-foundation/`.
+
+- **Fixed in F5:** inactive sidebar nav text was `text-ink-700` (unreadable on the dark sidebar) →
+  added a surgical `dark:text-ink-300 dark:hover:text-paper-50` variant (light mode byte-identical).
+- **Known residual gap (NOT a regression):** pages/chrome use *literal* `bg-paper-50/100` surfaces and
+  per F1 `--paper-50` is intentionally pinned light in `.dark` (so `text-paper-50` stays light). Net
+  effect: in dark mode the sidebar + `bg-card` cards go dark, but the **topbar and page content areas
+  stay light**, and a few `text-ink-900` labels in the Shell header/footer (workspace title, user name)
+  are low-contrast. These are legacy literal surfaces. **Resolution path:** each route's
+  `R-*` "visual verification (light + dark)" step makes its own surfaces dark-coherent; the Shell
+  header/footer labels get rewritten by B3 (identity layer) — apply `dark:` text variants there.
+  Until then dark mode is *functional and readable*, not yet pixel-coherent.
+- **Screenshot tool for all later light+dark steps:** `node /tmp/wos-shot/shot.mjs <url> <out> <light|dark>`
+  (playwright-core via installed Chrome `channel:'chrome'`; seeds `localStorage.theme` pre-hydration).
+
 ## Status
 
-- F0 ✅ (baselines + env verified). Remaining: F0b, F1, F2, F3, F4, F5.
+- §F Foundation COMPLETE ✅ — F0, F0b, F1, F2, F3, F4, F5 all landed, committed, build+typecheck green.
+  Next: §P Primitives (P1–P6).
