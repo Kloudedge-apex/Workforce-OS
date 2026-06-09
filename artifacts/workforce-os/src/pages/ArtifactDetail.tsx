@@ -18,17 +18,40 @@ import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
 import { sanitizeHtml } from "@/lib/sanitize";
 import { springHover, useReducedMotionSafe } from "@/lib/motion";
+import { CountUp } from "@/components/motion/CountUp";
 
 function ScoreBar({ label, value }: { label: string; value: number }) {
+  const reduced = useReducedMotionSafe();
   const pct = Math.round(value * 100);
-  const color = pct >= 85 ? "bg-green-500" : pct >= 70 ? "bg-amber-400" : "bg-red-400";
+  // Brand thresholds: signal-positive (pass) / ember (caution) / rust (fail).
+  const fill =
+    pct >= 85
+      ? "bg-signal-positive"
+      : pct >= 70
+        ? "bg-ember-400"
+        : "bg-rust-500";
+  const text =
+    pct >= 85
+      ? "text-signal-positive"
+      : pct >= 70
+        ? "text-ember-500"
+        : "text-rust-500";
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-3">
       <span className="text-xs text-ink-600 w-32 shrink-0">{label}</span>
-      <div className="flex-1 h-1.5 bg-paper-200 rounded-full overflow-hidden">
-        <div className={cn("h-full rounded-full", color)} style={{ width: `${pct}%` }} />
+      <div className="flex-1 h-2 bg-paper-200 rounded-full overflow-hidden shadow-[inset_0_1px_2px_rgba(20,12,8,0.08)]">
+        <motion.div
+          className={cn("h-full rounded-full", fill)}
+          initial={reduced ? false : { width: 0 }}
+          animate={{ width: `${pct}%` }}
+          transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+        />
       </div>
-      <span className="text-xs font-mono text-ink-700 w-8 text-right">{pct}%</span>
+      <CountUp
+        value={pct}
+        suffix="%"
+        className={cn("text-xs font-mono w-9 text-right font-tabular", text)}
+      />
     </div>
   );
 }
@@ -164,9 +187,9 @@ export default function ArtifactDetail() {
 
           {/* Evaluator scores */}
           {scores && (
-            <div className="bg-white border border-paper-200 rounded-lg p-4">
+            <div className="bg-white border border-paper-200 rounded-xl p-4 shadow-sm">
               <h3 className="text-xs font-semibold text-ink-500 uppercase tracking-wide mb-3">Quality Scores</h3>
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 <ScoreBar label="PII check" value={scores.pii} />
                 <ScoreBar label="Hallucination" value={scores.hallucination} />
                 <ScoreBar label="Citation coverage" value={scores.citationCoverage} />
