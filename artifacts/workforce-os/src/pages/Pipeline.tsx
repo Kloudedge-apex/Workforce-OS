@@ -155,7 +155,12 @@ export default function Pipeline() {
               <th className="px-4 py-3 font-semibold text-ink-400 uppercase text-[10px] tracking-wider text-right">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-paper-100">
+          <motion.tbody
+            className="divide-y divide-paper-100"
+            variants={reduced ? undefined : staggerContainer}
+            initial={reduced ? undefined : "hidden"}
+            animate={reduced ? undefined : "visible"}
+          >
             {listLoading ? (
               Array.from({ length: 10 }).map((_, i) => (
                 <tr key={i}>
@@ -181,9 +186,10 @@ export default function Pipeline() {
               </tr>
             ) : (
               leads.map(lead => (
-                <tr 
-                  key={lead.id} 
-                  className="group hover:bg-paper-50 transition-colors cursor-pointer"
+                <motion.tr
+                  key={lead.id}
+                  variants={reduced ? undefined : staggerItem}
+                  className="group cursor-pointer transition-all duration-200 hover:bg-paper-50 hover:shadow-sm hover:[transform:translateY(-1px)]"
                   onClick={() => setLocation(`/pipeline/${lead.id}`)}
                 >
                   <td className="p-4" onClick={e => e.stopPropagation()}>
@@ -201,7 +207,7 @@ export default function Pipeline() {
                     </div>
                   </td>
                   <td className="px-4 py-3 text-center">
-                    <Badge className={cn("font-tabular font-bold h-8 w-10 justify-center", getScoreColor(lead.score))}>
+                    <Badge className={cn("font-tabular font-bold h-8 w-10 justify-center shadow-xs", getScoreColor(lead.score))}>
                       {lead.score}
                     </Badge>
                   </td>
@@ -233,10 +239,10 @@ export default function Pipeline() {
                       Edit
                     </Button>
                   </td>
-                </tr>
+                </motion.tr>
               ))
             )}
-          </tbody>
+          </motion.tbody>
         </table>
       </div>
 
@@ -245,7 +251,7 @@ export default function Pipeline() {
         <p className="text-xs text-ink-400">
           Showing <span className="font-tabular font-semibold text-ink-900">{(page - 1) * limit + 1}</span>-
           <span className="font-tabular font-semibold text-ink-900">{Math.min(page * limit, total)}</span> of 
-          <span className="font-tabular font-semibold text-ink-900 ml-1">{total}</span> leads
+          <span className="font-tabular font-semibold text-ink-900 ml-1"><CountUp value={total} /></span> leads
         </p>
         <div className="flex items-center gap-2">
           <Button 
