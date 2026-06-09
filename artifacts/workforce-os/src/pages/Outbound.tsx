@@ -138,6 +138,16 @@ function ArtifactList({ status }: { status?: OutreachArtifactStatus }) {
     );
   }
 
+  if (isError) {
+    return (
+      <ErrorState
+        title="Couldn't load the outbound queue"
+        description="The drafts service didn't respond. Your data is safe — try again."
+        onRetry={() => refetch()}
+      />
+    );
+  }
+
   if (items.length === 0) {
     const empty: Partial<Record<OutreachArtifactStatus, { icon: typeof Inbox; title: string; description: string }>> = {
       PENDING_REVIEW: {
