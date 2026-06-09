@@ -4,9 +4,11 @@ import { useGetConversation, useDraftReply, useArchiveConversation } from "@work
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Archive, Sparkles } from "lucide-react";
+import { ArrowLeft, Archive, Sparkles, MessageSquareDashed } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { EmptyState } from "@/components/states/EmptyState";
+import { ErrorState } from "@/components/states/ErrorState";
 import { sanitizeHtml } from "@/lib/sanitize";
 import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 import { CountUp } from "@/components/motion/CountUp";
@@ -26,7 +28,7 @@ export default function ConversationThread() {
   const [, navigate] = useLocation();
   const id = params?.id ?? "";
 
-  const { data, isLoading, refetch } = useGetConversation(id, {
+  const { data, isLoading, isError, refetch } = useGetConversation(id, {
     query: { queryKey: ["getConversation", id], enabled: !!id },
   });
 
@@ -51,7 +53,25 @@ export default function ConversationThread() {
     </div>
   );
 
-  if (!data) return <div className="p-6 text-ink-400">Conversation not found</div>;
+  if (isError) return (
+    <div className="flex h-full items-center justify-center bg-paper-50">
+      <ErrorState
+        title="Couldn't load this conversation"
+        description="The conversation service didn't respond. Your data is safe — try again."
+        onRetry={() => refetch()}
+      />
+    </div>
+  );
+
+  if (!data) return (
+    <div className="flex h-full items-center justify-center bg-paper-50">
+      <EmptyState
+        icon={MessageSquareDashed}
+        title="Conversation not found"
+        description="This thread may have been archived or moved. Head back to your inbox to find it."
+      />
+    </div>
+  );
 
   const { conversation: conv, messages } = data;
   const ri = conv.replyIntelligence;
