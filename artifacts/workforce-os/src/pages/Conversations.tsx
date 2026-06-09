@@ -1,10 +1,15 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useListConversations, useGetConversation, ListConversationsSentiment } from "@workspace/api-client-react";
 import { ConversationThread } from "@/components/v2/ConversationThread";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Inbox } from "lucide-react";
+import { EmptyState } from "@/components/states/EmptyState";
+import { ErrorState } from "@/components/states/ErrorState";
+import { Stagger, StaggerItem } from "@/components/motion/Stagger";
+import { motion } from "framer-motion";
+import { cardEnter, useReducedMotionSafe } from "@/lib/motion";
+import { Search, Inbox, SearchX, MessageSquareText } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const FILTERS = [
@@ -17,18 +22,35 @@ const FILTERS = [
 export default function Conversations() {
   const [activeFilter, setActiveFilter] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const reduced = useReducedMotionSafe();
 
   const queryParams: any = { limit: 50 };
   if (activeFilter === "needs_reply") queryParams.needsReply = true;
   if (activeFilter === "positive") queryParams.sentiment = "positive" as ListConversationsSentiment;
   if (activeFilter === "objection") queryParams.sentiment = "objection" as ListConversationsSentiment;
 
-  const { data: listData, isLoading: listLoading } = useListConversations(
+  const {
+    data: listData,
+    isLoading: listLoading,
+    isError: listError,
+    refetch: refetchList,
+  } = useListConversations(
     queryParams,
     { query: { refetchInterval: 15000, queryKey: ["listConversations", activeFilter] } }
   );
 
-  const conversations = listData?.items || [];
+  const allConversations = listData?.items || [];
+
+  const conversations = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return allConversations;
+    return allConversations.filter((c) =>
+      [c.leadName, c.subject, c.lastMessagePreview]
+        .filter(Boolean)
+        .some((field) => field!.toLowerCase().includes(q))
+    );
+  }, [allConversations, search]);
 
   const { data: detailData, isLoading: detailLoading } = useGetConversation(
     selectedId || "",
@@ -39,24 +61,26 @@ export default function Conversations() {
     <div className="flex h-full min-w-0">
       {/* Thread List (Left) */}
       <div className="w-full md:w-[40%] md:min-w-[320px] md:max-w-[420px] border-r border-paper-200 bg-paper-50 flex flex-col h-full shrink-0">
-        <div className="p-4 border-b border-paper-200 space-y-4 shrink-0 bg-white">
-          <h2 className="font-serif text-2xl font-semibold text-ink-900">Inbox</h2>
+        <div className="p-4 border-b border-paper-200 space-y-4 shrink-0 bg-ink-0 shadow-sm z-10">
+          <h2 className="font-serif text-2xl font-semibold text-ink-900 dark:text-paper-50">Inbox</h2>
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-ink-400" />
-            <Input 
-              placeholder="Search conversations..." 
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search conversations..."
               className="pl-9 bg-paper-50 border-paper-200"
             />
           </div>
           <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
             {FILTERS.map(f => (
-              <Badge 
+              <Badge
                 key={f.value}
-                variant="secondary" 
+                variant="secondary"
                 className={cn(
                   "cursor-pointer whitespace-nowrap hover:bg-paper-200",
-                  activeFilter === f.value 
-                    ? "bg-ink-900 text-white hover:bg-ink-800" 
+                  activeFilter === f.value
+                    ? "bg-ink-900 text-white hover:bg-ink-800"
                     : "bg-paper-100 text-ink-700"
                 )}
                 onClick={() => setActiveFilter(f.value)}
@@ -79,21 +103,39 @@ export default function Conversations() {
                 </div>
               </div>
             ))
+          ) : listError ? (
+            <ErrorState
+              title="Couldn't load conversations"
+              description="The inbox failed to load. Check your connection and try again."
+              onRetry={() => refetchList()}
+            />
           ) : conversations.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-ink-400 p-8 text-center">
-              <Inbox className="w-12 h-12 mb-4 opacity-20" />
-              <p className="text-sm">No conversations match your criteria.</p>
-            </div>
-          ) : (
-            conversations.map(conv => (
-              <ConversationThread 
-                key={conv.id} 
-                mode="preview" 
-                conversation={conv} 
-                selected={selectedId === conv.id}
-                onSelect={setSelectedId}
+            search.trim() ? (
+              <EmptyState
+                icon={SearchX}
+                title="No matches"
+                description={`No conversations match "${search.trim()}". Try a different search.`}
               />
-            ))
+            ) : (
+              <EmptyState
+                icon={Inbox}
+                title="Inbox zero"
+                description="No conversations match this filter. New replies will appear here as they arrive."
+              />
+            )
+          ) : (
+            <Stagger>
+              {conversations.map((conv) => (
+                <StaggerItem key={conv.id}>
+                  <ConversationThread
+                    mode="preview"
+                    conversation={conv}
+                    selected={selectedId === conv.id}
+                    onSelect={setSelectedId}
+                  />
+                </StaggerItem>
+              ))}
+            </Stagger>
           )}
         </div>
       </div>
@@ -101,11 +143,11 @@ export default function Conversations() {
       {/* Detail View (Right) */}
       <div className="hidden md:flex flex-col flex-1 bg-paper-50 min-w-0">
         {!selectedId ? (
-          <div className="flex flex-col items-center justify-center h-full text-ink-400">
-            <Inbox className="w-16 h-16 mb-4 opacity-10" />
-            <h3 className="font-serif text-xl text-ink-900 mb-2">No conversation selected</h3>
-            <p className="text-sm max-w-sm text-center">Select a thread from the list to view the full message history and AI analysis.</p>
-          </div>
+          <EmptyState
+            icon={MessageSquareText}
+            title="No conversation selected"
+            description="Select a thread from the list to view the full message history and AI analysis."
+          />
         ) : detailLoading || !detailData ? (
           <div className="p-6 space-y-6 h-full flex flex-col">
             <Skeleton className="h-16 w-full" />
@@ -115,7 +157,15 @@ export default function Conversations() {
             </div>
           </div>
         ) : (
-          <ConversationThread mode="full" detail={detailData} />
+          <motion.div
+            key={selectedId}
+            variants={reduced ? undefined : cardEnter}
+            initial={reduced ? false : "hidden"}
+            animate={reduced ? false : "visible"}
+            className="flex flex-col h-full min-w-0"
+          >
+            <ConversationThread mode="full" detail={detailData} />
+          </motion.div>
         )}
       </div>
     </div>
