@@ -59,7 +59,29 @@ dark tokens resolve. Verified light+dark in `docs/superpowers/after-foundation/`
 - **Screenshot tool for all later light+dark steps:** `node /tmp/wos-shot/shot.mjs <url> <out> <light|dark>`
   (playwright-core via installed Chrome `channel:'chrome'`; seeds `localStorage.theme` pre-hydration).
 
+## Foundation review (2026-06-09) — 4 lenses, ALL PASSED ✅
+
+Adversarial review (spec-compliance / token-correctness / regression / dark-mode). Verdict: foundation is
+verbatim-correct, all gates green, 736 dead utilities confirmed resurrected, no §F regression. Dispositions:
+
+- **F3 spec-grep is unsatisfiable (doc nit):** Tailwind v4 hex-folds `hsl(20 12% 12% / a)` → `#221d1b{aa}`
+  in the bundle, so the plan's `grep "20 12%"` never matches. Verify warm shadows with
+  `grep -o "\.shadow-sm{[^}]*}" dist/public/assets/*.css` and confirm `#221d1b` appears. (Impl correct.)
+- **`enableSystem` interim-disabled (APPLIED):** review flagged that `enableSystem` + dark-OS = first-load
+  into the not-yet-coherent dark state. Set `enableSystem={false}` in ThemeProvider until §H. Toggle still works.
+- **DEFERRED → P2 (next):** route `/settings/*` does NOT match bare `/settings`, so the Settings nav link
+  renders the 404 page (baseline `before-settings-light.png` is the 404 page). P2 rewrites the Router — fix
+  there by adding `<Route path="/settings" component={Settings} />` alongside `<Route path="/settings/*" .../>`.
+  The Settings component itself already defaults bare `/settings` → `org` tab.
+- **DEFERRED → §H (H3 token audit):** pre-existing dead `--color-*-border` family — `@theme` declares
+  `--color-primary-border: var(--primary-border)` (+ secondary/muted/accent/destructive/sidebar-primary/
+  sidebar-accent) but the raw `--*-border` vars are never defined in `:root`/`.dark`, so `border-primary-border`
+  (button.tsx) resolves empty. Pre-existing, NOT a §F regression; subtle (rust-fill buttons). H3 should add the
+  7 raw defs (e.g. `--primary-border: var(--rust-600)`, `--secondary-border: var(--paper-300)`, etc.).
+- **DEFERRED → route sweep / B5:** `not-found.tsx` uses hardcoded `text-gray-900` on `bg-card` → dark-on-dark
+  in dark mode; outer `bg-gray-50` stays light. B5 rebuilds the 404 on-brand; ensure dark-aware tokens.
+
 ## Status
 
-- §F Foundation COMPLETE ✅ — F0, F0b, F1, F2, F3, F4, F5 all landed, committed, build+typecheck green.
-  Next: §P Primitives (P1–P6).
+- §F Foundation COMPLETE ✅ — F0, F0b, F1, F2, F3, F4, F5 all landed, committed, build+typecheck green,
+  independently reviewed (4/4 lenses pass). Next: §P Primitives (P1–P6).
