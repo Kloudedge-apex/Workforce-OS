@@ -93,6 +93,12 @@
   --color-signal-positive: hsl(var(--signal-positive));
   --color-signal-info: hsl(var(--signal-info));
   --color-signal-critical: hsl(var(--signal-critical));
+
+  /* warm shadow scale — ink-tinted (hue 20°), not gray */
+  --shadow-xs: 0 1px 2px 0 hsl(20 12% 12% / 0.05);
+  --shadow-sm: 0 1px 3px 0 hsl(20 12% 12% / 0.08), 0 1px 2px -1px hsl(20 12% 12% / 0.08);
+  --shadow-md: 0 4px 6px -1px hsl(20 12% 12% / 0.10), 0 2px 4px -2px hsl(20 12% 12% / 0.08);
+  --shadow-lg: 0 10px 15px -3px hsl(20 12% 12% / 0.12), 0 4px 6px -4px hsl(20 12% 12% / 0.10);
 }
 
 :root {
