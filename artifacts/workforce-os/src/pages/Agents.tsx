@@ -32,8 +32,8 @@ export default function Agents() {
   return (
     <div className="flex flex-col h-full overflow-y-auto bg-paper-50">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-paper-100 border-b border-paper-200 px-6 py-4">
-        <h1 className="font-serif font-semibold text-ink-900 text-lg">Agent Roster</h1>
+      <div className="sticky top-0 z-10 bg-paper-100 border-b border-paper-200 shadow-sm px-6 py-4">
+        <h1 className="font-serif font-semibold text-ink-900 dark:text-paper-50 text-lg">Agent Roster</h1>
         <p className="text-xs text-ink-400 mt-0.5">Autonomous agents running on your behalf</p>
       </div>
 
