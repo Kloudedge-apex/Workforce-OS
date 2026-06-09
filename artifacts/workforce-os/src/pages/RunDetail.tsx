@@ -4,8 +4,10 @@ import { useGetRun } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, ChevronDown, ChevronRight as ChevronRightIcon, Bot, Zap, FlaskConical, Wrench, User } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight as ChevronRightIcon, Bot, Zap, FlaskConical, Wrench, User, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { EmptyState } from "@/components/states/EmptyState";
+import { ErrorState } from "@/components/states/ErrorState";
 import { motion } from "framer-motion";
 import { cardEnter, springHover, useReducedMotionSafe } from "@/lib/motion";
 import { Stagger, StaggerItem } from "@/components/motion/Stagger";
@@ -132,7 +134,7 @@ export default function RunDetail() {
   const [, navigate] = useLocation();
   const id = params?.id ?? "";
 
-  const { data, isLoading } = useGetRun(id, {
+  const { data, isLoading, isError, refetch } = useGetRun(id, {
     query: { queryKey: ["getRun", id], enabled: !!id },
   });
 
@@ -144,7 +146,35 @@ export default function RunDetail() {
     </div>
   );
 
-  if (!data) return <div className="p-6 text-ink-400">Run not found</div>;
+  if (isError) return (
+    <div className="flex h-full items-center justify-center bg-paper-50">
+      <ErrorState
+        title="Couldn't load this run"
+        description="The run service didn't respond. Your data is safe — try again."
+        onRetry={() => refetch()}
+      />
+    </div>
+  );
+
+  if (!data) return (
+    <div className="flex h-full items-center justify-center bg-paper-50">
+      <EmptyState
+        icon={Activity}
+        title="Run not found"
+        description="This run may have been deleted or never existed. Head back to your runs to find it."
+        action={
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-paper-300 hover-elevate active-elevate-2"
+            onClick={() => navigate("/runs")}
+          >
+            <ArrowLeft className="h-4 w-4 mr-1.5" /> Back to Runs
+          </Button>
+        }
+      />
+    </div>
+  );
 
   const { run, timeline } = data;
 
