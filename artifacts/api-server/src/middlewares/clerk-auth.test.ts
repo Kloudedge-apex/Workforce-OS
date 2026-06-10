@@ -46,12 +46,22 @@ describe("requireClerkAuth", () => {
     expect(req.clerkToken).toBe("abc.def.ghi");
   });
 
-  it("403s when the token has no org_id claim", async () => {
+  it("passes a valid user JWT WITHOUT an org_id claim (org resolved upstream)", async () => {
     const req = mockReq({ authorization: "Bearer abc" });
     const res = mockRes();
     const next = vi.fn();
     await requireClerkAuth({ verify: async () => ({ sub: "user_1" }) })(req, res, next);
-    expect(res.statusCode).toBe(403);
+    expect(next).toHaveBeenCalledOnce();
+    expect(req.clerkUserId).toBe("user_1");
+    expect(req.orgId).toBeUndefined();
+  });
+
+  it("401s when the verified token has no subject", async () => {
+    const req = mockReq({ authorization: "Bearer abc" });
+    const res = mockRes();
+    const next = vi.fn();
+    await requireClerkAuth({ verify: async () => ({}) })(req, res, next);
+    expect(res.statusCode).toBe(401);
     expect(next).not.toHaveBeenCalled();
   });
 
@@ -68,13 +78,13 @@ describe("requireClerkAuth", () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  it("dev fallback trusts x-org-id when DEV_TRUST_X_ORG_ID=true", async () => {
+  it("dev fallback accepts a header-identified user without a JWT", async () => {
     process.env["DEV_TRUST_X_ORG_ID"] = "true";
-    const req = mockReq({ "x-org-id": "org_dev" });
+    const req = mockReq({ "x-clerk-user-id": "user_dev" });
     const res = mockRes();
     const next = vi.fn();
     await requireClerkAuth()(req, res, next);
     expect(next).toHaveBeenCalledOnce();
-    expect(req.orgId).toBe("org_dev");
+    expect(req.clerkUserId).toBe("user_dev");
   });
 });

@@ -36,24 +36,25 @@ interface RequireClerkAuthDeps {
 }
 
 /**
- * Express middleware: deny-by-default Clerk auth. On success sets
- * `req.orgId` (from the `org_id` claim), `req.clerkUserId`, `req.clerkToken`.
+ * Express middleware: deny-by-default Clerk auth. Verifies the Clerk user JWT and
+ * sets `req.clerkUserId` (from `sub`) + `req.clerkToken` (forwarded upstream).
  *
- * Local-dev escape hatch: when `DEV_TRUST_X_ORG_ID=true` it trusts the
- * `x-org-id` header without verifying a JWT. MUST be false in production.
+ * IMPORTANT (verified against release/go-live OrgScopeGuard): Clerk Organizations
+ * is DISABLED on this instance, so tokens carry NO `org_id` claim. apex-gtm-api
+ * resolves the org server-side via `User.clerkId == sub → User.orgId`. So the BFF
+ * must NOT require an org claim — it just forwards the verified user JWT. `req.orgId`
+ * is populated only if a claim happens to be present (optional).
+ *
+ * Local-dev escape hatch: `DEV_TRUST_X_ORG_ID=true` accepts a header-identified
+ * user without a JWT (`x-clerk-user-id`, optional `x-org-id`). MUST be false in prod.
  */
 export function requireClerkAuth(deps: RequireClerkAuthDeps = {}) {
   const verify = deps.verify ?? verifyClerkToken;
 
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     if (process.env["DEV_TRUST_X_ORG_ID"] === "true") {
-      const orgId = req.header("x-org-id");
-      if (!orgId) {
-        res.status(401).json({ error: "x-org-id header required (dev)" });
-        return;
-      }
-      req.orgId = orgId;
       req.clerkUserId = req.header("x-clerk-user-id") ?? "dev-user";
+      req.orgId = req.header("x-org-id") ?? undefined;
       next();
       return;
     }
@@ -67,14 +68,15 @@ export function requireClerkAuth(deps: RequireClerkAuthDeps = {}) {
 
     try {
       const payload = await verify(token);
-      const orgId = typeof payload["org_id"] === "string" ? (payload["org_id"] as string) : undefined;
-      if (!orgId) {
-        res.status(403).json({ error: "no org context in token" });
+      if (typeof payload.sub !== "string" || !payload.sub) {
+        res.status(401).json({ error: "invalid token (no subject)" });
         return;
       }
-      req.orgId = orgId;
-      req.clerkUserId = typeof payload.sub === "string" ? payload.sub : undefined;
+      req.clerkUserId = payload.sub;
       req.clerkToken = token;
+      // org is resolved server-side by apex-gtm-api from the Clerk user; an
+      // org_id claim is optional and absent on this Clerk instance.
+      req.orgId = typeof payload["org_id"] === "string" ? (payload["org_id"] as string) : undefined;
       next();
     } catch {
       res.status(401).json({ error: "invalid token" });
