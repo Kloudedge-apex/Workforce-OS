@@ -1,82 +1,112 @@
 import { Router } from "express";
-import { db } from "@workspace/db";
-import {
-  orgsTable,
-  allowlistedDomainsTable,
-  suppressedEmailsTable,
-} from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { apex, UpstreamError } from "../upstream/apex-client";
+import { gapResponse } from "../lib/unavailable";
 
 const router = Router();
 
-const ORG_ID = "org_mynoted";
+/**
+ * The subset of the apex-gtm-api Org row (GET /api/orgs/me →
+ * OrgsService.findByClerkUser) that the BFF reads. The deployed Org model has
+ * NO logoUrl/timezone/liveSendEnabled/unsubscribeUrl/allowlistedDomains/
+ * creditsRemaining/welcomeComplete columns, so those FE fields are DEFAULTED
+ * (synthesized) — see the audit's transform for endpoint 0.
+ */
+export interface ApexOrg {
+  id: string;
+  name: string;
+  slug: string;
+  website?: string | null;
+  physicalAddress?: string | null;
+  country?: string | null;
+  senderName?: string | null;
+  plan?: string;
+}
 
-router.get("/settings/org", async (req, res) => {
-  const [org] = await db
-    .select()
-    .from(orgsTable)
-    .where(eq(orgsTable.id, ORG_ID));
+export interface OrgSettings {
+  orgId: string;
+  orgName: string;
+  slug: string;
+  logoUrl: string | null;
+  country: string;
+  timezone: string;
+  senderName: string | null;
+  liveSendEnabled: boolean;
+  postalAddress: string | null;
+  unsubscribeUrl: string | null;
+  suppressionCount: number;
+  allowlistedDomains: string[];
+  plan: string;
+  creditsRemaining: number;
+  welcomeComplete: boolean;
+}
 
-  if (!org) {
-    res.status(404).json({ error: "Org not found" });
-    return;
-  }
-
-  const [domains, suppressionCountResult] = await Promise.all([
-    db
-      .select()
-      .from(allowlistedDomainsTable)
-      .where(eq(allowlistedDomainsTable.orgId, ORG_ID)),
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(suppressedEmailsTable)
-      .where(eq(suppressedEmailsTable.orgId, ORG_ID)),
-  ]);
-
-  res.json({
+/**
+ * Pure mapper: apex Org row → FE OrgSettings.
+ *
+ * SYNTHESIZED (no backing Org column on the deployed backend, per audit):
+ *   logoUrl=null, timezone='UTC', liveSendEnabled=false (real live-send is the
+ *   env OUTREACH_LIVE_FOR_ORGS, not per-row), unsubscribeUrl=null,
+ *   allowlistedDomains=[], creditsRemaining=0, welcomeComplete=true.
+ *   suppressionCount has no count endpoint upstream → 0 unless caller supplies one.
+ */
+export function shapeOrgSettings(org: ApexOrg, suppressionCount = 0): OrgSettings {
+  return {
     orgId: org.id,
     orgName: org.name,
-    liveSendEnabled: org.liveSendEnabled,
-    postalAddress: org.postalAddress ?? null,
-    unsubscribeUrl: org.unsubscribeUrl ?? null,
-    suppressionCount: Number(suppressionCountResult[0]?.count ?? 0),
-    allowlistedDomains: domains.map((d) => d.domain),
-    plan: org.plan,
-    creditsRemaining: org.creditsRemaining,
-  });
+    slug: org.slug,
+    logoUrl: null,
+    country: org.country ?? "",
+    timezone: "UTC",
+    senderName: org.senderName ?? null,
+    liveSendEnabled: false,
+    postalAddress: org.physicalAddress ?? null,
+    unsubscribeUrl: null,
+    suppressionCount,
+    allowlistedDomains: [],
+    plan: org.plan ?? "TRIAL",
+    creditsRemaining: 0,
+    welcomeComplete: true,
+  };
+}
+
+// ─── Org settings ──────────────────────────────────────────────────────────
+
+router.get("/settings/org", async (req, res, next) => {
+  try {
+    const org = (await apex.get("/orgs/me", { req })) as ApexOrg;
+    res.json(shapeOrgSettings(org));
+  } catch (err) {
+    if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
+    next(err);
+  }
 });
 
-router.get("/settings/org/health", async (req, res) => {
-  const [org] = await db
-    .select()
-    .from(orgsTable)
-    .where(eq(orgsTable.id, ORG_ID));
-
-  if (!org) {
-    res.status(404).json({ error: "Org not found" });
-    return;
+router.put("/settings/org", async (req, res, next) => {
+  const body = req.body as { name?: string };
+  try {
+    // PATCH /api/orgs/:id requires :id === caller's resolved orgId, so resolve
+    // it via /orgs/me first. The backend DTO only persists name/plan/website —
+    // every other FE field (senderName/country/postalAddress/timezone/logoUrl/
+    // liveSendEnabled/slug) is silently dropped (audit endpoint 1, GAP).
+    const me = (await apex.get("/orgs/me", { req })) as ApexOrg;
+    const patchBody: { name?: string } = {};
+    if (typeof body.name === "string") patchBody.name = body.name;
+    await apex.patch(`/orgs/${me.id}`, { req }, patchBody);
+    const updated = (await apex.get("/orgs/me", { req })) as ApexOrg;
+    res.json(shapeOrgSettings(updated));
+  } catch (err) {
+    if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
+    next(err);
   }
+});
 
-  const suppressionCountResult = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(suppressedEmailsTable)
-    .where(eq(suppressedEmailsTable.orgId, ORG_ID));
+// ─── Org health (GAP) ────────────────────────────────────────────────────────
+// No org compliance/health route exists upstream (audit endpoint 2). The signals
+// (liveSendEnabled / unsubscribeConfigured) have no source of truth, so we degrade
+// honestly rather than synthesize a misleading compliance verdict.
 
-  const postalAddressConfigured = !!org.postalAddress;
-  const unsubscribeConfigured = !!org.unsubscribeUrl;
-
-  const blockers: string[] = [];
-  if (!org.liveSendEnabled) blockers.push("Live send not enabled for this org");
-  if (!postalAddressConfigured) blockers.push("Physical postal address not configured");
-  if (!unsubscribeConfigured) blockers.push("Unsubscribe URL not configured");
-
-  res.json({
-    liveSendEnabled: org.liveSendEnabled,
-    postalAddressConfigured,
-    unsubscribeConfigured,
-    suppressionCount: Number(suppressionCountResult[0]?.count ?? 0),
-    blockers,
-  });
+router.get("/settings/org/health", (_req, res) => {
+  return gapResponse(res, "org-health");
 });
 
 export default router;
