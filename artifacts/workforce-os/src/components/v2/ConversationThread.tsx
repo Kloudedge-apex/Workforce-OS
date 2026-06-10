@@ -1,5 +1,5 @@
 import React from "react";
-import { Conversation, ConversationDetail, ReplyIntelligenceSentiment } from "@workspace/api-client-react";
+import { Conversation, ConversationDetail } from "@workspace/api-client-react";
 import { useDraftReply } from "@workspace/api-client-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { formatDistanceToNow, format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { sanitizeHtml } from "@/lib/sanitize";
 import { Sparkles, Bot, AlertTriangle } from "lucide-react";
+import { SentimentBadge } from "@/components/v2/SentimentBadge";
 import { toast } from "sonner";
 
 interface ConversationThreadProps {
@@ -33,13 +34,6 @@ export function ConversationThread({ mode, conversation, detail, selected, onSel
   };
 
   if (mode === "preview" && conversation) {
-    const sentimentColors = {
-      positive: "bg-signal-positive/10 text-signal-positive border-signal-positive/20",
-      objection: "bg-ember-400/10 text-ember-400 border-ember-400/20",
-      neutral: "bg-paper-200 text-ink-700 border-paper-200",
-      negative: "bg-rust-500/10 text-rust-500 border-rust-500/20",
-    };
-
     return (
       <div
         role="button"
@@ -81,9 +75,7 @@ export function ConversationThread({ mode, conversation, detail, selected, onSel
           <p className="text-xs text-ink-900 font-serif truncate mb-1">{conversation.subject}</p>
           <p className="text-xs text-ink-400 truncate mb-2">{conversation.lastMessagePreview}</p>
           <div className="flex items-center gap-2">
-            <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 h-4 font-medium", sentimentColors[conversation.replyIntelligence.sentiment])}>
-              {conversation.replyIntelligence.sentiment}
-            </Badge>
+            <SentimentBadge sentiment={conversation.replyIntelligence.sentiment} dense />
             {conversation.needsReply && (
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-rust-100 text-rust-500 border-rust-200">
                 Needs Reply
