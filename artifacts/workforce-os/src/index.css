@@ -59,18 +59,79 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+
+  /* literal palette utilities — paper / ink / rust / ember + signals */
+  --color-paper-50: hsl(var(--paper-50));
+  --color-paper-100: hsl(var(--paper-100));
+  --color-paper-200: hsl(var(--paper-200));
+  --color-paper-300: hsl(var(--paper-300));
+  --color-paper-400: hsl(var(--paper-400));
+
+  --color-ink-0: hsl(var(--ink-0));
+  --color-ink-300: hsl(var(--ink-300));
+  --color-ink-400: hsl(var(--ink-400));
+  --color-ink-500: hsl(var(--ink-500));
+  --color-ink-600: hsl(var(--ink-600));
+  --color-ink-700: hsl(var(--ink-700));
+  --color-ink-800: hsl(var(--ink-800));
+  --color-ink-900: hsl(var(--ink-900));
+
+  --color-rust-50: hsl(var(--rust-50));
+  --color-rust-100: hsl(var(--rust-100));
+  --color-rust-200: hsl(var(--rust-200));
+  --color-rust-300: hsl(var(--rust-300));
+  --color-rust-500: hsl(var(--rust-500));
+  --color-rust-600: hsl(var(--rust-600));
+  --color-rust-700: hsl(var(--rust-700));
+  --color-rust-800: hsl(var(--rust-800));
+  --color-rust-900: hsl(var(--rust-900));
+
+  --color-ember-300: hsl(var(--ember-300));
+  --color-ember-400: hsl(var(--ember-400));
+  --color-ember-500: hsl(var(--ember-500));
+
+  --color-signal-positive: hsl(var(--signal-positive));
+  --color-signal-info: hsl(var(--signal-info));
+  --color-signal-critical: hsl(var(--signal-critical));
+
+  /* warm shadow scale — ink-tinted (hue 20°), not gray */
+  --shadow-xs: 0 1px 2px 0 hsl(20 12% 12% / 0.05);
+  --shadow-sm: 0 1px 3px 0 hsl(20 12% 12% / 0.08), 0 1px 2px -1px hsl(20 12% 12% / 0.08);
+  --shadow-md: 0 4px 6px -1px hsl(20 12% 12% / 0.10), 0 2px 4px -2px hsl(20 12% 12% / 0.08);
+  --shadow-lg: 0 10px 15px -3px hsl(20 12% 12% / 0.12), 0 4px 6px -4px hsl(20 12% 12% / 0.10);
 }
 
 :root {
+  /* paper — warm off-white surfaces, hue ~40-42° */
   --paper-50: 42 30% 98%;
   --paper-100: 42 25% 96%;
   --paper-200: 40 20% 92%;
-  --ink-900: 20 8% 8%;
-  --ink-700: 20 6% 25%;
+  --paper-300: 40 18% 86%;
+  --paper-400: 40 16% 78%;
+  /* ink — near-black warm neutrals, hue ~20° */
+  --ink-0: 0 0% 100%;
+  --ink-300: 20 5% 64%;
   --ink-400: 20 4% 52%;
-  --rust-500: 15 72% 48%;
+  --ink-500: 20 5% 42%;
+  --ink-600: 20 6% 34%;
+  --ink-700: 20 6% 25%;
+  --ink-800: 20 7% 16%;
+  --ink-900: 20 8% 8%;
+  /* rust — primary brand, hue ~15° */
+  --rust-50: 15 60% 97%;
   --rust-100: 15 60% 94%;
+  --rust-200: 15 62% 86%;
+  --rust-300: 15 66% 74%;
+  --rust-500: 15 72% 48%;
+  --rust-600: 15 74% 42%;
+  --rust-700: 15 76% 35%;
+  --rust-800: 15 78% 28%;
+  --rust-900: 15 80% 20%;
+  /* ember — warm accent, hue ~28° */
+  --ember-300: 28 88% 68%;
   --ember-400: 28 85% 56%;
+  --ember-500: 28 82% 48%;
+  /* signals */
   --signal-positive: 158 48% 32%;
   --signal-info: 215 32% 48%;
   --signal-critical: 8 68% 38%;
@@ -105,13 +166,56 @@
   --input: var(--paper-200);
   --ring: var(--rust-500);
 
+  /* component border accents — full colors (consumed un-wrapped by @theme inline) */
+  --primary-border: hsl(var(--rust-600));
+  --secondary-border: hsl(var(--paper-300));
+  --muted-border: hsl(var(--paper-300));
+  --accent-border: hsl(var(--rust-200));
+  --destructive-border: hsl(var(--signal-critical));
+  --sidebar-primary-border: hsl(var(--rust-600));
+  --sidebar-accent-border: hsl(var(--paper-300));
+
   --app-font-sans: 'Inter', system-ui, sans-serif;
   --app-font-serif: 'Lora', Georgia, serif;
   --app-font-mono: Menlo, monospace;
   --radius: .5rem;
+
+  /* elevate system — translucent ink overlays for hover/active feedback */
+  --elevate-1: hsl(20 8% 8% / 0.04);
+  --elevate-2: hsl(20 8% 8% / 0.08);
+  --button-outline: hsl(var(--ink-400) / 0.4);
+  --badge-outline: hsl(var(--ink-400) / 0.35);
 }
 
 .dark {
+  /* dark-mode palette overrides — literal steps keep their visual identity so
+     bg-ink-900 stays dark and text-paper-50 stays light; only mid-steps are
+     nudged for contrast on dark surfaces */
+  --paper-50: 42 30% 98%;
+  --paper-100: 40 8% 24%;
+  --paper-200: 22 7% 30%;
+  --paper-300: 22 7% 36%;
+  --paper-400: 22 6% 44%;
+  --ink-0: 20 10% 10%;
+  --ink-300: 20 6% 70%;
+  --ink-400: 20 5% 60%;
+  --ink-500: 20 5% 54%;
+  --ink-600: 20 6% 46%;
+  --ink-700: 20 6% 28%;
+  --ink-800: 20 7% 16%;
+  --ink-900: 20 8% 8%;
+  --rust-50: 15 30% 18%;
+  --rust-100: 15 32% 22%;
+  --rust-200: 15 40% 30%;
+  --rust-300: 15 52% 42%;
+  --rust-500: 15 72% 52%;
+  --rust-600: 15 74% 46%;
+  --rust-700: 15 76% 40%;
+  --rust-800: 15 78% 34%;
+  --rust-900: 15 80% 28%;
+  --ember-300: 28 80% 44%;
+  --ember-400: 28 85% 56%;
+  --ember-500: 28 88% 64%;
   --background: var(--ink-900);
   --foreground: var(--paper-50);
   --border: var(--ink-700);
@@ -141,6 +245,21 @@
   --destructive-foreground: 0 0% 100%;
   --input: var(--ink-700);
   --ring: var(--rust-500);
+
+  /* component border accents — dark-appropriate full colors */
+  --primary-border: hsl(var(--rust-700));
+  --secondary-border: hsl(var(--ink-700));
+  --muted-border: hsl(var(--ink-700));
+  --accent-border: hsl(var(--rust-800));
+  --destructive-border: hsl(var(--signal-critical));
+  --sidebar-primary-border: hsl(var(--rust-700));
+  --sidebar-accent-border: hsl(var(--ink-700));
+
+  /* elevate overlays invert to light in dark mode */
+  --elevate-1: hsl(42 30% 98% / 0.06);
+  --elevate-2: hsl(42 30% 98% / 0.12);
+  --button-outline: hsl(var(--ink-300) / 0.4);
+  --badge-outline: hsl(var(--ink-300) / 0.35);
 }
 
 @layer base {
@@ -155,4 +274,26 @@
 
 .font-tabular {
   font-variant-numeric: tabular-nums;
+}
+
+/* elevate utilities — referenced by button.tsx and badge.tsx */
+.hover-elevate,
+.active-elevate-2 {
+  position: relative;
+}
+.hover-elevate::after,
+.active-elevate-2::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background-color: transparent;
+  transition: background-color 0.15s ease;
+}
+.hover-elevate:hover::after {
+  background-color: var(--elevate-1);
+}
+.active-elevate-2:active::after {
+  background-color: var(--elevate-2);
 }

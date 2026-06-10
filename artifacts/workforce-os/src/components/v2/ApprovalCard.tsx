@@ -1,6 +1,8 @@
 import React, { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { OutreachArtifact, OutreachArtifactStatus } from "@workspace/api-client-react";
 import { useApproveArtifact, useRejectArtifact } from "@workspace/api-client-react";
+import { cardEnter, useReducedMotionSafe } from "@/lib/motion";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -9,6 +11,7 @@ import { PolicyBadge } from "./PolicyBadge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ChevronDown, Check, X, Edit2, AlertCircle, Quote } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { sanitizeHtml } from "@/lib/sanitize";
 import { toast } from "sonner";
 import { EvidenceTimeline } from "./EvidenceTimeline";
 import { Skeleton } from "../ui/skeleton";
@@ -18,6 +21,7 @@ interface ApprovalCardProps {
 }
 
 export function ApprovalCard({ artifact }: ApprovalCardProps) {
+  const reduced = useReducedMotionSafe();
   const [localStatus, setLocalStatus] = useState<OutreachArtifactStatus>(artifact.status);
   const [rejectMode, setRejectMode] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
@@ -50,32 +54,49 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
     }
   };
 
+  const motionProps = reduced
+    ? {}
+    : {
+        variants: cardEnter,
+        initial: "hidden" as const,
+        animate: "visible" as const,
+        exit: "exit" as const,
+      };
+
   if (localStatus === "SENT") {
     return (
-      <Card className="p-4 bg-signal-positive/5 border-signal-positive/20 flex flex-col justify-center items-center text-center animate-in fade-in duration-500">
-        <div className="h-10 w-10 bg-signal-positive rounded-full flex items-center justify-center mb-3">
-          <Check className="h-5 w-5 text-white" />
-        </div>
-        <h4 className="font-serif text-lg text-ink-900">Sent to {artifact.recipient.name}</h4>
-        <p className="text-sm text-ink-700 mt-1">Approval recorded.</p>
-      </Card>
+      <AnimatePresence mode="wait">
+        <motion.div key="sent" {...motionProps}>
+          <Card className="p-4 bg-signal-positive/5 border-signal-positive/20 shadow-sm flex flex-col justify-center items-center text-center">
+            <div className="h-10 w-10 bg-signal-positive rounded-full flex items-center justify-center mb-3">
+              <Check className="h-5 w-5 text-white" />
+            </div>
+            <h4 className="font-serif text-lg text-ink-900">Sent to {artifact.recipient.name}</h4>
+            <p className="text-sm text-ink-700 mt-1">Approval recorded.</p>
+          </Card>
+        </motion.div>
+      </AnimatePresence>
     );
   }
 
   if (localStatus === "REJECTED") {
     return (
-      <Card className="p-4 bg-paper-100 border-paper-200 flex flex-col justify-center items-center text-center animate-in fade-in">
-        <div className="h-10 w-10 bg-ink-400 rounded-full flex items-center justify-center mb-3">
-          <X className="h-5 w-5 text-white" />
-        </div>
-        <h4 className="font-serif text-lg text-ink-900">Rejected draft for {artifact.recipient.name}</h4>
-      </Card>
+      <AnimatePresence mode="wait">
+        <motion.div key="rejected" {...motionProps}>
+          <Card className="p-4 bg-paper-100 border-paper-200 shadow-sm flex flex-col justify-center items-center text-center">
+            <div className="h-10 w-10 bg-ink-400 rounded-full flex items-center justify-center mb-3">
+              <X className="h-5 w-5 text-white" />
+            </div>
+            <h4 className="font-serif text-lg text-ink-900">Rejected draft for {artifact.recipient.name}</h4>
+          </Card>
+        </motion.div>
+      </AnimatePresence>
     );
   }
 
   return (
     <>
-      <Card className="p-5">
+      <Card className="p-5 bg-ink-0 border-paper-200 shadow-sm transition-shadow duration-200 hover:shadow-md">
         {/* Header */}
         <div className="flex justify-between items-start mb-4">
           <div className="flex gap-3 items-center">
@@ -103,13 +124,13 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
                 "prose prose-sm prose-ink max-w-none text-ink-700",
                 !bodyExpanded && "max-h-[160px] overflow-hidden"
               )}
-              dangerouslySetInnerHTML={{ __html: artifact.bodyHtml }}
+              dangerouslySetInnerHTML={{ __html: sanitizeHtml(artifact.bodyHtml) }}
             />
             {!bodyExpanded && (
               <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-paper-50 to-transparent flex items-end justify-center pb-1">
-                <button 
+                <button
                   onClick={() => setBodyExpanded(true)}
-                  className="text-xs font-semibold text-rust-500 hover:text-rust-500/80 bg-paper-50 px-2"
+                  className="text-xs font-semibold text-rust-500 hover:text-rust-500/80 bg-paper-50 px-2 rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
                   Expand
                 </button>
@@ -155,9 +176,9 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
             Citation Cov: {artifact.evaluatorScores.citationCoverage.toFixed(2)}
           </Badge>
           {artifact.graphRunId && (
-            <button 
+            <button
               onClick={() => setTimelineOpen(true)}
-              className="text-[10px] text-ink-400 hover:text-ink-900 uppercase tracking-wider ml-auto font-semibold"
+              className="text-[10px] text-ink-400 hover:text-ink-900 uppercase tracking-wider ml-auto font-semibold rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               View Trace
             </button>
@@ -167,10 +188,11 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
         {/* Action Bar */}
         {rejectMode ? (
           <div className="flex flex-col gap-2 animate-in slide-in-from-bottom-2">
-            <input 
-              type="text" 
-              placeholder="Reason for rejection (guides future agent drafts)..." 
-              className="text-sm border border-paper-200 rounded bg-paper-50 px-3 py-2 w-full focus:outline-none focus:ring-1 focus:ring-rust-500"
+            <input
+              type="text"
+              aria-label="Reason for rejection"
+              placeholder="Reason for rejection (guides future agent drafts)..."
+              className="text-sm border border-paper-200 rounded bg-paper-50 px-3 py-2 w-full focus:outline-none focus:ring-1 focus:ring-rust-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
               autoFocus

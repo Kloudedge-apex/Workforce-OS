@@ -66,6 +66,19 @@ export default defineConfig({
     fs: {
       strict: true,
     },
+    // Local-only: proxy /api to the standalone api-server so the dev FE shows
+    // real seeded data. Gated on REPL_ID so Replit/prod (same-origin /api) is
+    // untouched. Override the target with API_PROXY_TARGET.
+    ...(process.env.REPL_ID === undefined
+      ? {
+          proxy: {
+            "/api": {
+              target: process.env.API_PROXY_TARGET ?? "http://localhost:4000",
+              changeOrigin: true,
+            },
+          },
+        }
+      : {}),
   },
   preview: {
     port,

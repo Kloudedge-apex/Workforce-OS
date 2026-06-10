@@ -12,20 +12,49 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, CheckCircle2, XCircle, ShieldOff } from "lucide-react";
+import { ArrowLeft, CheckCircle2, XCircle, ShieldOff, FileX2 } from "lucide-react";
+import { EmptyState } from "@/components/states/EmptyState";
+import { ErrorState } from "@/components/states/ErrorState";
+import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { motion } from "framer-motion";
+import { sanitizeHtml } from "@/lib/sanitize";
+import { springHover, useReducedMotionSafe } from "@/lib/motion";
+import { CountUp } from "@/components/motion/CountUp";
 
 function ScoreBar({ label, value }: { label: string; value: number }) {
+  const reduced = useReducedMotionSafe();
   const pct = Math.round(value * 100);
-  const color = pct >= 85 ? "bg-green-500" : pct >= 70 ? "bg-amber-400" : "bg-red-400";
+  // Brand thresholds: signal-positive (pass) / ember (caution) / rust (fail).
+  const fill =
+    pct >= 85
+      ? "bg-signal-positive"
+      : pct >= 70
+        ? "bg-ember-400"
+        : "bg-rust-500";
+  const text =
+    pct >= 85
+      ? "text-signal-positive"
+      : pct >= 70
+        ? "text-ember-500"
+        : "text-rust-500";
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-3">
       <span className="text-xs text-ink-600 w-32 shrink-0">{label}</span>
-      <div className="flex-1 h-1.5 bg-paper-200 rounded-full overflow-hidden">
-        <div className={cn("h-full rounded-full", color)} style={{ width: `${pct}%` }} />
+      <div className="flex-1 h-2 bg-paper-200 rounded-full overflow-hidden shadow-[inset_0_1px_2px_rgba(20,12,8,0.08)]">
+        <motion.div
+          className={cn("h-full rounded-full", fill)}
+          initial={reduced ? false : { width: 0 }}
+          animate={{ width: `${pct}%` }}
+          transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+        />
       </div>
-      <span className="text-xs font-mono text-ink-700 w-8 text-right">{pct}%</span>
+      <CountUp
+        value={pct}
+        suffix="%"
+        className={cn("text-xs font-mono w-9 text-right font-tabular", text)}
+      />
     </div>
   );
 }
@@ -36,8 +65,9 @@ export default function ArtifactDetail() {
   const id = params?.id ?? "";
   const [rejectOpen, setRejectOpen] = React.useState(false);
   const [rejectReason, setRejectReason] = React.useState("");
+  const reduced = useReducedMotionSafe();
 
-  const { data, isLoading, refetch } = useGetArtifact(id, {
+  const { data, isLoading, isError, refetch } = useGetArtifact(id, {
     query: { queryKey: ["getArtifact", id], enabled: !!id },
   });
 
@@ -58,7 +88,35 @@ export default function ArtifactDetail() {
     </div>
   );
 
-  if (!data) return <div className="p-6 text-ink-400">Artifact not found</div>;
+  if (isError) return (
+    <div className="flex h-full items-center justify-center bg-paper-50">
+      <ErrorState
+        title="Couldn't load this draft"
+        description="The artifact failed to load. Check your connection and try again."
+        onRetry={() => refetch()}
+      />
+    </div>
+  );
+
+  if (!data) return (
+    <div className="flex h-full items-center justify-center bg-paper-50">
+      <EmptyState
+        icon={FileX2}
+        title="Artifact not found"
+        description="This draft may have been deleted or never existed."
+        action={
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-paper-300 hover-elevate active-elevate-2"
+            onClick={() => navigate("/outbound")}
+          >
+            <ArrowLeft className="h-4 w-4 mr-1.5" /> Back to Outbound
+          </Button>
+        }
+      />
+    </div>
+  );
 
   const scores = data.evaluatorScores as { pii: number; hallucination: number; citationCoverage: number; toxicity: number };
   const isPending = data.status === "PENDING_REVIEW";
@@ -84,10 +142,15 @@ export default function ArtifactDetail() {
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto w-full p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <Stagger className="max-w-5xl mx-auto w-full p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Email preview */}
-        <div className="lg:col-span-2 space-y-4">
-          <div className="bg-white border border-paper-200 rounded-lg overflow-hidden">
+        <StaggerItem className="lg:col-span-2 space-y-4">
+          <motion.div
+            className="bg-white border border-paper-200 rounded-xl overflow-hidden shadow-md transition-shadow hover:shadow-lg"
+            variants={reduced ? undefined : springHover}
+            initial="rest"
+            whileHover="hover"
+          >
             <div className="px-5 py-4 border-b border-paper-100 bg-paper-50">
               <p className="text-xs text-ink-400 uppercase tracking-wide mb-1">Subject</p>
               <p className="text-sm font-medium text-ink-900">{data.subject}</p>
@@ -95,10 +158,10 @@ export default function ArtifactDetail() {
             <div className="px-5 py-4">
               <div
                 className="text-sm text-ink-800 leading-relaxed prose prose-sm max-w-none"
-                dangerouslySetInnerHTML={{ __html: data.bodyHtml }}
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(data.bodyHtml) }}
               />
             </div>
-          </div>
+          </motion.div>
 
           {/* Citations */}
           {(data.citations ?? []).length > 0 && (
@@ -114,29 +177,29 @@ export default function ArtifactDetail() {
               </div>
             </div>
           )}
-        </div>
+        </StaggerItem>
 
         {/* Sidebar */}
-        <div className="space-y-4">
+        <StaggerItem className="space-y-4">
           {/* Actions */}
           {isPending && (
-            <div className="bg-white border border-paper-200 rounded-lg p-4 space-y-2">
+            <div className="bg-white border border-paper-200 rounded-xl p-4 space-y-2 shadow-sm">
               <Button
-                className="w-full bg-rust-500 hover:bg-rust-600 text-white"
+                className="w-full bg-rust-500 hover:bg-rust-600 text-white shadow-sm active-elevate-2"
                 onClick={() => approve({ id })}
               >
                 <CheckCircle2 className="h-4 w-4 mr-2" /> Approve
               </Button>
               <Button
                 variant="outline"
-                className="w-full border-paper-300"
+                className="w-full border-paper-300 hover-elevate active-elevate-2"
                 onClick={() => setRejectOpen(true)}
               >
                 <XCircle className="h-4 w-4 mr-2" /> Reject
               </Button>
               <Button
                 variant="ghost"
-                className="w-full text-ink-500"
+                className="w-full text-ink-500 hover-elevate active-elevate-2"
                 onClick={() => suppress({ id })}
               >
                 <ShieldOff className="h-4 w-4 mr-2" /> Suppress
@@ -145,7 +208,7 @@ export default function ArtifactDetail() {
           )}
 
           {/* Recipient */}
-          <div className="bg-white border border-paper-200 rounded-lg p-4">
+          <div className="bg-white border border-paper-200 rounded-xl p-4 shadow-sm">
             <h3 className="text-xs font-semibold text-ink-500 uppercase tracking-wide mb-3">Recipient</h3>
             <p className="text-sm font-medium text-ink-900">{data.recipient.name}</p>
             <p className="text-xs text-ink-500">{data.recipient.title}</p>
@@ -155,9 +218,9 @@ export default function ArtifactDetail() {
 
           {/* Evaluator scores */}
           {scores && (
-            <div className="bg-white border border-paper-200 rounded-lg p-4">
+            <div className="bg-white border border-paper-200 rounded-xl p-4 shadow-sm">
               <h3 className="text-xs font-semibold text-ink-500 uppercase tracking-wide mb-3">Quality Scores</h3>
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 <ScoreBar label="PII check" value={scores.pii} />
                 <ScoreBar label="Hallucination" value={scores.hallucination} />
                 <ScoreBar label="Citation coverage" value={scores.citationCoverage} />
@@ -167,7 +230,7 @@ export default function ArtifactDetail() {
           )}
 
           {/* Send policy */}
-          <div className="bg-white border border-paper-200 rounded-lg p-4">
+          <div className="bg-white border border-paper-200 rounded-xl p-4 shadow-sm">
             <h3 className="text-xs font-semibold text-ink-500 uppercase tracking-wide mb-3">Send Policy</h3>
             {([
               { key: "liveSendEnabled", label: "Live send enabled" },
@@ -178,14 +241,14 @@ export default function ArtifactDetail() {
               const ok = key === "recipientSuppressed" ? !data.sendPolicy[key] : data.sendPolicy[key];
               return (
                 <div key={key} className="flex items-center gap-2 py-1">
-                  <div className={cn("w-1.5 h-1.5 rounded-full", ok ? "bg-green-500" : "bg-red-400")} />
+                  <div className={cn("w-1.5 h-1.5 rounded-full", ok ? "bg-signal-positive" : "bg-rust-500")} />
                   <span className="text-xs text-ink-600">{label}</span>
                 </div>
               );
             })}
           </div>
-        </div>
-      </div>
+        </StaggerItem>
+      </Stagger>
 
       {/* Reject dialog */}
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>

@@ -10,10 +10,14 @@ import {
   Bot,
   MoreHorizontal
 } from "lucide-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { CommandPalette } from "@/components/layout/CommandPalette";
 import { NotificationBell } from "@/components/v2/NotificationBell";
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
+import { Logo, Wordmark } from "@/components/brand/Logo";
+import { useWorkspace, useCurrentUser } from "@/lib/workspace";
 import { cn } from "@/lib/utils";
+import { openCommandPalette } from "@/lib/openCommandPalette";
 
 const NAV_ITEMS = [
   { href: "/today", label: "Today", icon: LayoutDashboard },
@@ -27,6 +31,8 @@ const NAV_ITEMS = [
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
+  const workspace = useWorkspace();
+  const user = useCurrentUser();
 
   const mobileNavItems = [
     NAV_ITEMS[0], // Today
@@ -41,8 +47,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex w-[220px] flex-col border-r border-paper-200 bg-paper-100 flex-shrink-0">
         <div className="p-4 border-b border-paper-200">
-          <h1 className="font-serif font-semibold text-ink-900 text-lg tracking-tight whitespace-nowrap overflow-hidden text-ellipsis">Mynoted Private Limited</h1>
-          <p className="text-xs text-ink-400 font-mono uppercase">Workspace</p>
+          <Wordmark />
+          <p className="mt-1 text-xs text-ink-400 font-mono uppercase truncate">{workspace.name}</p>
         </div>
         <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
           {NAV_ITEMS.map((item) => {
@@ -53,9 +59,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 href={item.href}
                 className={cn(
                   "flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors",
-                  active 
-                    ? "bg-rust-500 text-white shadow-sm" 
-                    : "text-ink-700 hover:bg-paper-200 hover:text-ink-900"
+                  active
+                    ? "bg-rust-500 text-white shadow-sm"
+                    : "text-ink-700 hover:bg-paper-200 hover:text-ink-900 dark:text-ink-300 dark:hover:text-paper-50"
                 )}
               >
                 <item.icon className="h-4 w-4" />
@@ -66,11 +72,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </nav>
         <div className="p-4 border-t border-paper-200 flex items-center gap-3">
           <Avatar className="h-8 w-8 bg-paper-200 border border-paper-200 text-ink-900">
-            <AvatarFallback className="font-serif bg-transparent text-ink-900">NS</AvatarFallback>
+            {user.avatarUrl && <AvatarImage src={user.avatarUrl} alt={user.name} />}
+            <AvatarFallback className="font-serif bg-transparent text-ink-900 dark:text-paper-50">{user.initials}</AvatarFallback>
           </Avatar>
           <div className="min-w-0">
-            <p className="text-sm font-medium text-ink-900 truncate">Nikhil Sood</p>
-            <p className="text-xs text-ink-400 truncate">Owner</p>
+            <p className="text-sm font-medium text-ink-900 dark:text-paper-50 truncate">{user.name}</p>
+            <p className="text-xs text-ink-400 truncate">{user.role}</p>
           </div>
         </div>
       </aside>
@@ -80,16 +87,22 @@ export function Shell({ children }: { children: React.ReactNode }) {
         {/* Topbar */}
         <header className="h-12 border-b border-paper-200 bg-paper-50 flex items-center justify-between px-4 flex-shrink-0">
           <div className="flex items-center gap-2">
-            <span className="md:hidden font-serif font-semibold text-ink-900">Mynoted</span>
+            <Logo size={20} className="md:hidden" />
             <div className="hidden md:flex items-center text-xs text-ink-400">
               <span>{NAV_ITEMS.find(i => location.startsWith(i.href))?.label || "Workspace"}</span>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button className="hidden md:flex items-center gap-2 px-2 py-1 text-xs text-ink-400 bg-paper-100 border border-paper-200 rounded shadow-sm hover:bg-paper-200 transition-colors mr-2">
+            <button
+              type="button"
+              aria-label="Open command palette"
+              onClick={openCommandPalette}
+              className="hidden md:flex items-center gap-2 px-2 py-1 text-xs text-ink-400 bg-paper-100 border border-paper-200 rounded shadow-sm hover-elevate active-elevate-2 transition-colors mr-2"
+            >
               <span>Search</span>
               <kbd className="font-mono bg-paper-200 px-1 rounded text-[10px]">⌘K</kbd>
             </button>
+            <ThemeToggle />
             <NotificationBell />
           </div>
         </header>

@@ -1,12 +1,14 @@
 import React from "react";
-import { Conversation, ConversationDetail, ReplyIntelligenceSentiment } from "@workspace/api-client-react";
+import { Conversation, ConversationDetail } from "@workspace/api-client-react";
 import { useDraftReply } from "@workspace/api-client-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatDistanceToNow, format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { sanitizeHtml } from "@/lib/sanitize";
 import { Sparkles, Bot, AlertTriangle } from "lucide-react";
+import { SentimentBadge } from "@/components/v2/SentimentBadge";
 import { toast } from "sonner";
 
 interface ConversationThreadProps {
@@ -32,20 +34,26 @@ export function ConversationThread({ mode, conversation, detail, selected, onSel
   };
 
   if (mode === "preview" && conversation) {
-    const sentimentColors = {
-      positive: "bg-signal-positive/10 text-signal-positive border-signal-positive/20",
-      objection: "bg-ember-400/10 text-ember-400 border-ember-400/20",
-      neutral: "bg-paper-200 text-ink-700 border-paper-200",
-      negative: "bg-rust-500/10 text-rust-500 border-rust-500/20",
-    };
-
     return (
-      <div 
+      <div
+        role="button"
+        tabIndex={0}
+        aria-pressed={selected}
+        aria-label={`Open conversation with ${conversation.leadName}: ${conversation.subject}`}
         className={cn(
-          "p-4 border-b border-paper-200 cursor-pointer hover:bg-paper-100 transition-colors flex gap-3 relative",
-          selected && "bg-paper-100"
+          "hover-elevate active-elevate-2 p-4 pl-5 border-b border-paper-200 cursor-pointer transition-colors flex gap-3 relative",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rust-500/40 focus-visible:ring-inset",
+          selected
+            ? "bg-paper-100 before:absolute before:left-0 before:top-0 before:bottom-0 before:w-0.5 before:bg-rust-500"
+            : "hover:bg-paper-100/60"
         )}
         onClick={() => onSelect?.(conversation.id)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onSelect?.(conversation.id);
+          }
+        }}
       >
         {conversation.unread && (
           <div className="absolute left-2 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-rust-500" />
@@ -68,9 +76,7 @@ export function ConversationThread({ mode, conversation, detail, selected, onSel
           <p className="text-xs text-ink-900 font-serif truncate mb-1">{conversation.subject}</p>
           <p className="text-xs text-ink-400 truncate mb-2">{conversation.lastMessagePreview}</p>
           <div className="flex items-center gap-2">
-            <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 h-4 font-medium", sentimentColors[conversation.replyIntelligence.sentiment])}>
-              {conversation.replyIntelligence.sentiment}
-            </Badge>
+            <SentimentBadge sentiment={conversation.replyIntelligence.sentiment} dense />
             {conversation.needsReply && (
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-rust-100 text-rust-500 border-rust-200">
                 Needs Reply
@@ -150,9 +156,9 @@ export function ConversationThread({ mode, conversation, detail, selected, onSel
                       {format(new Date(msg.sentAt), "MMM d, h:mm a")}
                     </span>
                   </div>
-                  <div 
+                  <div
                     className="prose prose-sm prose-ink max-w-none text-ink-700 leading-relaxed"
-                    dangerouslySetInnerHTML={{ __html: msg.bodyHtml }}
+                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(msg.bodyHtml) }}
                   />
                 </div>
               </div>
