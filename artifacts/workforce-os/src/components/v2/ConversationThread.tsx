@@ -10,6 +10,7 @@ import { sanitizeHtml } from "@/lib/sanitize";
 import { Sparkles, Bot, AlertTriangle } from "lucide-react";
 import { SentimentBadge } from "@/components/v2/SentimentBadge";
 import { toast } from "sonner";
+import { isUnavailable } from "@/lib/unavailable";
 
 interface ConversationThreadProps {
   mode: "preview" | "full";
@@ -26,7 +27,11 @@ export function ConversationThread({ mode, conversation, detail, selected, onSel
     if (!detail) return;
     toast("Generating draft reply...");
     try {
-      await draftReplyMut.mutateAsync({ id: detail.conversation.id });
+      const res = await draftReplyMut.mutateAsync({ id: detail.conversation.id });
+      if (isUnavailable(res)) {
+        toast("Not available yet — coming soon");
+        return;
+      }
       toast.success("Draft generated successfully");
     } catch (e) {
       toast.error("Failed to generate draft");

@@ -11,6 +11,7 @@ import { motion } from "framer-motion";
 import { cardEnter, useReducedMotionSafe } from "@/lib/motion";
 import { Search, Inbox, SearchX, MessageSquareText } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isUnavailable, UnavailableState } from "@/lib/unavailable";
 
 const FILTERS = [
   { label: "All", value: "all" },
@@ -56,6 +57,14 @@ export default function Conversations() {
     selectedId || "",
     { query: { enabled: !!selectedId, queryKey: ["getConversation", selectedId] } }
   );
+
+  // Gap endpoint: the conversations backend isn't wired up yet, so the BFF
+  // returns `{ unavailable: true }`. Show the whole surface as coming soon.
+  if (isUnavailable(listData)) {
+    return <UnavailableState feature="conversations" />;
+  }
+
+  const detailUnavailable = isUnavailable(detailData);
 
   return (
     <div className="flex h-full min-w-0">
@@ -148,6 +157,8 @@ export default function Conversations() {
             title="No conversation selected"
             description="Select a thread from the list to view the full message history and AI analysis."
           />
+        ) : detailUnavailable ? (
+          <UnavailableState feature="conversation detail" />
         ) : detailLoading || !detailData ? (
           <div className="p-6 space-y-6 h-full flex flex-col">
             <Skeleton className="h-16 w-full" />

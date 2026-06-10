@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/states/EmptyState";
 import { ErrorState } from "@/components/states/ErrorState";
+import { isUnavailable, UnavailableState } from "@/lib/unavailable";
 import { sanitizeHtml } from "@/lib/sanitize";
 import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 import { CountUp } from "@/components/motion/CountUp";
@@ -34,14 +35,22 @@ export default function ConversationThread() {
 
   const { mutate: draftReply, isPending: drafting } = useDraftReply({
     mutation: {
-      onSuccess: () => { toast.success("Reply draft queued"); refetch(); },
+      onSuccess: (res) => {
+        if (isUnavailable(res)) { toast("Not available yet — coming soon"); return; }
+        toast.success("Reply draft queued");
+        refetch();
+      },
       onError: () => toast.error("Failed to queue draft"),
     },
   });
 
   const { mutate: archive } = useArchiveConversation({
     mutation: {
-      onSuccess: () => { toast.success("Archived"); navigate("/conversations"); },
+      onSuccess: (res) => {
+        if (isUnavailable(res)) { toast("Not available yet — coming soon"); return; }
+        toast.success("Archived");
+        navigate("/conversations");
+      },
     },
   });
 
@@ -60,6 +69,12 @@ export default function ConversationThread() {
         description="The conversation service didn't respond. Your data is safe — try again."
         onRetry={() => refetch()}
       />
+    </div>
+  );
+
+  if (isUnavailable(data)) return (
+    <div className="flex h-full items-center justify-center bg-paper-50">
+      <UnavailableState feature="conversation detail" />
     </div>
   );
 

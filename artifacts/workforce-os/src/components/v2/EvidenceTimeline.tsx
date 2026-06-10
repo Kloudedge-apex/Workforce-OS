@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ChevronRight } from "lucide-react";
+import { isUnavailable, UnavailableState } from "@/lib/unavailable";
 
 interface EvidenceTimelineProps {
   runId: string | null;
@@ -47,6 +48,8 @@ export function EvidenceTimeline({ runId, open, onOpenChange }: EvidenceTimeline
               </div>
             ))}
           </div>
+        ) : isUnavailable(timeline) ? (
+          <UnavailableState feature="the reasoning trace" />
         ) : !timeline || timeline.length === 0 ? (
           <div className="text-center py-12 text-ink-400">
             <p>No trace available for this operation.</p>

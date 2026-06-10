@@ -12,6 +12,7 @@ import { motion } from "framer-motion";
 import { cardEnter, springHover, useReducedMotionSafe } from "@/lib/motion";
 import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 import { CountUp } from "@/components/motion/CountUp";
+import { isUnavailable, UnavailableState } from "@/lib/unavailable";
 
 const STATUS_STYLES: Record<string, string> = {
   COMPLETED: "bg-signal-positive/10 text-signal-positive border-signal-positive/20",
@@ -265,8 +266,13 @@ export default function RunDetail() {
           </div>
         </div>
 
-        {/* Timeline */}
-        {(timeline ?? []).length > 0 && (
+        {/* Timeline — gap endpoint (graph-runs/:id/timeline) */}
+        {isUnavailable(timeline) ? (
+          <div className="bg-ink-0 border border-paper-200 rounded-xl p-5 shadow-sm">
+            <h2 className="font-serif font-semibold text-ink-900 dark:text-paper-50 mb-4">Evidence Timeline</h2>
+            <UnavailableState feature="the run timeline" />
+          </div>
+        ) : (timeline ?? []).length > 0 ? (
           <div className="bg-ink-0 border border-paper-200 rounded-xl p-5 shadow-sm">
             <h2 className="font-serif font-semibold text-ink-900 dark:text-paper-50 mb-4">Evidence Timeline</h2>
             <Stagger className="space-y-1">
@@ -277,7 +283,7 @@ export default function RunDetail() {
               ))}
             </Stagger>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );
