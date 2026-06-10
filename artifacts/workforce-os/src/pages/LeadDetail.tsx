@@ -216,7 +216,7 @@ export default function LeadDetail() {
                       className="text-[10px] px-2 py-1 bg-white border border-rust-200 rounded text-rust-600 font-medium"
                     >
                       {sig.label}
-                      <span className="ml-1 text-rust-400 font-tabular">
+                      <span className="ml-1 text-rust-500 font-tabular">
                         {Math.round(sig.confidence * 100)}%
                       </span>
                     </span>

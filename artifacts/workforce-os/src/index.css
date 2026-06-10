@@ -166,6 +166,15 @@
   --input: var(--paper-200);
   --ring: var(--rust-500);
 
+  /* component border accents — full colors (consumed un-wrapped by @theme inline) */
+  --primary-border: hsl(var(--rust-600));
+  --secondary-border: hsl(var(--paper-300));
+  --muted-border: hsl(var(--paper-300));
+  --accent-border: hsl(var(--rust-200));
+  --destructive-border: hsl(var(--signal-critical));
+  --sidebar-primary-border: hsl(var(--rust-600));
+  --sidebar-accent-border: hsl(var(--paper-300));
+
   --app-font-sans: 'Inter', system-ui, sans-serif;
   --app-font-serif: 'Lora', Georgia, serif;
   --app-font-mono: Menlo, monospace;
@@ -236,6 +245,15 @@
   --destructive-foreground: 0 0% 100%;
   --input: var(--ink-700);
   --ring: var(--rust-500);
+
+  /* component border accents — dark-appropriate full colors */
+  --primary-border: hsl(var(--rust-700));
+  --secondary-border: hsl(var(--ink-700));
+  --muted-border: hsl(var(--ink-700));
+  --accent-border: hsl(var(--rust-800));
+  --destructive-border: hsl(var(--signal-critical));
+  --sidebar-primary-border: hsl(var(--rust-700));
+  --sidebar-accent-border: hsl(var(--ink-700));
 
   /* elevate overlays invert to light in dark mode */
   --elevate-1: hsl(42 30% 98% / 0.06);
