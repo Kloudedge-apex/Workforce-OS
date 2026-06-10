@@ -1,3 +1,4 @@
+import path from "node:path";
 import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
@@ -37,5 +38,15 @@ app.use(
   (req, res, next) => (req.path === "/healthz" ? next() : clerkGuard(req, res, next)),
   router,
 );
+
+// Production single-container mode: serve the built Vite FE + SPA fallback.
+// FE_DIST points at the FE's dist/public; unset in dev (vite serves the FE).
+const feDist = process.env["FE_DIST"];
+if (feDist) {
+  app.use(express.static(feDist));
+  app.use((_req, res) => {
+    res.sendFile(path.join(feDist, "index.html"));
+  });
+}
 
 export default app;
