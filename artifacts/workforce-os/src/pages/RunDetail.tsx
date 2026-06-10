@@ -28,7 +28,7 @@ const NODE_ICONS: Record<string, React.ReactNode> = {
   human_action: <User className="h-3.5 w-3.5" />,
 };
 
-// Type-colored markers for the timeline rail (mirrors components/v2/TimelineTree colorMap).
+// Type-colored markers for the timeline rail.
 const NODE_DOT_COLORS: Record<string, string> = {
   agent_run: "bg-rust-500",
   llm_call: "bg-signal-info",
