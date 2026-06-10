@@ -1,105 +1,81 @@
 import { Router } from "express";
-import { db } from "@workspace/db";
-import {
-  outreachArtifactsTable,
-  conversationsTable,
-  leadsTable,
-} from "@workspace/db";
-import { eq, and, gte, sql, isNotNull } from "drizzle-orm";
+import { apex, UpstreamError } from "../upstream/apex-client";
 
 const router = Router();
 
-const ORG_ID = "org_mynoted";
+/** Shape of GET /api/dashboard/stats (DashboardService.stats). */
+export interface DashboardStatsUpstream {
+  leadsSourced: number;
+  leadsQualified: number;
+  emailsSent: number;
+  replyRate: number;
+  meetingsBooked: number;
+}
 
-router.get("/today/kpis", async (req, res) => {
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
+/** Shape of GET /api/kpis/quality (KpiCalculatorService.quality). */
+export interface QualityKpiUpstream {
+  windowDays: number;
+  outreach_artifacts: {
+    pending_review: number;
+    approved: number;
+    rejected: number;
+    sent: number;
+  };
+  lead_score_distribution: { A: number; B: number; C: number };
+}
 
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+/** FE TodayKpis contract (openapi.yaml #/components/schemas/TodayKpis). */
+export interface TodayKpis {
+  artifactsPending: number;
+  artifactsSentToday: number;
+  replyRate7d: number;
+  qualifiedMeetingsBooked: number;
+  leadsSourcedToday: number;
+  leadsScored: number;
+}
 
-  const [pendingRows, sentTodayRows, totalSentRows, repliedRows, meetingsRows, leadsSourcedRows, leadsScoredRows] =
-    await Promise.all([
-      db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(outreachArtifactsTable)
-        .where(
-          and(
-            eq(outreachArtifactsTable.orgId, ORG_ID),
-            eq(outreachArtifactsTable.status, "PENDING_REVIEW"),
-          ),
-        ),
-      db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(outreachArtifactsTable)
-        .where(
-          and(
-            eq(outreachArtifactsTable.orgId, ORG_ID),
-            eq(outreachArtifactsTable.status, "SENT"),
-            gte(outreachArtifactsTable.sentAt, todayStart),
-          ),
-        ),
-      db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(outreachArtifactsTable)
-        .where(
-          and(
-            eq(outreachArtifactsTable.orgId, ORG_ID),
-            eq(outreachArtifactsTable.status, "SENT"),
-            gte(outreachArtifactsTable.sentAt, sevenDaysAgo),
-          ),
-        ),
-      db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(conversationsTable)
-        .where(
-          and(
-            eq(conversationsTable.orgId, ORG_ID),
-            gte(conversationsTable.lastMessageAt, sevenDaysAgo),
-          ),
-        ),
-      db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(conversationsTable)
-        .where(
-          and(
-            eq(conversationsTable.orgId, ORG_ID),
-            eq(conversationsTable.sentiment, "positive"),
-            gte(conversationsTable.lastMessageAt, sevenDaysAgo),
-          ),
-        ),
-      db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(leadsTable)
-        .where(
-          and(
-            eq(leadsTable.orgId, ORG_ID),
-            gte(leadsTable.createdAt, todayStart),
-          ),
-        ),
-      db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(leadsTable)
-        .where(
-          and(
-            eq(leadsTable.orgId, ORG_ID),
-            isNotNull(leadsTable.score),
-          ),
-        ),
+/**
+ * Pure mapper: compose the FE TodayKpis tile from the two upstream calls.
+ *
+ * Grounding notes (see 2026-06-10 release audit, dashboard domain):
+ * - artifactsPending  <- kpis.quality.outreach_artifacts.pending_review
+ * - artifactsSentToday <- kpis.quality.outreach_artifacts.sent (windowDays=1 ~= "today")
+ * - qualifiedMeetingsBooked <- dashboard.stats.meetingsBooked
+ * - leadsScored <- dashboard.stats.leadsSourced (every LeadScore row is a scored lead)
+ * - replyRate7d <- dashboard.stats.replyRate (backend HARDCODES 0; no real 7d reply
+ *   telemetry surfaced — passed through honestly)
+ * - leadsSourcedToday <- dashboard.stats.leadsSourced (no calendar-today endpoint exists;
+ *   all-time count is the closest available signal — see audit "true gaps within this tile")
+ */
+export function shapeTodayKpis(
+  stats: DashboardStatsUpstream,
+  quality: QualityKpiUpstream,
+): TodayKpis {
+  return {
+    artifactsPending: quality.outreach_artifacts.pending_review,
+    artifactsSentToday: quality.outreach_artifacts.sent,
+    replyRate7d: stats.replyRate,
+    qualifiedMeetingsBooked: stats.meetingsBooked,
+    leadsSourcedToday: stats.leadsSourced,
+    leadsScored: stats.leadsSourced,
+  };
+}
+
+router.get("/today/kpis", async (req, res, next) => {
+  try {
+    const [stats, quality] = await Promise.all([
+      apex.get("/dashboard/stats", { req }) as Promise<DashboardStatsUpstream>,
+      // windowDays=1 approximates calendar "today" for the sent/pending split.
+      apex.get("/kpis/quality?windowDays=1", { req }) as Promise<QualityKpiUpstream>,
     ]);
-
-  const totalSent = Number(totalSentRows[0]?.count ?? 0);
-  const replied = Number(repliedRows[0]?.count ?? 0);
-  const replyRate = totalSent > 0 ? Math.round((replied / totalSent) * 100) / 100 : 0;
-
-  res.json({
-    artifactsPending: Number(pendingRows[0]?.count ?? 0),
-    artifactsSentToday: Number(sentTodayRows[0]?.count ?? 0),
-    replyRate7d: replyRate,
-    qualifiedMeetingsBooked: Number(meetingsRows[0]?.count ?? 0),
-    leadsSourcedToday: Number(leadsSourcedRows[0]?.count ?? 0),
-    leadsScored: Number(leadsScoredRows[0]?.count ?? 0),
-  });
+    res.json(shapeTodayKpis(stats, quality));
+  } catch (err) {
+    if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) {
+      res.status(err.status).json(err.body);
+      return;
+    }
+    next(err);
+  }
 });
 
 export default router;
