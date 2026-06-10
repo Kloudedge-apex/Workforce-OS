@@ -36,6 +36,7 @@ import { fadeSlideUp, useReducedMotionSafe } from "@/lib/motion";
 import { CountUp } from "@/components/motion/CountUp";
 import { EmptyState } from "@/components/states/EmptyState";
 import { ErrorState } from "@/components/states/ErrorState";
+import { isUnavailable, UnavailableState } from "@/lib/unavailable";
 import { cn } from "@/lib/utils";
 
 // ─── Tab config ─────────────────────────────────────────────────────────────
@@ -120,6 +121,9 @@ export default function Settings() {
 function HealthBar() {
   const { data: health, isLoading, isError } = useGetOrgHealth({ query: { queryKey: ["getOrgHealth"] } });
   if (isLoading) return <div className="h-10 bg-ink-900 animate-pulse" />;
+  // Gap endpoint: org/health backend isn't wired up yet. Stay neutral — hide the
+  // bar rather than showing a scary "health unavailable" banner.
+  if (isUnavailable(health)) return null;
   if (isError || !health)
     return (
       <div className="shrink-0 px-6 py-2.5 flex items-center gap-3 bg-ember-500">
@@ -276,14 +280,23 @@ function IcpTab() {
 function CadenceTab() {
   const { data, isLoading, isError, refetch } = useGetCadence({ query: { queryKey: ["getCadence"] } });
   const { mutate: update, isPending } = useUpdateCadence({
-    mutation: { onSuccess: () => toast.success("Cadence saved"), onError: () => toast.error("Save failed") },
+    mutation: {
+      onSuccess: (res) => {
+        if (isUnavailable(res)) { toast("Not available yet — coming soon"); return; }
+        toast.success("Cadence saved");
+      },
+      onError: () => toast.error("Save failed"),
+    },
   });
   const [stages, setStages] = useState<CadenceStage[]>([]);
   const initialized = useRef(false);
+  const unavailable = isUnavailable(data);
 
   useEffect(() => {
-    if (data && !initialized.current) { setStages([...data].sort((a, b) => a.position - b.position)); initialized.current = true; }
-  }, [data]);
+    if (data && !unavailable && !initialized.current) { setStages([...data].sort((a, b) => a.position - b.position)); initialized.current = true; }
+  }, [data, unavailable]);
+
+  if (unavailable) return <UnavailableState feature="outreach cadence" />;
 
   const move = (idx: number, dir: -1 | 1) => {
     const next = [...stages];
@@ -357,14 +370,23 @@ function CadenceTab() {
 function BrandTab() {
   const { data, isLoading, isError, refetch } = useGetStyleConfig({ query: { queryKey: ["getStyleConfig"] } });
   const { mutate: update, isPending } = useUpdateStyleConfig({
-    mutation: { onSuccess: () => toast.success("Brand voice saved"), onError: () => toast.error("Save failed") },
+    mutation: {
+      onSuccess: (res) => {
+        if (isUnavailable(res)) { toast("Not available yet — coming soon"); return; }
+        toast.success("Brand voice saved");
+      },
+      onError: () => toast.error("Save failed"),
+    },
   });
   const [form, setForm] = useState({ voice: "professional", toneValue: 50, signatureHtml: "" });
   const initialized = useRef(false);
+  const unavailable = isUnavailable(data);
 
   useEffect(() => {
-    if (data && !initialized.current) { setForm({ ...data }); initialized.current = true; }
-  }, [data]);
+    if (data && !unavailable && !initialized.current) { setForm({ ...data }); initialized.current = true; }
+  }, [data, unavailable]);
+
+  if (unavailable) return <UnavailableState feature="brand voice" />;
 
   const PRESETS = [
     { id: "professional", label: "Professional" },
@@ -514,10 +536,22 @@ const ROLE_STYLES: Record<string, string> = {
 function TeamTab() {
   const { data, isLoading, isError, refetch } = useListTeamMembers({ query: { queryKey: ["listTeamMembers"] } });
   const { mutate: invite, isPending: inviting } = useInviteTeamMember({
-    mutation: { onSuccess: () => { toast.success("Invitation sent"); refetch(); setInviteOpen(false); }, onError: () => toast.error("Invite failed") },
+    mutation: {
+      onSuccess: (res) => {
+        if (isUnavailable(res)) { toast("Not available yet — coming soon"); setInviteOpen(false); return; }
+        toast.success("Invitation sent"); refetch(); setInviteOpen(false);
+      },
+      onError: () => toast.error("Invite failed"),
+    },
   });
   const { mutate: remove } = useRemoveTeamMember({
-    mutation: { onSuccess: () => { toast.success("Member removed"); refetch(); }, onError: () => toast.error("Remove failed") },
+    mutation: {
+      onSuccess: (res) => {
+        if (isUnavailable(res)) { toast("Not available yet — coming soon"); return; }
+        toast.success("Member removed"); refetch();
+      },
+      onError: () => toast.error("Remove failed"),
+    },
   });
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteForm, setInviteForm] = useState({ name: "", email: "", role: "MEMBER" as "ADMIN" | "MEMBER" });
@@ -701,16 +735,27 @@ function ApiKeysTab() {
   const { data, isLoading, isError, refetch } = useListApiKeys({ query: { queryKey: ["listApiKeys"] } });
   const { mutate: create, isPending: creating } = useCreateApiKey({
     mutation: {
-      onSuccess: (d) => { setNewKey(d.fullKey); refetch(); setKeyName(""); },
+      onSuccess: (d) => {
+        if (isUnavailable(d)) { toast("Not available yet — coming soon"); return; }
+        setNewKey(d.fullKey); refetch(); setKeyName("");
+      },
       onError: () => toast.error("Failed to create key"),
     },
   });
   const { mutate: revoke } = useRevokeApiKey({
-    mutation: { onSuccess: () => { toast.success("Key revoked"); refetch(); }, onError: () => toast.error("Revoke failed") },
+    mutation: {
+      onSuccess: (res) => {
+        if (isUnavailable(res)) { toast("Not available yet — coming soon"); return; }
+        toast.success("Key revoked"); refetch();
+      },
+      onError: () => toast.error("Revoke failed"),
+    },
   });
   const [keyName, setKeyName] = useState("");
   const [newKey, setNewKey] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
+
+  if (isUnavailable(data)) return <UnavailableState feature="API keys" />;
 
   return (
     <>
@@ -794,14 +839,23 @@ const NOTIF_EVENTS: { key: keyof NotificationPrefs; label: string; description: 
 function NotificationsTab() {
   const { data, isLoading, isError, refetch } = useGetNotificationPrefs({ query: { queryKey: ["getNotificationPrefs"] } });
   const { mutate: update } = useUpdateNotificationPrefs({
-    mutation: { onSuccess: () => toast.success("Preferences saved"), onError: () => toast.error("Save failed") },
+    mutation: {
+      onSuccess: (res) => {
+        if (isUnavailable(res)) { toast("Not available yet — coming soon"); return; }
+        toast.success("Preferences saved");
+      },
+      onError: () => toast.error("Save failed"),
+    },
   });
   const [prefs, setPrefs] = useState<NotificationPrefs>({ emailEnabled: true, slackEnabled: false, approvalQueueFull: true, sendFailed: true, suppressionHit: false, weeklyReport: true, newReply: true });
   const initialized = useRef(false);
+  const unavailable = isUnavailable(data);
 
   useEffect(() => {
-    if (data && !initialized.current) { setPrefs({ ...data }); initialized.current = true; }
-  }, [data]);
+    if (data && !unavailable && !initialized.current) { setPrefs({ ...data }); initialized.current = true; }
+  }, [data, unavailable]);
+
+  if (unavailable) return <UnavailableState feature="notification preferences" />;
 
   const toggle = (key: keyof NotificationPrefs, val: boolean) => {
     const next = { ...prefs, [key]: val };

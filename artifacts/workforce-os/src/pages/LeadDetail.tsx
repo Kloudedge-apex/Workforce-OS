@@ -24,6 +24,7 @@ import { ErrorState } from "@/components/states/ErrorState";
 import { formatDistanceToNow } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { isUnavailable } from "@/lib/unavailable";
 
 export default function LeadDetail() {
   const [, params] = useRoute("/pipeline/:id");
@@ -39,7 +40,8 @@ export default function LeadDetail() {
   const handleTrigger = async () => {
     toast("Triggering outbound agent...");
     try {
-      await triggerMut.mutateAsync({ id });
+      const res = await triggerMut.mutateAsync({ id });
+      if (isUnavailable(res)) { toast("Not available yet — coming soon"); return; }
       toast.success("Outbound sequence triggered");
     } catch (e) {
       toast.error("Failed to trigger outbound");

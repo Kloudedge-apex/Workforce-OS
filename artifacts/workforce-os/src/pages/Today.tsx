@@ -16,6 +16,7 @@ import { EmptyState } from "@/components/states/EmptyState";
 import { ErrorState } from "@/components/states/ErrorState";
 import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 import { toast } from "sonner";
+import { isUnavailable } from "@/lib/unavailable";
 
 export default function Today() {
   const [activeFilter, setActiveFilter] = useState<"all" | "outbound" | "pipeline" | "conversations">("all");
@@ -36,7 +37,8 @@ export default function Today() {
   const handleBulkApprove = async () => {
     toast("Bulk approving all pending drafts...");
     try {
-      await bulkApproveMut.mutateAsync();
+      const res = await bulkApproveMut.mutateAsync();
+      if (isUnavailable(res)) { toast("Not available yet — coming soon"); return; }
       toast.success("Bulk approval complete");
     } catch (e) {
       toast.error("Bulk approval failed");

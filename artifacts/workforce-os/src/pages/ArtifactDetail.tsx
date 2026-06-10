@@ -18,6 +18,7 @@ import { ErrorState } from "@/components/states/ErrorState";
 import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { isUnavailable } from "@/lib/unavailable";
 import { motion } from "framer-motion";
 import { sanitizeHtml } from "@/lib/sanitize";
 import { springHover, useReducedMotionSafe } from "@/lib/motion";
@@ -78,7 +79,12 @@ export default function ArtifactDetail() {
     mutation: { onSuccess: () => { toast.success("Rejected"); setRejectOpen(false); refetch(); } },
   });
   const { mutate: suppress } = useSuppressArtifact({
-    mutation: { onSuccess: () => { toast.success("Suppressed"); refetch(); } },
+    mutation: {
+      onSuccess: (res) => {
+        if (isUnavailable(res)) { toast("Not available yet — coming soon"); return; }
+        toast.success("Suppressed"); refetch();
+      },
+    },
   });
 
   if (isLoading) return (

@@ -16,6 +16,7 @@ import { format } from "date-fns";
 import { CheckCircle2, ShieldAlert, Check, XCircle, Ban, History, Inbox, Send, ThumbsDown } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { isUnavailable } from "@/lib/unavailable";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { Stagger, StaggerItem } from "@/components/motion/Stagger";
@@ -37,6 +38,7 @@ export default function Outbound() {
     toast("Running evaluators for bulk approval...");
     try {
       const res = await bulkApproveMut.mutateAsync();
+      if (isUnavailable(res)) { toast("Not available yet — coming soon"); return; }
       toast.success(`Approved ${res.approved} drafts. Skipped ${res.skipped}.`);
     } catch (e) {
       toast.error("Bulk approval failed");
