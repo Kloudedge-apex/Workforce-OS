@@ -128,9 +128,9 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
             />
             {!bodyExpanded && (
               <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-paper-50 to-transparent flex items-end justify-center pb-1">
-                <button 
+                <button
                   onClick={() => setBodyExpanded(true)}
-                  className="text-xs font-semibold text-rust-500 hover:text-rust-500/80 bg-paper-50 px-2"
+                  className="text-xs font-semibold text-rust-500 hover:text-rust-500/80 bg-paper-50 px-2 rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
                   Expand
                 </button>
@@ -176,9 +176,9 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
             Citation Cov: {artifact.evaluatorScores.citationCoverage.toFixed(2)}
           </Badge>
           {artifact.graphRunId && (
-            <button 
+            <button
               onClick={() => setTimelineOpen(true)}
-              className="text-[10px] text-ink-400 hover:text-ink-900 uppercase tracking-wider ml-auto font-semibold"
+              className="text-[10px] text-ink-400 hover:text-ink-900 uppercase tracking-wider ml-auto font-semibold rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               View Trace
             </button>
@@ -188,10 +188,11 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
         {/* Action Bar */}
         {rejectMode ? (
           <div className="flex flex-col gap-2 animate-in slide-in-from-bottom-2">
-            <input 
-              type="text" 
-              placeholder="Reason for rejection (guides future agent drafts)..." 
-              className="text-sm border border-paper-200 rounded bg-paper-50 px-3 py-2 w-full focus:outline-none focus:ring-1 focus:ring-rust-500"
+            <input
+              type="text"
+              aria-label="Reason for rejection"
+              placeholder="Reason for rejection (guides future agent drafts)..."
+              className="text-sm border border-paper-200 rounded bg-paper-50 px-3 py-2 w-full focus:outline-none focus:ring-1 focus:ring-rust-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
               autoFocus

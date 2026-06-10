@@ -21,7 +21,13 @@ export function ScoreRing({ score, size = 48, strokeWidth = 4, className }: Scor
 
   return (
     <div className={cn("relative flex items-center justify-center", className)} style={{ width: size, height: size }}>
-      <svg className="transform -rotate-90" width={size} height={size}>
+      <svg
+        className="transform -rotate-90"
+        width={size}
+        height={size}
+        role="img"
+        aria-label={`Lead score ${score} out of 100`}
+      >
         <circle
           className="stroke-paper-100"
           strokeWidth={strokeWidth}
@@ -42,10 +48,12 @@ export function ScoreRing({ score, size = 48, strokeWidth = 4, className }: Scor
           cy={size / 2}
         />
       </svg>
-      <CountUp
-        value={score}
-        className="absolute font-tabular text-sm font-bold text-ink-900 dark:text-paper-50"
-      />
+      <span aria-hidden="true" className="contents">
+        <CountUp
+          value={score}
+          className="absolute font-tabular text-sm font-bold text-ink-900 dark:text-paper-50"
+        />
+      </span>
     </div>
   );
 }

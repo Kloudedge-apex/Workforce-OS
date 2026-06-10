@@ -39,6 +39,7 @@ export function ConversationThread({ mode, conversation, detail, selected, onSel
         role="button"
         tabIndex={0}
         aria-pressed={selected}
+        aria-label={`Open conversation with ${conversation.leadName}: ${conversation.subject}`}
         className={cn(
           "hover-elevate active-elevate-2 p-4 pl-5 border-b border-paper-200 cursor-pointer transition-colors flex gap-3 relative",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rust-500/40 focus-visible:ring-inset",

@@ -76,6 +76,7 @@ export default function Settings() {
               onClick={() => setTab(id)}
               className={cn(
                 "flex items-center gap-2.5 px-3 py-2 text-sm rounded-md font-medium transition-colors text-left",
+                "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                 activeTab === id
                   ? "bg-white text-ink-900 shadow-sm border border-paper-200"
                   : "text-ink-600 hover:bg-paper-200 hover:text-ink-900"
@@ -95,6 +96,7 @@ export default function Settings() {
               onClick={() => setTab(id)}
               className={cn(
                 "flex-shrink-0 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap",
+                "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset",
                 activeTab === id
                   ? "border-rust-500 text-rust-600"
                   : "border-transparent text-ink-500"
@@ -309,8 +311,8 @@ function CadenceTab() {
         {stages.map((stage, idx) => (
           <SettingsCard key={stage.id} className="p-4 flex items-center gap-3 hover-elevate">
             <div className="flex flex-col gap-0.5">
-              <button onClick={() => move(idx, -1)} disabled={idx === 0} className="text-ink-300 hover:text-ink-700 disabled:opacity-20"><ChevronUp className="h-3.5 w-3.5" /></button>
-              <button onClick={() => move(idx, 1)} disabled={idx === stages.length - 1} className="text-ink-300 hover:text-ink-700 disabled:opacity-20"><ChevronDown className="h-3.5 w-3.5" /></button>
+              <button aria-label="Move stage up" onClick={() => move(idx, -1)} disabled={idx === 0} className="text-ink-300 hover:text-ink-700 disabled:opacity-20 rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"><ChevronUp className="h-3.5 w-3.5" /></button>
+              <button aria-label="Move stage down" onClick={() => move(idx, 1)} disabled={idx === stages.length - 1} className="text-ink-300 hover:text-ink-700 disabled:opacity-20 rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"><ChevronDown className="h-3.5 w-3.5" /></button>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
               <span className="text-[10px] text-ink-400">Day</span>
@@ -333,7 +335,7 @@ function CadenceTab() {
             </Select>
             <Input value={stage.label} onChange={e => update1(idx, "label", e.target.value)} className="flex-1 h-8 text-sm" placeholder="Step label" />
             <Switch checked={stage.enabled} onCheckedChange={v => update1(idx, "enabled", v)} />
-            <button onClick={() => removeStage(idx)} className="text-ink-300 hover:text-red-400 transition-colors">
+            <button aria-label="Remove stage" onClick={() => removeStage(idx)} className="text-ink-300 hover:text-red-400 transition-colors rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
               <Trash2 className="h-4 w-4" />
             </button>
           </SettingsCard>
@@ -384,6 +386,7 @@ function BrandTab() {
                 onClick={() => setForm(f => ({ ...f, voice: p.id }))}
                 className={cn(
                   "px-4 py-2 rounded-lg text-sm font-medium border transition-all",
+                  "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                   form.voice === p.id
                     ? "bg-rust-500 text-white border-rust-500"
                     : "bg-paper-50 text-ink-700 border-paper-200 hover:border-paper-400"
@@ -547,7 +550,7 @@ function TeamTab() {
                 <Badge className={cn("text-[10px] border", ROLE_STYLES[m.role])}>{m.role}</Badge>
                 <Badge variant="outline" className="text-[10px] border-paper-200 text-ink-500">{m.status}</Badge>
                 {m.role !== "OWNER" && (
-                  <button onClick={() => remove({ userId: m.id })} className="text-ink-300 hover:text-red-400 transition-colors ml-1">
+                  <button aria-label={`Remove ${m.email}`} onClick={() => remove({ userId: m.id })} className="text-ink-300 hover:text-red-400 transition-colors ml-1 rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 )}
@@ -720,14 +723,14 @@ function ApiKeysTab() {
             <code className="flex-1 font-mono text-xs bg-white border border-green-200 rounded px-3 py-2 break-all">
               {showNew ? newKey : newKey.replace(/./g, "•")}
             </code>
-            <button onClick={() => setShowNew(v => !v)} className="text-green-600 hover:text-green-800 shrink-0">
+            <button aria-label={showNew ? "Hide API key" : "Reveal API key"} onClick={() => setShowNew(v => !v)} className="text-green-600 hover:text-green-800 shrink-0 rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
               {showNew ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
-            <button onClick={() => { navigator.clipboard.writeText(newKey); toast.success("Copied!"); }} className="text-green-600 hover:text-green-800 shrink-0">
+            <button aria-label="Copy API key" onClick={() => { navigator.clipboard.writeText(newKey); toast.success("Copied!"); }} className="text-green-600 hover:text-green-800 shrink-0 rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
               <Copy className="h-4 w-4" />
             </button>
           </div>
-          <button onClick={() => setNewKey(null)} className="text-xs text-green-600 mt-2 hover:underline">Dismiss</button>
+          <button onClick={() => setNewKey(null)} className="text-xs text-green-600 mt-2 hover:underline rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">Dismiss</button>
         </div>
       )}
 
@@ -767,7 +770,7 @@ function ApiKeysTab() {
                     ? <span>Last used {new Date(k.lastUsedAt).toLocaleDateString()}</span>
                     : <span className="text-ink-300">Never used</span>}
                 </div>
-                <button onClick={() => revoke({ id: k.id })} className="text-ink-300 hover:text-red-400 transition-colors ml-1">
+                <button aria-label={`Revoke API key ${k.name}`} onClick={() => revoke({ id: k.id })} className="text-ink-300 hover:text-red-400 transition-colors ml-1 rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </div>
@@ -992,13 +995,14 @@ function ChipField({ label, chips, onChange, placeholder }: { label: string; chi
         {chips.map(c => (
           <span key={c} className="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-paper-300 rounded text-xs text-ink-800">
             {c}
-            <button onClick={() => onChange(chips.filter(x => x !== c))} className="text-ink-300 hover:text-red-400">
+            <button aria-label={`Remove ${c}`} onClick={() => onChange(chips.filter(x => x !== c))} className="text-ink-300 hover:text-red-400 rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
               <X className="h-3 w-3" />
             </button>
           </span>
         ))}
         <input
-          className="flex-1 min-w-[120px] text-xs bg-transparent outline-none placeholder:text-ink-300 text-ink-900"
+          aria-label={label}
+          className="flex-1 min-w-[120px] text-xs bg-transparent outline-none placeholder:text-ink-300 text-ink-900 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-sm"
           placeholder={placeholder}
           value={input}
           onChange={e => setInput(e.target.value)}

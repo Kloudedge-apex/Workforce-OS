@@ -11,7 +11,13 @@ export function SparklineChart({ data, width = 80, height = 24 }: SparklineChart
   const barWidth = width / data.length - 2;
 
   return (
-    <svg width={width} height={height} className="overflow-visible">
+    <svg
+      width={width}
+      height={height}
+      className="overflow-visible"
+      role="img"
+      aria-label={`Trend sparkline, latest value ${data[data.length - 1] ?? 0}`}
+    >
       {data.map((val, i) => {
         const h = (val / max) * height;
         return (
