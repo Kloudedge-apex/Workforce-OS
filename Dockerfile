@@ -3,7 +3,9 @@
 # The api-server (BFF) serves the built Vite FE (FE_DIST) and /api.
 
 FROM node:24-slim AS build
-RUN corepack enable
+# Pin pnpm to the repo's known-good version (corepack would otherwise pull pnpm 11,
+# which fails the install on ignored build scripts — ERR_PNPM_IGNORED_BUILDS).
+RUN corepack enable && corepack prepare pnpm@10.30.3 --activate
 WORKDIR /app
 COPY . .
 # Lockfile deps install fine under the 1-day minimumReleaseAge gate (it only blocks new versions).
