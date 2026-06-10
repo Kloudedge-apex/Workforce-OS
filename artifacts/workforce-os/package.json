@@ -11,6 +11,7 @@
     "test": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
+    "@clerk/clerk-react": "^5.61.3",
     "dompurify": "^3.4.8",
     "framer-motion": "catalog:"
   },
