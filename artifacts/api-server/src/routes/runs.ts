@@ -1,4 +1,5 @@
 import { Router } from "express";
+import type { NextFunction, Request, Response } from "express";
 import { apex, UpstreamError } from "../upstream/apex-client";
 import { gapResponse } from "../lib/unavailable";
 
@@ -64,6 +65,25 @@ export interface UpstreamGraphRun {
 export interface UpstreamTrigger {
   message: string;
   graphRunId: string | null;
+}
+
+/**
+ * The body apex-gtm-api `POST /api/graph/runs/:id/approve|reject` returns
+ * (GraphService.resumePipelineGraph). `status` is always "resuming" — the
+ * worker dequeues the resume job and drives the graph async.
+ */
+export interface UpstreamResumeResult {
+  status: string;
+}
+
+/**
+ * The GraphRunDetail envelope this BFF can honestly serve today: a REAL run
+ * header plus the gap sentinel for the timeline half (the EvidenceEvent rows
+ * that would populate `timeline` are exposed by no deployed controller).
+ */
+export interface RunDetailShape {
+  run: GraphRunShape;
+  timeline: { unavailable: true; feature: string };
 }
 
 // ── pure transforms ──────────────────────────────────────────────────────────
@@ -150,6 +170,48 @@ export function shapeTrigger(upstream: UpstreamTrigger): TriggerResultShape {
   };
 }
 
+/**
+ * PURE: extract the human-readable `message` from an upstream (NestJS) error
+ * body, falling back when the body carries none. Nest exception bodies look
+ * like `{ statusCode, message, error }`; we pass `message` through VERBATIM so
+ * the FE can show the reviewer exactly what the backend said (e.g. the
+ * single-flight "A pipeline graph is already awaiting_approval for this org
+ * (runId=…)" or the resume conflict "Graph run is COMPLETED, not
+ * AWAITING_APPROVAL").
+ */
+export function upstreamMessage(body: unknown, fallback: string): string {
+  if (body && typeof body === "object" && "message" in body) {
+    const message = (body as { message: unknown }).message;
+    if (typeof message === "string" && message.trim() !== "") return message;
+  }
+  return fallback;
+}
+
+/**
+ * PURE: find one run in the upstream runs LIST and wrap it in the
+ * GraphRunDetail envelope. Returns null when the run is not in the window the
+ * list exposes (the backend hard-caps the list at the 20 newest rows).
+ *
+ * INTERIM by design: there is no dedicated upstream run-detail endpoint this
+ * BFF can consume for the full GraphRunDetail (the per-run timeline has no
+ * controller), so we serve the REAL run header from the list window and keep
+ * `timeline` as the honest gap sentinel the FE already maps to its
+ * "not available" half. Replace with a real per-run proxy once a dedicated
+ * upstream endpoint (header + evidence timeline) ships.
+ */
+export function shapeRunDetail(
+  upstream: UpstreamGraphRun[],
+  id: string,
+  now: number = Date.now(),
+): RunDetailShape | null {
+  const found = upstream.find((r) => r.id === id);
+  if (!found) return null;
+  return {
+    run: shapeRun(found, now),
+    timeline: { unavailable: true, feature: "run-evidence-timeline" },
+  };
+}
+
 // ── routes ───────────────────────────────────────────────────────────────────
 
 router.get("/runs", async (req, res, next) => {
@@ -178,11 +240,11 @@ router.post("/runs/trigger", async (req, res, next) => {
     if (err instanceof UpstreamError) {
       if (err.status === 401 || err.status === 403) throw err;
       // Single-flight conflict: a graph is already in-flight for this org.
+      // The verbatim upstream message carries the in-flight run's status and
+      // id ("… already awaiting_approval for this org (runId=…)"), which the
+      // FE parses to point the user at the blocking run.
       if (err.status === 409) {
-        const message =
-          err.body && typeof err.body === "object" && "message" in err.body
-            ? String((err.body as { message: unknown }).message)
-            : "A pipeline run is already in progress";
+        const message = upstreamMessage(err.body, "A pipeline run is already in progress");
         res.status(409).json({ runId: "", queued: false, message });
         return;
       }
@@ -191,13 +253,72 @@ router.post("/runs/trigger", async (req, res, next) => {
   }
 });
 
-// GAP: there is no deployed endpoint that serves a per-run evidence timeline
-// (TimelineNode[]). GET /api/graph/runs/:id returns only the `run` half; the
-// EvidenceEvent rows that would populate `timeline` are read-only-internal and
-// exposed by no controller. The BFF cannot reach the DB directly, so we degrade
-// honestly rather than return a run with a fabricated/empty timeline.
-router.get("/runs/:id", (_req, res) => {
-  return gapResponse(res, "run-evidence-timeline");
+// GET /runs/:id — run header REAL (interim), timeline still a gap.
+//
+// INTERIM until a dedicated upstream run-detail endpoint exists: we fetch the
+// upstream runs LIST (newest 20) and look the run up there, so RunDetail can
+// render the real status/counts/approval state instead of the unavailable
+// state for every run. The `timeline` half stays the honest gap sentinel —
+// the EvidenceEvent rows that would populate it are exposed by no deployed
+// controller, and the BFF cannot reach the DB directly.
+router.get("/runs/:id", async (req, res, next) => {
+  try {
+    const upstream = (await apex.get("/graph/runs", { req })) as UpstreamGraphRun[];
+    const detail = shapeRunDetail(upstream, req.params["id"]!);
+    if (!detail) {
+      // Not in the 20-row list window. The run may simply be older than the
+      // window (NOT necessarily deleted), so degrade to the gap sentinel the
+      // FE maps to "not available" rather than 404ing a run that may exist.
+      return gapResponse(res, "run-evidence-timeline");
+    }
+    res.json(detail);
+  } catch (err) {
+    if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
+    next(err);
+  }
 });
+
+// POST /runs/:id/approve and /runs/:id/reject — REAL via the upstream
+// POST /api/graph/runs/:id/{approve|reject} (GraphController), which resumes a
+// graph paused at the human_approval interrupt with the reviewer's decision.
+//
+// Mirrors the artifact-approve proxy pattern (artifacts.ts): same auth/org
+// scoping (apex-client forwards the caller's Clerk Bearer token + x-org-id so
+// the upstream org guard authorizes it), and the upstream body field the FE
+// schema omits ({ approvedBy }) is injected from the authenticated Clerk user.
+//
+// Error passthrough:
+//  - 404 → 404 { error: "Not found" } (run does not exist in this org)
+//  - 409 → 409 { message } VERBATIM ("Graph run is <STATUS>, not
+//    AWAITING_APPROVAL") so the FE can tell the reviewer exactly why the
+//    decision didn't apply (e.g. someone else already decided).
+function resumeDecisionHandler(decision: "approve" | "reject") {
+  return async (req: Request<{ id: string }>, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const upstream = (await apex.post(
+        `/graph/runs/${encodeURIComponent(req.params["id"]!)}/${decision}`,
+        { req },
+        { approvedBy: req.clerkUserId ?? "bff" },
+      )) as UpstreamResumeResult;
+      res.json(upstream);
+    } catch (err) {
+      if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
+      if (err instanceof UpstreamError && err.status === 404) {
+        res.status(404).json({ error: "Not found" });
+        return;
+      }
+      if (err instanceof UpstreamError && err.status === 409) {
+        res.status(409).json({
+          message: upstreamMessage(err.body, "Run is no longer awaiting approval"),
+        });
+        return;
+      }
+      next(err);
+    }
+  };
+}
+
+router.post("/runs/:id/approve", resumeDecisionHandler("approve"));
+router.post("/runs/:id/reject", resumeDecisionHandler("reject"));
 
 export default router;
