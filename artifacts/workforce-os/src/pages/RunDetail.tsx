@@ -1,10 +1,12 @@
 import React from "react";
 import { useRoute, useLocation } from "wouter";
-import { useGetRun } from "@workspace/api-client-react";
+import { useMutation } from "@tanstack/react-query";
+import { useGetRun, customFetch } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, ChevronDown, ChevronRight as ChevronRightIcon, Bot, Zap, FlaskConical, Wrench, User, Activity } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight as ChevronRightIcon, Bot, Zap, FlaskConical, Wrench, User, Activity, UserCheck, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/states/EmptyState";
 import { ErrorState } from "@/components/states/ErrorState";
@@ -37,6 +39,64 @@ const NODE_DOT_COLORS: Record<string, string> = {
   tool_call: "bg-ink-900",
   human_action: "bg-paper-200 border border-ink-400",
 };
+
+// ── Run-level HITL (approve / reject) ────────────────────────────────────────
+
+/**
+ * PURE: turn a failed run-decision call into the message we toast. customFetch
+ * throws an ApiError carrying the parsed BFF body in `.data`; we surface the
+ * BFF/upstream `message` VERBATIM when one exists (e.g. the 409 "Graph run is
+ * COMPLETED, not AWAITING_APPROVAL" when someone else already decided), then
+ * the `error` marker the BFF uses ("Not found" / "upstream" / "internal"),
+ * then the error's own message. Never hides the real reason behind a generic
+ * line.
+ */
+export function decisionErrorMessage(err: unknown): string {
+  if (err && typeof err === "object" && "data" in err) {
+    const data = (err as { data?: unknown }).data;
+    if (data && typeof data === "object") {
+      const rec = data as Record<string, unknown>;
+      if (typeof rec.message === "string" && rec.message.trim() !== "") return rec.message;
+      if (typeof rec.error === "string" && rec.error.trim() !== "") {
+        const status = (err as { status?: unknown }).status;
+        return typeof status === "number" ? `${rec.error} (HTTP ${status})` : rec.error;
+      }
+    }
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return "Request failed — please try again.";
+}
+
+/**
+ * POST the reviewer's decision to the BFF run-HITL proxy
+ * (POST /api/runs/:id/approve | /reject). These routes are not in the
+ * generated client yet (openapi spec regen pending), so we go through the
+ * exported customFetch directly — same base-URL + Clerk bearer plumbing as
+ * every generated call; the BFF resolves the org server-side from the token.
+ *
+ * No optimistic flips: the run row (refetched via `onSettled`) is the only
+ * source of truth for whether the decision actually applied.
+ */
+function useRunDecision(id: string, decision: "approve" | "reject", onSettled: () => void) {
+  return useMutation({
+    mutationFn: () =>
+      customFetch<{ status?: string }>(
+        `/api/runs/${encodeURIComponent(id)}/${decision}`,
+        { method: "POST" },
+      ),
+    onSuccess: () => {
+      // Honest copy: the backend answers { status: "resuming" } — the worker
+      // applies the decision async, so we announce the handoff, not completion.
+      toast.success(
+        decision === "approve"
+          ? "Approved — the run is resuming into drafting"
+          : "Rejected — the run will wind down without drafting",
+      );
+    },
+    onError: (err: unknown) => toast.error(decisionErrorMessage(err)),
+    onSettled,
+  });
+}
 
 interface TimelineNodeData {
   id: string;
@@ -139,6 +199,10 @@ export default function RunDetail() {
     query: { queryKey: ["getRun", id], enabled: !!id },
   });
 
+  const approve = useRunDecision(id, "approve", () => void refetch());
+  const reject = useRunDecision(id, "reject", () => void refetch());
+  const deciding = approve.isPending || reject.isPending;
+
   if (isLoading) return (
     <div className="p-6 space-y-4 max-w-3xl mx-auto">
       <Skeleton className="h-8 w-40" />
@@ -212,6 +276,62 @@ export default function RunDetail() {
       </div>
 
       <div className="max-w-4xl mx-auto w-full p-6 space-y-6">
+        {/* Run-level HITL: the pipeline pauses at its human checkpoint BEFORE
+            drafting, so without this panel the org's only run sits frozen in
+            AWAITING_APPROVAL with no UI escape. Honest about what exists at
+            this stage: lead counts above are pipeline-reported; drafts don't
+            exist yet. */}
+        {run.status === "AWAITING_APPROVAL" && (
+          <div
+            role="alert"
+            data-testid="run-approval-panel"
+            className="rounded-xl border-2 border-rust-300 bg-rust-500/5 p-5 shadow-sm"
+          >
+            <div className="flex items-center gap-2">
+              <UserCheck className="h-5 w-5 text-rust-500 shrink-0" />
+              <h2 className="font-serif text-lg font-semibold text-ink-900 dark:text-paper-50">
+                Approval needed — paused before drafting
+              </h2>
+            </div>
+            <p className="text-sm text-ink-700 mt-2 leading-relaxed">
+              This run stopped at its human checkpoint before writing any outreach. The counts
+              above are what the pipeline has reported so far; no email drafts exist yet, so
+              there is nothing to preview at this stage. Approving resumes the run into
+              drafting — every draft still gets its own individual review before anything can
+              send. Rejecting ends the run here without drafting anything.
+            </p>
+            <div className="flex flex-wrap gap-2 mt-4">
+              <Button
+                className="bg-rust-500 hover:bg-rust-600 text-white shadow-sm active-elevate-2"
+                onClick={() => approve.mutate()}
+                disabled={deciding}
+                data-testid="approve-run"
+              >
+                {approve.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                )}
+                Approve & Continue
+              </Button>
+              <Button
+                variant="outline"
+                className="border-rust-300 text-rust-700 dark:text-rust-300 hover-elevate active-elevate-2"
+                onClick={() => reject.mutate()}
+                disabled={deciding}
+                data-testid="reject-run"
+              >
+                {reject.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <XCircle className="h-4 w-4 mr-2" />
+                )}
+                Reject run
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Summary */}
         <div className="space-y-4">
           <Stagger className="grid grid-cols-2 sm:grid-cols-4 gap-3">

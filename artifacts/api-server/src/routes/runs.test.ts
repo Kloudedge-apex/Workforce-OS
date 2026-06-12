@@ -2,7 +2,9 @@ import { describe, it, expect } from "vitest";
 import {
   shapeRun,
   shapeRunsList,
+  shapeRunDetail,
   shapeTrigger,
+  upstreamMessage,
   type UpstreamGraphRun,
   type UpstreamTrigger,
 } from "./runs";
@@ -95,6 +97,55 @@ describe("shapeRunsList", () => {
     });
     expect(out.items.map((i) => i.id)).toEqual(["gr_3"]);
     expect(out.total).toBe(1);
+  });
+});
+
+describe("shapeRunDetail", () => {
+  it("wraps the run found in the list window with the timeline gap sentinel", () => {
+    const awaiting: UpstreamGraphRun = {
+      id: "gr_hitl",
+      status: "AWAITING_APPROVAL",
+      state: { counts: { companies: 12, scored: 9 } },
+      startedAt: "2026-06-10T10:00:00.000Z",
+      completedAt: null,
+    };
+    const now = Date.parse("2026-06-10T10:01:00.000Z");
+    const out = shapeRunDetail([completedRun, awaiting], "gr_hitl", now);
+    expect(out).not.toBeNull();
+    expect(out!.run.id).toBe("gr_hitl");
+    expect(out!.run.status).toBe("AWAITING_APPROVAL");
+    expect(out!.run.leadsSourced).toBe(9);
+    // the timeline half stays an honest gap — no fabricated/empty timeline
+    expect(out!.timeline).toEqual({
+      unavailable: true,
+      feature: "run-evidence-timeline",
+    });
+  });
+
+  it("returns null when the run is not in the list window", () => {
+    expect(shapeRunDetail([completedRun], "gr_unknown")).toBeNull();
+  });
+});
+
+describe("upstreamMessage", () => {
+  it("passes a NestJS exception message through verbatim", () => {
+    expect(
+      upstreamMessage(
+        {
+          statusCode: 409,
+          message: "Graph run is COMPLETED, not AWAITING_APPROVAL",
+          error: "Conflict",
+        },
+        "fallback",
+      ),
+    ).toBe("Graph run is COMPLETED, not AWAITING_APPROVAL");
+  });
+
+  it("falls back when the body has no usable message", () => {
+    expect(upstreamMessage(undefined, "fallback")).toBe("fallback");
+    expect(upstreamMessage("plain text", "fallback")).toBe("fallback");
+    expect(upstreamMessage({ message: "   " }, "fallback")).toBe("fallback");
+    expect(upstreamMessage({ message: 42 }, "fallback")).toBe("fallback");
   });
 });
 

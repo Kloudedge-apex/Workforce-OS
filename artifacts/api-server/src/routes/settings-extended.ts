@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { apex, UpstreamError } from "../upstream/apex-client";
 import { gapResponse } from "../lib/unavailable";
+import { upstreamErrorMessage } from "./settings";
 
 const router = Router();
 
@@ -22,6 +23,8 @@ export interface ApexIcpProfile {
   techStackSignals?: string[];
   intentKeywords?: string[];
   seedDomains?: string[];
+  /** Not yet a Prisma column on every deployed backend — read tolerantly. */
+  exclusionDomains?: string[];
 }
 
 export interface IcpProfile {
@@ -55,8 +58,12 @@ function deriveSizeBand(min?: number | null, max?: number | null): string {
 /**
  * Pure mapper: apex IcpProfile list → FE IcpProfile (singleton = most recent).
  *
- * SYNTHESIZED: exclusionDomains=[] (no backend column). sizeBand is derived from
- * minEmployees/maxEmployees. Empty list → empty-default profile (audit endpoint 3).
+ * exclusionDomains maps from the upstream row when present; backends that
+ * don't persist the column yet return rows without it → [] (HONEST: the FE
+ * sees exactly what is stored, so a save that silently dropped exclusions
+ * reads back empty instead of echoing the user's input). sizeBand is derived
+ * from minEmployees/maxEmployees. Empty list → empty-default profile (audit
+ * endpoint 3).
  */
 export function shapeIcpProfile(profiles: ApexIcpProfile[]): IcpProfile {
   const p = profiles[0];
@@ -68,7 +75,7 @@ export function shapeIcpProfile(profiles: ApexIcpProfile[]): IcpProfile {
     sizeBand: deriveSizeBand(p.minEmployees, p.maxEmployees),
     intentSignals: p.intentKeywords ?? [],
     seedDomains: p.seedDomains ?? [],
-    exclusionDomains: [],
+    exclusionDomains: Array.isArray(p.exclusionDomains) ? p.exclusionDomains : [],
   };
 }
 
@@ -82,7 +89,15 @@ function parseSizeBand(sizeBand?: string): { minEmployees?: number; maxEmployees
   return {};
 }
 
-/** Pure mapper: FE IcpProfile input → apex POST /api/leads/icp create body. */
+/**
+ * Pure mapper: FE IcpProfile input → apex POST /api/leads/icp create body.
+ *
+ * exclusionDomains IS forwarded (previously dropped here while the FE toasted
+ * success — the GL "ICP exclusions" lie). The deployed backend may ignore or
+ * reject it: a rejection surfaces via the PUT route's validation pass-through,
+ * and an ignore reads back as [] through shapeIcpProfile, so the FE can tell
+ * the user the truth either way.
+ */
 export function toIcpCreateBody(input: Partial<IcpProfile>): {
   name: string;
   targetTitles: string[];
@@ -90,6 +105,7 @@ export function toIcpCreateBody(input: Partial<IcpProfile>): {
   targetGeos: string[];
   intentKeywords: string[];
   seedDomains: string[];
+  exclusionDomains: string[];
   minEmployees?: number;
   maxEmployees?: number;
 } {
@@ -101,6 +117,7 @@ export function toIcpCreateBody(input: Partial<IcpProfile>): {
     targetGeos: input.geos ?? [],
     intentKeywords: input.intentSignals ?? [],
     seedDomains: input.seedDomains ?? [],
+    exclusionDomains: input.exclusionDomains ?? [],
     ...(minEmployees != null ? { minEmployees } : {}),
     ...(maxEmployees != null ? { maxEmployees } : {}),
   };
@@ -125,6 +142,15 @@ router.put("/settings/icp", async (req, res, next) => {
     res.json(shapeIcpProfile([created]));
   } catch (err) {
     if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
+    // Surface upstream validation failures verbatim (e.g. the backend rejecting
+    // exclusionDomains) instead of a generic 502 — the FE shows this message.
+    if (err instanceof UpstreamError && (err.status === 400 || err.status === 422)) {
+      res.status(err.status).json({
+        error: "validation",
+        message: upstreamErrorMessage(err.body) ?? "The backend rejected this ICP profile.",
+      });
+      return;
+    }
     next(err);
   }
 });
@@ -235,14 +261,66 @@ router.get("/settings/integrations", async (req, res, next) => {
   }
 });
 
+/**
+ * PURE: extract the OAuth authorization URL from the upstream auth-url
+ * response ({ authUrl: string }). Returns null when the body carries no
+ * usable http(s) URL — the route then answers 502 honestly instead of
+ * handing the FE a garbage value to open.
+ */
+export function shapeAuthUrl(raw: unknown): string | null {
+  const rec = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+  const authUrl = rec?.["authUrl"];
+  if (typeof authUrl !== "string") return null;
+  const trimmed = authUrl.trim();
+  if (!/^https?:\/\//i.test(trimmed)) return null;
+  return trimmed;
+}
+
+// ─── Gmail OAuth init ────────────────────────────────────────────────────────
+// OAuth providers cannot use the synchronous POST /:provider/connect (that is
+// the api-key path). Upstream exposes GET /api/integrations/gmail/auth-url
+// (Bearer-authenticated, orgId from the JWT) returning { authUrl }; the FE
+// opens it and Google redirects to the upstream callback. This proxy uses the
+// same org-scoped auth forwarding as every sibling route.
+
+router.get("/settings/integrations/gmail/auth-url", async (req, res, next) => {
+  try {
+    const raw = await apex.get("/integrations/gmail/auth-url", { req });
+    const authUrl = shapeAuthUrl(raw);
+    if (!authUrl) {
+      res.status(502).json({
+        error: "upstream",
+        message: "The backend did not return a Gmail authorization URL.",
+      });
+      return;
+    }
+    res.json({ authUrl });
+  } catch (err) {
+    if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
+    // Surface upstream config failures verbatim (e.g. Gmail OAuth client not
+    // configured) — never collapse them into a fake success.
+    if (err instanceof UpstreamError && err.status >= 400 && err.status < 500) {
+      res.status(err.status).json({
+        error: "upstream",
+        message:
+          upstreamErrorMessage(err.body) ??
+          "The backend could not start the Gmail authorization flow.",
+      });
+      return;
+    }
+    next(err);
+  }
+});
+
 router.post("/settings/integrations/:provider/connect", async (req, res, next) => {
   const { provider } = req.params;
   const body = req.body as { apiKey?: string };
   try {
     // api-key providers (apollo/clay/elevenlabs) connect synchronously and return
     // the upserted Integration row. OAuth providers (gmail/outlook/hubspot) need a
-    // redirect+callback dance the FE drives via /:provider/auth-url, so a synchronous
-    // "connect returns a connected Integration" is only FULL for api-key providers
+    // redirect+callback dance the FE drives via the auth-url route above (gmail is
+    // wired; outlook/hubspot still need their proxies), so a synchronous "connect
+    // returns a connected Integration" is only FULL for api-key providers
     // (audit endpoint 6).
     const row = (await apex.post(
       `/integrations/${provider}/connect`,

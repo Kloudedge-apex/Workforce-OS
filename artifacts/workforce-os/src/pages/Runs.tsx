@@ -21,9 +21,101 @@ import { ErrorState } from "@/components/states/ErrorState";
 const STATUS_STYLES: Record<string, string> = {
   COMPLETED: "bg-green-100 text-green-800 border-green-200",
   RUNNING: "bg-amber-100 text-amber-800 border-amber-200 animate-pulse",
-  AWAITING_APPROVAL: "bg-rust-100 text-rust-800 border-rust-200 dark:text-rust-300",
   FAILED: "bg-red-100 text-red-800 border-red-200",
 };
+
+export interface RunStatusBadge {
+  label: string;
+  className: string;
+}
+
+/**
+ * PURE: status → badge. AWAITING_APPROVAL gets a distinct, filled "Needs
+ * approval" treatment (it is the one status that blocks the whole org's
+ * pipeline until a human acts — see the run-level HITL panel in RunDetail);
+ * every other status keeps the soft styles above.
+ */
+export function runStatusBadge(status: string): RunStatusBadge {
+  if (status === "AWAITING_APPROVAL") {
+    return {
+      label: "Needs approval",
+      className: "bg-rust-500 text-white border-rust-600 font-semibold",
+    };
+  }
+  return {
+    label: status.replace(/_/g, " "),
+    className: STATUS_STYLES[status] ?? "bg-paper-100 text-ink-600",
+  };
+}
+
+/** What the trigger-failure toast should say, plus the blocking run to point at. */
+export interface TriggerErrorToast {
+  title: string;
+  description?: string;
+  /** When set, the toast gets a "Review run" action linking to /runs/<id>. */
+  goToRunId: string | null;
+}
+
+interface RunRowLike {
+  id: string;
+  status: string;
+}
+
+/**
+ * PURE: map a failed POST /runs/trigger into actionable toast copy.
+ *
+ * The BFF passes the upstream single-flight 409 through as
+ * `409 { runId: "", queued: false, message }` where `message` is the verbatim
+ * upstream line "A pipeline graph is already <status> for this org
+ * (runId=<id>)" — distinguishable, so we parse the blocking run's id and
+ * whether it is awaiting approval straight out of it, falling back to the
+ * already-loaded runs list when the message shape ever changes. Anything
+ * else degrades to generic-but-honest copy that still surfaces the error's
+ * own message.
+ */
+export function describeTriggerError(
+  err: unknown,
+  items: readonly RunRowLike[],
+): TriggerErrorToast {
+  const rec = err && typeof err === "object" ? (err as Record<string, unknown>) : null;
+  const status = rec && typeof rec["status"] === "number" ? (rec["status"] as number) : null;
+  const data =
+    rec && typeof rec["data"] === "object" && rec["data"] !== null
+      ? (rec["data"] as Record<string, unknown>)
+      : null;
+  const message =
+    data && typeof data["message"] === "string" && (data["message"] as string).trim() !== ""
+      ? (data["message"] as string)
+      : null;
+
+  if (status === 409) {
+    const runIdMatch = message ? /runId=([A-Za-z0-9_-]+)/.exec(message) : null;
+    const awaitingRow = items.find((r) => r.status === "AWAITING_APPROVAL");
+    // Trust the upstream message first; fall back to the loaded list window.
+    const awaiting =
+      (message?.includes("awaiting_approval") ?? false) ||
+      (!(message?.includes("running") ?? false) && awaitingRow != null);
+    if (awaiting) {
+      return {
+        title: "A run is awaiting your approval",
+        description: "Approve or reject the pending run before starting a new one.",
+        goToRunId: runIdMatch?.[1] ?? awaitingRow?.id ?? null,
+      };
+    }
+    return {
+      title: "A run is already in progress",
+      description:
+        message ?? "Wait for the current run to finish before starting another.",
+      goToRunId: runIdMatch?.[1] ?? null,
+    };
+  }
+
+  return {
+    title: "Failed to start run",
+    description: err instanceof Error && err.message ? err.message : undefined,
+    goToRunId: null,
+  };
+}
 
 function formatMs(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
@@ -41,8 +133,30 @@ export default function Runs() {
 
   const { mutate: triggerRun, isPending: triggering } = useTriggerRun({
     mutation: {
-      onSuccess: (d) => { toast.success(`Run started — ${d.runId}`); refetch(); },
-      onError: () => toast.error("Failed to start run"),
+      // A 202 can still mean "not enqueued" (queued: false) — don't claim a
+      // run started when the backend says it didn't.
+      onSuccess: (d) => {
+        if (d.queued) toast.success(`Run started — ${d.runId}`);
+        else toast.error("Run not started", { description: d.message });
+        refetch();
+      },
+      // Single-flight 409s must NOT die as a generic "Failed to start run":
+      // the usual cause is a run sitting in AWAITING_APPROVAL, so the toast
+      // says so and links straight to the blocking run.
+      onError: (err) => {
+        const t = describeTriggerError(err, data?.items ?? []);
+        toast.error(t.title, {
+          ...(t.description ? { description: t.description } : {}),
+          ...(t.goToRunId
+            ? {
+                action: {
+                  label: "Review run",
+                  onClick: () => navigate(`/runs/${t.goToRunId}`),
+                },
+              }
+            : {}),
+        });
+      },
     },
   });
 
@@ -147,9 +261,14 @@ export default function Runs() {
                     onClick={() => navigate(`/runs/${run.id}`)}
                   >
                     <td className="px-4 py-3">
-                      <Badge className={cn("text-xs border", STATUS_STYLES[run.status] ?? "bg-paper-100 text-ink-600")}>
-                        {run.status.replace(/_/g, " ")}
-                      </Badge>
+                      {(() => {
+                        const badge = runStatusBadge(run.status);
+                        return (
+                          <Badge className={cn("text-xs border", badge.className)}>
+                            {badge.label}
+                          </Badge>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-3 text-ink-700 dark:text-ink-300">
                       {((run.agentsInvolved ?? []) as string[]).join(", ")}
