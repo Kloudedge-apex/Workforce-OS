@@ -9,9 +9,9 @@ const router = Router();
  * Raw OutreachArtifact row as returned by apex-gtm-api
  * (GET /api/outreach-artifacts[/:id]). Dates arrive as ISO strings over HTTP.
  * Mirrors the deployed prisma model (schema.prisma OutreachArtifact). The FE
- * OutreachArtifact schema demands rich nested objects (recipient/citations/
- * evaluatorScores/sendPolicy) that DO NOT exist on this model — they are
- * synthesized/stubbed in shapeArtifact (see Phase-2 release audit).
+ * OutreachArtifact nested objects are mapped from the persisted `payload` Json
+ * (brief_facts / groundedness_self_check / refusal / langsmith_run_id) where
+ * real data exists, and are `null` where it does not — see shapeArtifact.
  */
 export interface UpstreamArtifact {
   id: string;
@@ -34,7 +34,48 @@ export interface UpstreamArtifact {
   updatedAt?: string;
 }
 
-/** FE OutreachArtifact shape (lib/api-spec/openapi.yaml #/components/schemas/OutreachArtifact). */
+/**
+ * One citation row, derived from the persisted research brief
+ * (payload.brief_facts on the upstream OutreachArtifact row).
+ * `cited` is true when the drafter declared this fact id in its
+ * groundedness self-check (payload.groundedness_self_check) —
+ * the FE highlights those rows. `date` is present only when the
+ * fact carried an ISO date (dated signals).
+ */
+export interface ShapedCitation {
+  factId: string;
+  claim: string;
+  source: string;
+  date?: string;
+  cited: boolean;
+}
+
+export interface ShapedEvaluatorScores {
+  pii: number;
+  hallucination: number;
+  citationCoverage: number;
+  toxicity: number;
+}
+
+export interface ShapedSendPolicy {
+  liveSendEnabled: boolean;
+  postalAddressSet: boolean;
+  unsubscribeConfigured: boolean;
+  recipientSuppressed: boolean;
+}
+
+/** Drafter refusal surfaced for the FE refusal banner. */
+export interface ShapedRefusal {
+  refused: boolean;
+  reason: string | null;
+}
+
+/**
+ * FE OutreachArtifact shape (lib/api-spec/openapi.yaml #/components/schemas/OutreachArtifact).
+ * HONESTY contract: evaluatorScores/sendPolicy are `null` whenever the backend
+ * has no real value to report — the FE hides those surfaces. We never invent
+ * zeros or all-false policy verdicts.
+ */
 export interface ShapedArtifact {
   id: string;
   status: string;
@@ -48,19 +89,11 @@ export interface ShapedArtifact {
   };
   subject: string;
   bodyHtml: string;
-  citations: Array<{ factId: string; claim: string; source: string }>;
-  evaluatorScores: {
-    pii: number;
-    hallucination: number;
-    citationCoverage: number;
-    toxicity: number;
-  };
-  sendPolicy: {
-    liveSendEnabled: boolean;
-    postalAddressSet: boolean;
-    unsubscribeConfigured: boolean;
-    recipientSuppressed: boolean;
-  };
+  citations: ShapedCitation[];
+  evaluatorScores: ShapedEvaluatorScores | null;
+  sendPolicy: ShapedSendPolicy | null;
+  refusal: ShapedRefusal;
+  langsmithRunId: string | null;
   createdAt: string;
   approvedAt: string | null;
   sentAt: string | null;
@@ -76,25 +109,131 @@ export interface PaginatedArtifacts {
   limit: number;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
 function payloadString(payload: unknown, key: string): string | undefined {
-  if (payload && typeof payload === "object" && key in payload) {
-    const v = (payload as Record<string, unknown>)[key];
-    if (typeof v === "string") return v;
+  const rec = asRecord(payload);
+  if (!rec) return undefined;
+  const v = rec[key];
+  return typeof v === "string" ? v : undefined;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+}
+
+/**
+ * PURE: payload.brief_facts (+ payload.groundedness_self_check) → citations.
+ *
+ * The SDR subgraph persists the structured research brief the drafter actually
+ * saw as `brief_facts: [{ id, category, source, text, date? }]`, and the
+ * drafter's self-check as `groundedness_self_check`. The self-check is stored
+ * with camelCase keys (`citedFactIds`) — the parsed TS object — but we also
+ * accept the LLM wire-format key (`cited_fact_ids`) defensively. Facts without
+ * a string id and text are dropped (never invented).
+ */
+export function shapeCitations(payload: unknown): ShapedCitation[] {
+  const rec = asRecord(payload);
+  if (!rec) return [];
+  const rawFacts = rec["brief_facts"];
+  if (!Array.isArray(rawFacts)) return [];
+
+  const selfCheck = asRecord(rec["groundedness_self_check"]);
+  const citedIds = new Set<string>([
+    ...stringArray(selfCheck?.["citedFactIds"]),
+    ...stringArray(selfCheck?.["cited_fact_ids"]),
+  ]);
+
+  const citations: ShapedCitation[] = [];
+  for (const rawFact of rawFacts) {
+    const fact = asRecord(rawFact);
+    if (!fact) continue;
+    const factId = fact["id"];
+    const claim = fact["text"];
+    if (typeof factId !== "string" || typeof claim !== "string") continue;
+    const source = typeof fact["source"] === "string" ? (fact["source"] as string) : "";
+    const date = fact["date"];
+    citations.push({
+      factId,
+      claim,
+      source,
+      ...(typeof date === "string" && date ? { date } : {}),
+      cited: citedIds.has(factId),
+    });
   }
-  return undefined;
+  return citations;
+}
+
+/**
+ * PURE: payload.refusal → FE refusal banner data.
+ *
+ * The drafter persists `refusal: { reason, missing[] }` when it deliberately
+ * declined to draft (e.g. no grounded evidence). `missing` items are appended
+ * to the reason so the reviewer sees the full persisted signal — both parts
+ * are real upstream data, nothing is synthesized.
+ */
+export function shapeRefusal(payload: unknown): ShapedRefusal {
+  const refusal = asRecord(asRecord(payload)?.["refusal"]);
+  if (!refusal || typeof refusal["reason"] !== "string") {
+    return { refused: false, reason: null };
+  }
+  const missing = stringArray(refusal["missing"]);
+  const reason = missing.length > 0
+    ? `${refusal["reason"] as string} (missing: ${missing.join(", ")})`
+    : (refusal["reason"] as string);
+  return { refused: true, reason };
+}
+
+/**
+ * PURE: evaluator scores — only when actually persisted on the payload.
+ *
+ * Today the deployed pipeline does NOT persist per-artifact evaluator scores
+ * (they live in LangSmith), so this returns null and the FE hides the score
+ * strip. If a future image writes `evaluator_scores: { pii, hallucination,
+ * citationCoverage, toxicity }` into the payload, the real numbers flow
+ * through. We NEVER fabricate zeros — a 0 PII score is a claim, not a gap.
+ */
+export function shapeEvaluatorScores(payload: unknown): ShapedEvaluatorScores | null {
+  const scores = asRecord(asRecord(payload)?.["evaluator_scores"]);
+  if (!scores) return null;
+  const pii = scores["pii"];
+  const hallucination = scores["hallucination"];
+  const citationCoverage = scores["citationCoverage"];
+  const toxicity = scores["toxicity"];
+  if (
+    typeof pii !== "number" ||
+    typeof hallucination !== "number" ||
+    typeof citationCoverage !== "number" ||
+    typeof toxicity !== "number"
+  ) {
+    return null;
+  }
+  return { pii, hallucination, citationCoverage, toxicity };
 }
 
 /**
  * PURE: map a raw apex-gtm-api OutreachArtifact row → the FE OutreachArtifact shape.
  *
- * Scalars map 1:1. The four nested objects required by the FE schema have NO
- * backing store on the deployed model and are SYNTHESIZED/STUBBED:
+ * Scalars map 1:1. Nested objects:
  *  - recipient: best-effort from scalar `recipientRef` + captured `payload` Json
  *    (no Person FK exists). name/company/title fall back from payload then to ''.
- *  - citations: [] — not persisted (evaluator output is LangSmith-only).
- *  - evaluatorScores: zeros — not persisted (no EvaluatorFact DB table).
- *  - sendPolicy: conservative false defaults; recipientSuppressed mirrors the
- *    SUPPRESSED status (the only SUPPRESSED signal queryable here).
+ *  - citations: REAL — mapped from the persisted research brief
+ *    (payload.brief_facts) with `cited` flags from the drafter's
+ *    groundedness self-check. [] only when the payload has no brief.
+ *  - refusal: REAL — payload.refusal surfaced as { refused, reason } so the
+ *    FE can render a refusal banner instead of presenting a refusal as a draft.
+ *  - evaluatorScores: null unless the payload actually persists scores. We do
+ *    NOT fabricate zeros (a zero score is a verdict, not a gap).
+ *  - sendPolicy: null — no upstream endpoint reachable from this route reports
+ *    the real policy (liveSendEnabled is the env gate OUTREACH_LIVE_FOR_ORGS,
+ *    unsubscribe config has no API; /orgs/me only covers postal address). A
+ *    partial object would paint fake red "No Postal Address" badges on every
+ *    card, so the FE hides the badge until a real org-compliance endpoint
+ *    ships. The SUPPRESSED signal still flows through `status`.
  * approvedAt/rejectionReason are derived from reviewedAt/reviewerNote gated on status.
  */
 export function shapeArtifact(a: UpstreamArtifact): ShapedArtifact {
@@ -112,19 +251,11 @@ export function shapeArtifact(a: UpstreamArtifact): ShapedArtifact {
     },
     subject: a.subject ?? "",
     bodyHtml: a.bodyHtml ?? a.bodyText ?? "",
-    citations: [],
-    evaluatorScores: {
-      pii: 0,
-      hallucination: 0,
-      citationCoverage: 0,
-      toxicity: 0,
-    },
-    sendPolicy: {
-      liveSendEnabled: false,
-      postalAddressSet: false,
-      unsubscribeConfigured: false,
-      recipientSuppressed: a.status === "SUPPRESSED",
-    },
+    citations: shapeCitations(a.payload),
+    evaluatorScores: shapeEvaluatorScores(a.payload),
+    sendPolicy: null,
+    refusal: shapeRefusal(a.payload),
+    langsmithRunId: payloadString(a.payload, "langsmith_run_id") ?? null,
     createdAt: a.createdAt,
     approvedAt: a.status === "APPROVED" ? (a.reviewedAt ?? null) : null,
     sentAt: a.sentAt ?? null,

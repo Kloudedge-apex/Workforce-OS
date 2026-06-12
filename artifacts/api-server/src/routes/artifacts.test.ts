@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
   shapeArtifact,
+  shapeCitations,
+  shapeEvaluatorScores,
   shapePaginatedArtifacts,
+  shapeRefusal,
   type UpstreamArtifact,
 } from "./artifacts";
 
@@ -72,25 +75,56 @@ describe("shapeArtifact", () => {
     expect(shapeArtifact(makeUpstream({ subject: null })).subject).toBe("");
   });
 
-  it("stubs citations as [] and evaluatorScores as zeros (no DB backing store)", () => {
-    const out = shapeArtifact(makeUpstream());
-    expect(out.citations).toEqual([]);
-    expect(out.evaluatorScores).toEqual({
-      pii: 0,
-      hallucination: 0,
-      citationCoverage: 0,
-      toxicity: 0,
+  it("returns citations [] (not fabricated rows) when the payload has no brief_facts", () => {
+    expect(shapeArtifact(makeUpstream()).citations).toEqual([]);
+    expect(shapeArtifact(makeUpstream({ payload: null })).citations).toEqual([]);
+  });
+
+  it("maps payload.brief_facts to citations, marking self-check-cited facts and carrying dates", () => {
+    const out = shapeArtifact(
+      makeUpstream({
+        payload: {
+          brief_facts: [
+            { id: "F1", category: "firmographic", source: "crm", text: "Acme has 120 employees" },
+            { id: "S1", category: "signal", source: "press", text: "Raised Series B", date: "2026-05-12" },
+          ],
+          groundedness_self_check: { citedFactIds: ["S1"], unsupportedClaims: [] },
+        },
+      }),
+    );
+    expect(out.citations).toEqual([
+      { factId: "F1", claim: "Acme has 120 employees", source: "crm", cited: false },
+      { factId: "S1", claim: "Raised Series B", source: "press", date: "2026-05-12", cited: true },
+    ]);
+  });
+
+  it("nulls evaluatorScores when not persisted — NEVER zeros", () => {
+    expect(shapeArtifact(makeUpstream()).evaluatorScores).toBeNull();
+  });
+
+  it("nulls sendPolicy (no upstream source of truth) so the FE hides the badge", () => {
+    expect(shapeArtifact(makeUpstream()).sendPolicy).toBeNull();
+    expect(shapeArtifact(makeUpstream({ status: "SUPPRESSED" })).sendPolicy).toBeNull();
+  });
+
+  it("surfaces payload.refusal as { refused, reason } and defaults to not-refused", () => {
+    expect(shapeArtifact(makeUpstream()).refusal).toEqual({ refused: false, reason: null });
+    const refused = shapeArtifact(
+      makeUpstream({
+        payload: { refusal: { reason: "no grounded evidence", missing: ["dated trigger"] } },
+      }),
+    );
+    expect(refused.refusal).toEqual({
+      refused: true,
+      reason: "no grounded evidence (missing: dated trigger)",
     });
   });
 
-  it("stubs sendPolicy with conservative defaults; recipientSuppressed mirrors SUPPRESSED status", () => {
-    expect(shapeArtifact(makeUpstream()).sendPolicy).toEqual({
-      liveSendEnabled: false,
-      postalAddressSet: false,
-      unsubscribeConfigured: false,
-      recipientSuppressed: false,
-    });
-    expect(shapeArtifact(makeUpstream({ status: "SUPPRESSED" })).sendPolicy.recipientSuppressed).toBe(true);
+  it("maps payload.langsmith_run_id, nulling when absent", () => {
+    expect(shapeArtifact(makeUpstream()).langsmithRunId).toBeNull();
+    expect(
+      shapeArtifact(makeUpstream({ payload: { langsmith_run_id: "ls-run-42" } })).langsmithRunId,
+    ).toBe("ls-run-42");
   });
 
   it("derives approvedAt from reviewedAt only when status is APPROVED", () => {
@@ -150,12 +184,8 @@ describe("shapePaginatedArtifacts", () => {
 
   it("returns shaped (not raw) items", () => {
     const out = shapePaginatedArtifacts([makeUpstream()], 1, 20);
-    expect(out.items[0]!.evaluatorScores).toEqual({
-      pii: 0,
-      hallucination: 0,
-      citationCoverage: 0,
-      toxicity: 0,
-    });
+    expect(out.items[0]!.evaluatorScores).toBeNull();
+    expect(out.items[0]!.refusal).toEqual({ refused: false, reason: null });
     expect(out.items[0]!.recipient.name).toBe("Jane Doe");
   });
 
@@ -163,5 +193,86 @@ describe("shapePaginatedArtifacts", () => {
     const out = shapePaginatedArtifacts(rows, 99, 5);
     expect(out.items).toEqual([]);
     expect(out.total).toBe(7);
+  });
+});
+
+describe("shapeCitations", () => {
+  it("accepts the snake_case cited_fact_ids wire-format key as well as camelCase", () => {
+    const payload = {
+      brief_facts: [{ id: "F1", source: "crm", text: "claim one" }],
+      groundedness_self_check: { cited_fact_ids: ["F1"] },
+    };
+    expect(shapeCitations(payload)).toEqual([
+      { factId: "F1", claim: "claim one", source: "crm", cited: true },
+    ]);
+  });
+
+  it("marks nothing cited when the self-check is absent", () => {
+    const payload = { brief_facts: [{ id: "F1", source: "crm", text: "claim one" }] };
+    expect(shapeCitations(payload)[0]!.cited).toBe(false);
+  });
+
+  it("drops malformed facts instead of inventing fields", () => {
+    const payload = {
+      brief_facts: [
+        { id: "F1", text: "good", source: "crm" },
+        { id: 42, text: "bad id" },
+        { id: "F3" }, // no text
+        "not-an-object",
+        null,
+      ],
+    };
+    const out = shapeCitations(payload);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.factId).toBe("F1");
+  });
+
+  it("returns [] for non-object payloads and non-array brief_facts", () => {
+    expect(shapeCitations(null)).toEqual([]);
+    expect(shapeCitations("oops")).toEqual([]);
+    expect(shapeCitations({ brief_facts: "oops" })).toEqual([]);
+  });
+
+  it("omits the date key entirely when the fact has no date", () => {
+    const out = shapeCitations({ brief_facts: [{ id: "F1", text: "t", source: "s" }] });
+    expect("date" in out[0]!).toBe(false);
+  });
+});
+
+describe("shapeRefusal", () => {
+  it("treats a refusal without missing items as reason-only", () => {
+    expect(shapeRefusal({ refusal: { reason: "icp mismatch" } })).toEqual({
+      refused: true,
+      reason: "icp mismatch",
+    });
+  });
+
+  it("requires a string reason — malformed refusals are not refusals", () => {
+    expect(shapeRefusal({ refusal: { reason: 7 } })).toEqual({ refused: false, reason: null });
+    expect(shapeRefusal({ refusal: "nope" })).toEqual({ refused: false, reason: null });
+    expect(shapeRefusal(null)).toEqual({ refused: false, reason: null });
+  });
+});
+
+describe("shapeEvaluatorScores", () => {
+  it("returns the real numbers when a payload persists all four scores", () => {
+    const payload = {
+      evaluator_scores: { pii: 1, hallucination: 0.95, citationCoverage: 0.8, toxicity: 0.99 },
+    };
+    expect(shapeEvaluatorScores(payload)).toEqual({
+      pii: 1,
+      hallucination: 0.95,
+      citationCoverage: 0.8,
+      toxicity: 0.99,
+    });
+  });
+
+  it("returns null (never zero-fills) when scores are absent or partial", () => {
+    expect(shapeEvaluatorScores({})).toBeNull();
+    expect(shapeEvaluatorScores(null)).toBeNull();
+    expect(shapeEvaluatorScores({ evaluator_scores: { pii: 1 } })).toBeNull();
+    expect(
+      shapeEvaluatorScores({ evaluator_scores: { pii: "1", hallucination: 1, citationCoverage: 1, toxicity: 1 } }),
+    ).toBeNull();
   });
 });

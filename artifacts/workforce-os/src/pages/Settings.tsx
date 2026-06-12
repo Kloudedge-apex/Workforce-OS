@@ -11,7 +11,7 @@ import {
   useGetBilling,
   useListApiKeys, useCreateApiKey, useRevokeApiKey,
   useGetNotificationPrefs, useUpdateNotificationPrefs,
-  type CadenceStage, type NotificationPrefs,
+  type CadenceStage, type NotificationPrefs, type OrgSettings,
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -164,18 +164,17 @@ function HealthDot({ label, ok }: { label: string; ok: boolean }) {
 function OrgTab() {
   const { data, isLoading, isError, refetch } = useGetOrgSettings({ query: { queryKey: ["getOrgSettings"] } });
   const { mutate: update, isPending } = useUpdateOrgSettings({
-    mutation: { onSuccess: () => toast.success("Settings saved"), onError: () => toast.error("Save failed") },
+    mutation: { onSuccess: () => toast.success("Settings saved"), onError: (err) => toast.error(saveErrorMessage(err)) },
   });
 
   const [form, setForm] = useState({
-    name: "", slug: "", country: "", timezone: "", senderName: "", postalAddress: "", unsubscribeUrl: "", liveSendEnabled: false,
+    name: "", slug: "", timezone: "", unsubscribeUrl: "", liveSendEnabled: false,
   });
   const initialized = useRef(false);
   useEffect(() => {
     if (data && !initialized.current) {
       setForm({
-        name: data.orgName, slug: data.slug, country: data.country, timezone: data.timezone,
-        senderName: data.senderName ?? "", postalAddress: data.postalAddress ?? "",
+        name: data.orgName, slug: data.slug, timezone: data.timezone,
         unsubscribeUrl: data.unsubscribeUrl ?? "", liveSendEnabled: data.liveSendEnabled,
       });
       initialized.current = true;
@@ -195,23 +194,16 @@ function OrgTab() {
           </Field>
         </TwoCol>
         <TwoCol>
-          <Field label="Country">
-            <Input value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value }))} placeholder="IN" />
-          </Field>
           <Field label="Timezone">
             <Input value={form.timezone} onChange={e => setForm(f => ({ ...f, timezone: e.target.value }))} placeholder="Asia/Kolkata" />
           </Field>
+          <Field label="Unsubscribe URL">
+            <Input value={form.unsubscribeUrl} onChange={e => setForm(f => ({ ...f, unsubscribeUrl: e.target.value }))} placeholder="https://app.mynoted.ai/unsubscribe" />
+          </Field>
         </TwoCol>
-        <Field label="Sender Name (visible to recipients)">
-          <Input value={form.senderName} onChange={e => setForm(f => ({ ...f, senderName: e.target.value }))} />
-        </Field>
-        <Field label="Postal Address (CAN-SPAM required)">
-          <Textarea value={form.postalAddress} onChange={e => setForm(f => ({ ...f, postalAddress: e.target.value }))} rows={2} className="resize-none" />
-        </Field>
-        <Field label="Unsubscribe URL">
-          <Input value={form.unsubscribeUrl} onChange={e => setForm(f => ({ ...f, unsubscribeUrl: e.target.value }))} placeholder="https://app.mynoted.ai/unsubscribe" />
-        </Field>
       </SettingsCard>
+
+      {data && <ComplianceCard settings={data} />}
 
       <SettingsCard className="border-l-4 border-l-rust-500 p-5">
         <div className="flex items-center justify-between">
@@ -230,12 +222,66 @@ function OrgTab() {
         <Button
           className="bg-rust-500 hover:bg-rust-600 text-white"
           disabled={isPending}
-          onClick={() => update({ data: { name: form.name, slug: form.slug, country: form.country, timezone: form.timezone, senderName: form.senderName, postalAddress: form.postalAddress, liveSendEnabled: form.liveSendEnabled } })}
+          onClick={() => update({ data: { name: form.name, slug: form.slug, timezone: form.timezone, liveSendEnabled: form.liveSendEnabled } })}
         >
           {isPending ? "Saving…" : "Save Changes"}
         </Button>
       </div>
     </TabBoundary>
+  );
+}
+
+// ─── Compliance Card (CAN-SPAM sender identity) ──────────────────────────────
+/**
+ * Sender-identity fields the backend actually persists (Org.senderName /
+ * Org.physicalAddress / Org.country via the BFF → PATCH /api/orgs/:id). Saved
+ * independently from the general card so a compliance fix is one focused
+ * action, with the upstream validation error (e.g. non-ISO-2 country) surfaced
+ * verbatim instead of a generic "Save failed".
+ */
+function ComplianceCard({ settings }: { settings: OrgSettings }) {
+  const { mutate: save, isPending } = useUpdateOrgSettings({
+    mutation: {
+      onSuccess: () => toast.success("Compliance settings saved"),
+      onError: (err) => toast.error(saveErrorMessage(err)),
+    },
+  });
+  const [form, setForm] = useState({
+    senderName: settings.senderName ?? "",
+    physicalAddress: settings.postalAddress ?? "",
+    country: settings.country,
+  });
+
+  return (
+    <SettingsCard className="p-5 space-y-4">
+      <div className="flex items-start gap-2.5">
+        <Shield className="h-4 w-4 text-rust-500 mt-1 shrink-0" />
+        <div>
+          <p className="font-medium text-ink-900 dark:text-paper-50">Compliance</p>
+          <p className="text-sm text-ink-500 mt-0.5">Required by CAN-SPAM before live sending.</p>
+        </div>
+      </div>
+      <TwoCol>
+        <Field label="Sender Name (visible to recipients)">
+          <Input value={form.senderName} onChange={e => setForm(f => ({ ...f, senderName: e.target.value }))} />
+        </Field>
+        <Field label="Country (ISO-2)">
+          <Input value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value }))} placeholder="US" className="font-mono uppercase" />
+        </Field>
+      </TwoCol>
+      <Field label="Physical Address">
+        <Textarea value={form.physicalAddress} onChange={e => setForm(f => ({ ...f, physicalAddress: e.target.value }))} rows={2} className="resize-none" placeholder="Street, city, state, ZIP — appears in every email footer" />
+      </Field>
+      <div className="flex justify-end">
+        <Button
+          className="bg-rust-500 hover:bg-rust-600 text-white"
+          disabled={isPending}
+          onClick={() => save({ data: { senderName: form.senderName, postalAddress: form.physicalAddress, country: form.country } })}
+        >
+          {isPending ? "Saving…" : "Save Compliance"}
+        </Button>
+      </div>
+    </SettingsCard>
   );
 }
 
@@ -949,6 +995,24 @@ function TabPanel({ tabId }: { tabId: TabId }) {
 }
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
+/**
+ * Honest save-error copy: surface the BFF/upstream validation message (the
+ * ApiError body's `message`, e.g. "country must be ISO-2") when one exists,
+ * falling back to the error's own message, then a generic line. Never claims
+ * success and never hides the real reason behind "Save failed".
+ */
+function saveErrorMessage(err: unknown): string {
+  if (err && typeof err === "object" && "data" in err) {
+    const data = (err as { data?: unknown }).data;
+    if (data && typeof data === "object" && "message" in data) {
+      const message = (data as { message?: unknown }).message;
+      if (typeof message === "string" && message.trim() !== "") return message;
+    }
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return "Save failed — your changes were not stored.";
+}
+
 function SectionHeader({ title, description }: { title: string; description: string }) {
   return (
     <div>

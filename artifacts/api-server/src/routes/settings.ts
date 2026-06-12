@@ -81,21 +81,80 @@ router.get("/settings/org", async (req, res, next) => {
   }
 });
 
+/** Upstream UpdateOrgDto fields the BFF forwards from the FE UpdateOrgInput. */
+export interface OrgPatchBody {
+  name?: string;
+  senderName?: string;
+  country?: string;
+  physicalAddress?: string;
+}
+
+/**
+ * PURE: FE UpdateOrgInput → upstream UpdateOrgDto patch body.
+ *
+ * Forwards every field the upstream DTO accepts (name, senderName, country
+ * ISO-2, physicalAddress). The FE spec names the address `postalAddress`
+ * (OrgSettings read shape), the upstream column is `physicalAddress` — both
+ * are accepted, `physicalAddress` winning when both are present. Fields the
+ * upstream DTO does NOT accept (slug/timezone/logoUrl/liveSendEnabled/
+ * unsubscribeUrl) are still not forwarded — they have no backing column.
+ */
+export function buildOrgPatchBody(raw: unknown): OrgPatchBody {
+  const body = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const patch: OrgPatchBody = {};
+  if (typeof body["name"] === "string") patch.name = body["name"];
+  if (typeof body["senderName"] === "string") patch.senderName = body["senderName"];
+  if (typeof body["country"] === "string") patch.country = body["country"];
+  const address =
+    typeof body["physicalAddress"] === "string"
+      ? body["physicalAddress"]
+      : typeof body["postalAddress"] === "string"
+        ? body["postalAddress"]
+        : undefined;
+  if (address !== undefined) patch.physicalAddress = address;
+  return patch;
+}
+
+/**
+ * PURE: extract a human-readable message from an upstream NestJS error body
+ * ({ statusCode, message: string | string[], error }). Falls back to null when
+ * the body carries nothing usable — the caller then sends a generic message.
+ */
+export function upstreamErrorMessage(body: unknown): string | null {
+  const rec = body && typeof body === "object" ? (body as Record<string, unknown>) : null;
+  const message = rec?.["message"];
+  if (typeof message === "string" && message.trim() !== "") return message;
+  if (Array.isArray(message)) {
+    const parts = message.filter((m): m is string => typeof m === "string" && m.trim() !== "");
+    if (parts.length > 0) return parts.join("; ");
+  }
+  const error = rec?.["error"];
+  if (typeof error === "string" && error.trim() !== "") return error;
+  return null;
+}
+
 router.put("/settings/org", async (req, res, next) => {
-  const body = req.body as { name?: string };
   try {
     // PATCH /api/orgs/:id requires :id === caller's resolved orgId, so resolve
-    // it via /orgs/me first. The backend DTO only persists name/plan/website —
-    // every other FE field (senderName/country/postalAddress/timezone/logoUrl/
-    // liveSendEnabled/slug) is silently dropped (audit endpoint 1, GAP).
+    // it via /orgs/me first. The upstream UpdateOrgDto now accepts the sender
+    // identity / CAN-SPAM fields (senderName, country, physicalAddress) in
+    // addition to name — buildOrgPatchBody forwards exactly those.
     const me = (await apex.get("/orgs/me", { req })) as ApexOrg;
-    const patchBody: { name?: string } = {};
-    if (typeof body.name === "string") patchBody.name = body.name;
-    await apex.patch(`/orgs/${me.id}`, { req }, patchBody);
+    await apex.patch(`/orgs/${me.id}`, { req }, buildOrgPatchBody(req.body));
     const updated = (await apex.get("/orgs/me", { req })) as ApexOrg;
     res.json(shapeOrgSettings(updated));
   } catch (err) {
     if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
+    // Surface upstream validation failures honestly (e.g. country must be
+    // ISO-2) instead of collapsing them into a generic 502 "upstream" blob —
+    // the FE shows this message verbatim in its save-error state.
+    if (err instanceof UpstreamError && (err.status === 400 || err.status === 422)) {
+      res.status(err.status).json({
+        error: "validation",
+        message: upstreamErrorMessage(err.body) ?? "The backend rejected these settings.",
+      });
+      return;
+    }
     next(err);
   }
 });

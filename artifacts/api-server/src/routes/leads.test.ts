@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   cohortFromScore,
   emailStatusForLead,
-  defaultSendPolicy,
   shapeLead,
   shapeLeadsList,
   shapePersonAsLead,
@@ -51,17 +50,6 @@ describe("emailStatusForLead", () => {
   });
 });
 
-describe("defaultSendPolicy", () => {
-  it("fails closed — nothing enabled", () => {
-    expect(defaultSendPolicy()).toEqual({
-      liveSendEnabled: false,
-      postalAddressSet: false,
-      unsubscribeConfigured: false,
-      recipientSuppressed: false,
-    });
-  });
-});
-
 describe("shapeLead", () => {
   it("maps an upstream UI lead to the exact openapi Lead fields", () => {
     expect(shapeLead(sampleUiLead)).toEqual({
@@ -83,14 +71,16 @@ describe("shapeLead", () => {
       emailStatus: "HIGH_PROBABILITY",
       intentSignals: [],
       lastContactedAt: null,
-      sendPolicy: {
-        liveSendEnabled: false,
-        postalAddressSet: false,
-        unsubscribeConfigured: false,
-        recipientSuppressed: false,
-      },
+      sendPolicy: null,
       createdAt: "2026-06-01T12:00:00.000Z",
     });
+  });
+
+  it("never fabricates a send policy — null when no upstream source exists", () => {
+    // HONESTY contract (same as artifacts.ts): an all-false SendPolicy is a
+    // claim ("no postal address", "no unsubscribe"), not a gap. The FE shows
+    // its neutral badge for null instead of fake red compliance badges.
+    expect(shapeLead(sampleUiLead).sendPolicy).toBeNull();
   });
 
   it("nulls empty company domain / industry / size", () => {
@@ -175,6 +165,7 @@ describe("shapePersonAsLead", () => {
     expect(lead.emailStatus).toBe("HIGH_PROBABILITY");
     expect(lead.industry).toBeNull(); // not returned by getPersonDetail
     expect(lead.createdAt).toBe(""); // not returned by getPersonDetail
+    expect(lead.sendPolicy).toBeNull(); // no policy source — never fabricated
   });
 
   it("derives stage 'enriched' when not qualified", () => {
@@ -218,6 +209,9 @@ describe("shapeLeadDetail", () => {
     // researchBrief + recentEvidenceEvents have no source on release.
     expect(detail.researchBrief).toBe("");
     expect(detail.recentEvidenceEvents).toEqual([]);
+    // sendPolicy has no upstream source on the detail path either — null,
+    // never the old fabricated all-false policy.
+    expect(detail.lead.sendPolicy).toBeNull();
     expect(detail.scoreBreakdown).toEqual({
       fit: 91,
       intent: 0,

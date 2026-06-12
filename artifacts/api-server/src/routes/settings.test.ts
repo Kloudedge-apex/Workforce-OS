@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { shapeOrgSettings, type ApexOrg } from "./settings";
+import {
+  buildOrgPatchBody,
+  shapeOrgSettings,
+  upstreamErrorMessage,
+  type ApexOrg,
+} from "./settings";
 
 describe("shapeOrgSettings", () => {
   const upstream: ApexOrg = {
@@ -47,5 +52,81 @@ describe("shapeOrgSettings", () => {
     expect(out.senderName).toBeNull();
     expect(out.postalAddress).toBeNull();
     expect(out.plan).toBe("TRIAL");
+  });
+});
+
+describe("buildOrgPatchBody", () => {
+  it("forwards name, senderName, country, and physicalAddress to the upstream DTO", () => {
+    expect(
+      buildOrgPatchBody({
+        name: "Acme",
+        senderName: "Jane Sender",
+        country: "US",
+        physicalAddress: "1 Market St, SF",
+      }),
+    ).toEqual({
+      name: "Acme",
+      senderName: "Jane Sender",
+      country: "US",
+      physicalAddress: "1 Market St, SF",
+    });
+  });
+
+  it("maps the FE field name postalAddress to upstream physicalAddress", () => {
+    expect(buildOrgPatchBody({ postalAddress: "1 Market St" })).toEqual({
+      physicalAddress: "1 Market St",
+    });
+    // physicalAddress wins when both spellings are present
+    expect(
+      buildOrgPatchBody({ physicalAddress: "A", postalAddress: "B" }),
+    ).toEqual({ physicalAddress: "A" });
+  });
+
+  it("omits fields the upstream DTO does not accept and non-string values", () => {
+    expect(
+      buildOrgPatchBody({
+        slug: "acme",
+        timezone: "UTC",
+        logoUrl: "x",
+        liveSendEnabled: true,
+        name: 42,
+        country: null,
+      }),
+    ).toEqual({});
+  });
+
+  it("forwards empty strings so a user can clear a field (upstream decides validity)", () => {
+    expect(buildOrgPatchBody({ senderName: "" })).toEqual({ senderName: "" });
+  });
+
+  it("tolerates non-object bodies", () => {
+    expect(buildOrgPatchBody(undefined)).toEqual({});
+    expect(buildOrgPatchBody("oops")).toEqual({});
+    expect(buildOrgPatchBody(null)).toEqual({});
+  });
+});
+
+describe("upstreamErrorMessage", () => {
+  it("extracts a NestJS string message", () => {
+    expect(upstreamErrorMessage({ statusCode: 400, message: "country must be ISO-2" })).toBe(
+      "country must be ISO-2",
+    );
+  });
+
+  it("joins a NestJS class-validator message array", () => {
+    expect(
+      upstreamErrorMessage({
+        statusCode: 400,
+        message: ["country must be ISO-2", "senderName must be a string"],
+        error: "Bad Request",
+      }),
+    ).toBe("country must be ISO-2; senderName must be a string");
+  });
+
+  it("falls back to the error field, then null — never a fabricated message", () => {
+    expect(upstreamErrorMessage({ error: "Bad Request" })).toBe("Bad Request");
+    expect(upstreamErrorMessage({})).toBeNull();
+    expect(upstreamErrorMessage(null)).toBeNull();
+    expect(upstreamErrorMessage("raw text body")).toBeNull();
   });
 });

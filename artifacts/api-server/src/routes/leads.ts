@@ -24,6 +24,14 @@ export interface SendPolicy {
   recipientSuppressed: boolean;
 }
 
+/**
+ * HONESTY contract (same convention as routes/artifacts.ts): sendPolicy is
+ * `null` whenever the backend has no real per-recipient policy to report —
+ * the FE falls back to its neutral badge for null. We never fabricate an
+ * all-false policy: that painted fake red "No Postal Address" badges on
+ * every lead card.
+ */
+
 export interface Lead {
   id: string;
   name: string;
@@ -43,7 +51,7 @@ export interface Lead {
   emailStatus: "DELIVERABLE" | "HIGH_PROBABILITY" | "CATCH_ALL";
   intentSignals: IntentSignal[];
   lastContactedAt: string | null;
-  sendPolicy: SendPolicy;
+  sendPolicy: SendPolicy | null;
   createdAt: string;
 }
 
@@ -151,20 +159,6 @@ export function emailStatusForLead(
   return "HIGH_PROBABILITY";
 }
 
-/**
- * Default send-policy. apex-gtm-api's listLeadsForUi/getPersonDetail expose no
- * per-recipient SendPolicy, so the BFF returns the safe fail-closed default
- * (nothing enabled). Synthesized — see audit.
- */
-export function defaultSendPolicy(): SendPolicy {
-  return {
-    liveSendEnabled: false,
-    postalAddressSet: false,
-    unsubscribeConfigured: false,
-    recipientSuppressed: false,
-  };
-}
-
 function emptyToNull(s: string | null | undefined): string | null {
   if (s === null || s === undefined) return null;
   const t = s.trim();
@@ -197,7 +191,10 @@ export function shapeLead(u: UpstreamUiLead): Lead {
     intentSignals: [],
     // timeline is always [] upstream and sentAt is not surfaced.
     lastContactedAt: null,
-    sendPolicy: defaultSendPolicy(),
+    // No per-recipient send-policy source upstream (liveSendEnabled is the
+    // env gate OUTREACH_LIVE_FOR_ORGS, unsubscribe config has no API, postal
+    // address only lives on /orgs/me) — null, never a fabricated all-false.
+    sendPolicy: null,
     createdAt: u.createdAt,
   };
 }
@@ -262,7 +259,8 @@ export function shapePersonAsLead(u: UpstreamPersonDetail): Lead {
     emailStatus: emailStatusForLead("not_sent"),
     intentSignals: [],
     lastContactedAt: null,
-    sendPolicy: defaultSendPolicy(),
+    // Same honesty rule as shapeLead: no real policy source → null.
+    sendPolicy: null,
     // getPersonDetail does not return createdAt — default to empty ISO.
     createdAt: "",
   };
