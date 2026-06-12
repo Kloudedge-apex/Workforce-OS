@@ -13,6 +13,7 @@ import { Separator } from "@/components/ui/separator";
 import { Search, Filter, Ban, ChevronLeft, ChevronRight, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { isUnavailable } from "@/lib/unavailable";
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
 import { CohortBadge } from "@/components/v2/CohortBadge";
@@ -70,7 +71,8 @@ export default function Pipeline() {
     if (selectedIds.size === 0) return;
     toast(`Suppressing ${selectedIds.size} leads...`);
     try {
-      await suppressMut.mutateAsync({ data: { ids: Array.from(selectedIds) } });
+      const res = await suppressMut.mutateAsync({ data: { ids: Array.from(selectedIds) } });
+      if (isUnavailable(res)) { toast("Not available yet — coming soon"); return; }
       toast.success("Leads suppressed");
       setSelectedIds(new Set());
     } catch (e) {

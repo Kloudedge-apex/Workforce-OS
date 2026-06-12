@@ -1,178 +1,378 @@
-import { Router } from "express";
-import { db } from "@workspace/db";
-import {
-  leadsTable,
-  activityEventsTable,
-  suppressedEmailsTable,
-} from "@workspace/db";
-import { eq, and, gte, desc, sql, ilike } from "drizzle-orm";
+import { Router, type NextFunction, type Request, type Response } from "express";
 import {
   ListLeadsQueryParams,
   GetLeadParams,
   TriggerOutboundParams,
   BulkSuppressLeadsBody,
 } from "@workspace/api-zod";
+import { apex, UpstreamError } from "../upstream/apex-client";
+import { gapResponse } from "../lib/unavailable";
 
 const router = Router();
 
-const ORG_ID = "org_mynoted";
+// ─── OpenAPI response shapes (the FE contract we must satisfy) ──────────────
 
-function shapeLead(l: typeof leadsTable.$inferSelect) {
-  const signals = (l.intentSignals ?? []) as Array<{ label: string; confidence: number }>;
+export interface IntentSignal {
+  label: string;
+  confidence: number;
+}
+
+export interface SendPolicy {
+  liveSendEnabled: boolean;
+  postalAddressSet: boolean;
+  unsubscribeConfigured: boolean;
+  recipientSuppressed: boolean;
+}
+
+/**
+ * HONESTY contract (same convention as routes/artifacts.ts): sendPolicy is
+ * `null` whenever the backend has no real per-recipient policy to report —
+ * the FE falls back to its neutral badge for null. We never fabricate an
+ * all-false policy: that painted fake red "No Postal Address" badges on
+ * every lead card.
+ */
+
+export interface Lead {
+  id: string;
+  name: string;
+  title: string;
+  email: string;
+  company: string;
+  domain: string | null;
+  companyLogoUrl: string | null;
+  avatarUrl: string | null;
+  score: number;
+  stage: string;
+  geo: string;
+  country: string | null;
+  industry: string | null;
+  headcountEstimate: string | null;
+  cohort: "A" | "B";
+  emailStatus: "DELIVERABLE" | "HIGH_PROBABILITY" | "CATCH_ALL";
+  intentSignals: IntentSignal[];
+  lastContactedAt: string | null;
+  sendPolicy: SendPolicy | null;
+  createdAt: string;
+}
+
+export interface PaginatedLeads {
+  items: Lead[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface ScoreBreakdown {
+  fit: number;
+  intent: number;
+  engagement: number;
+  timing: number;
+}
+
+export interface EvidenceEventSummary {
+  id: string;
+  eventType: string;
+  description: string;
+  timestamp: string;
+}
+
+export interface LeadDetail {
+  lead: Lead;
+  researchBrief: string;
+  scoreBreakdown: ScoreBreakdown;
+  recentEvidenceEvents: EvidenceEventSummary[];
+}
+
+// ─── Upstream shapes (from apex-gtm-api LeadsService — see release audit) ────
+
+/** One lead from GET /api/leads → LeadsService.listLeadsForUi. */
+export interface UpstreamUiLead {
+  id: string;
+  name: string;
+  title: string;
+  company: string;
+  domain: string;
+  email: string;
+  industry: string;
+  companySize: string;
+  techStack: string[];
+  score: number;
+  scoreBreakdown: Array<{ label: string; value: number }>;
+  stage: string;
+  source: string;
+  emailStatus: "not_sent" | "sent" | "opened" | "replied" | "bounced";
+  timeline: Array<{ stage: string; at: string }>;
+  createdAt: string;
+}
+
+export interface UpstreamLeadsList {
+  leads: UpstreamUiLead[];
+  total: number;
+}
+
+/** One person from GET /api/leads/people/:id → LeadsService.getPersonDetail. */
+export interface UpstreamPersonDetail {
+  id: string;
+  firstName: string;
+  lastName: string;
+  title: string | null;
+  company: string | null;
+  companyDomain: string | null;
+  seniority: string | null;
+  department: string | null;
+  linkedinUrl: string | null;
+  location: null;
+  bio: null;
+  bestEmail: string | null;
+  score: number | null;
+  qualifiedAt: string | null;
+  emails: Array<{
+    email: string;
+    pattern: string | null;
+    source: string | null;
+    confidence: number | null;
+    verified: boolean | null;
+    verificationResult: string | null;
+  }>;
+  scoreBreakdown: Array<{ category: string; points: number }>;
+}
+
+// ─── Pure transforms (unit-tested; no req/res) ──────────────────────────────
+
+/**
+ * Cohort is NOT modelled in apex-gtm-api. We synthesize it from score so the
+ * FE's A/B grouping is stable and deterministic: score >= 70 → "A", else "B".
+ */
+export function cohortFromScore(score: number): "A" | "B" {
+  return score >= 70 ? "A" : "B";
+}
+
+/**
+ * apex-gtm-api emits lowercase send-state (`not_sent`/`sent`/...). The FE
+ * contract is a deliverability enum it does NOT model. listLeadsForUi never
+ * returns per-email verification, so we default to HIGH_PROBABILITY (the
+ * honest "unverified but plausible" bucket). Synthesized — see audit.
+ */
+export function emailStatusForLead(
+  _upstream: "not_sent" | "sent" | "opened" | "replied" | "bounced",
+): "DELIVERABLE" | "HIGH_PROBABILITY" | "CATCH_ALL" {
+  return "HIGH_PROBABILITY";
+}
+
+function emptyToNull(s: string | null | undefined): string | null {
+  if (s === null || s === undefined) return null;
+  const t = s.trim();
+  return t.length > 0 ? t : null;
+}
+
+/** Map one upstream UI lead → the openapi Lead shape. */
+export function shapeLead(u: UpstreamUiLead): Lead {
   return {
-    id: l.id,
-    name: l.name,
-    title: l.title ?? "",
-    email: l.email,
-    company: l.company,
-    companyLogoUrl: l.companyLogoUrl ?? null,
-    avatarUrl: l.avatarUrl ?? null,
-    score: l.score,
-    stage: l.stage,
-    geo: l.geo ?? "",
-    intentSignals: signals,
-    lastContactedAt: l.lastContactedAt?.toISOString() ?? null,
-    sendPolicy: {
-      liveSendEnabled: false,
-      postalAddressSet: false,
-      unsubscribeConfigured: false,
-      recipientSuppressed: false,
-    },
-    createdAt: l.createdAt.toISOString(),
+    id: u.id,
+    name: u.name,
+    title: u.title ?? "",
+    email: u.email ?? "",
+    company: u.company ?? "",
+    domain: emptyToNull(u.domain),
+    // Not modelled upstream — synthesized as null (no logo/avatar source).
+    companyLogoUrl: null,
+    avatarUrl: null,
+    score: Math.trunc(u.score ?? 0),
+    stage: u.stage,
+    // No geo source in listLeadsForUi.
+    geo: "",
+    country: null,
+    industry: emptyToNull(u.industry),
+    // Company.employeeRange → headcountEstimate.
+    headcountEstimate: emptyToNull(u.companySize),
+    cohort: cohortFromScore(u.score ?? 0),
+    emailStatus: emailStatusForLead(u.emailStatus),
+    // No intent-signal source upstream — default [].
+    intentSignals: [],
+    // timeline is always [] upstream and sentAt is not surfaced.
+    lastContactedAt: null,
+    // No per-recipient send-policy source upstream (liveSendEnabled is the
+    // env gate OUTREACH_LIVE_FOR_ORGS, unsubscribe config has no API, postal
+    // address only lives on /orgs/me) — null, never a fabricated all-false.
+    sendPolicy: null,
+    createdAt: u.createdAt,
   };
 }
 
-router.get("/leads", async (req, res) => {
-  const parsed = ListLeadsQueryParams.safeParse(req.query);
-  const page = parsed.success ? (parsed.data.page ?? 1) : 1;
-  const limit = parsed.success ? (parsed.data.limit ?? 25) : 25;
-  const q = parsed.success ? parsed.data.q : undefined;
-  const offset = (page - 1) * limit;
-
-  const query = db
-    .select()
-    .from(leadsTable)
-    .where(
-      q
-        ? and(eq(leadsTable.orgId, ORG_ID), ilike(leadsTable.name, `%${q}%`))
-        : eq(leadsTable.orgId, ORG_ID),
-    )
-    .orderBy(desc(leadsTable.score))
-    .limit(limit)
-    .offset(offset);
-
-  const countQuery = db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(leadsTable)
-    .where(
-      q
-        ? and(eq(leadsTable.orgId, ORG_ID), ilike(leadsTable.name, `%${q}%`))
-        : eq(leadsTable.orgId, ORG_ID),
-    );
-
-  const [items, countResult] = await Promise.all([query, countQuery]);
-
-  res.json({
-    items: items.map(shapeLead),
-    total: Number(countResult[0]?.count ?? 0),
+/** Map the upstream {leads,total} envelope → openapi PaginatedLeads. */
+export function shapeLeadsList(
+  u: UpstreamLeadsList,
+  page: number,
+  limit: number,
+): PaginatedLeads {
+  return {
+    items: (u.leads ?? []).map(shapeLead),
+    total: u.total ?? 0,
     page,
     limit,
-  });
-});
+  };
+}
 
-router.get("/leads/:id", async (req, res) => {
-  const parsed = GetLeadParams.safeParse(req.params);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid params" });
-    return;
-  }
+/**
+ * apex-gtm-api's getPersonDetail returns at most a single
+ * {category:'Total',points} breakdown row (LeadScore.breakdown is not decomposed
+ * into fit/intent/engagement/timing). We map the available total into `fit`
+ * and zero the rest — lossy, see audit. researchBrief + recentEvidenceEvents
+ * have no source on release and are returned as a default brief + [].
+ */
+export function shapePersonScoreBreakdown(
+  u: UpstreamPersonDetail,
+): ScoreBreakdown {
+  const total =
+    u.scoreBreakdown.find((b) => b.category.toLowerCase() === "total")?.points ??
+    u.score ??
+    0;
+  return {
+    fit: Math.trunc(total),
+    intent: 0,
+    engagement: 0,
+    timing: 0,
+  };
+}
 
-  const [lead] = await db
-    .select()
-    .from(leadsTable)
-    .where(and(eq(leadsTable.id, parsed.data.id), eq(leadsTable.orgId, ORG_ID)));
+/** Map upstream person detail → the openapi Lead embedded in LeadDetail. */
+export function shapePersonAsLead(u: UpstreamPersonDetail): Lead {
+  const score = u.score ?? 0;
+  return {
+    id: u.id,
+    name: `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim(),
+    title: u.title ?? "",
+    email: u.bestEmail ?? "",
+    company: u.company ?? "",
+    domain: emptyToNull(u.companyDomain),
+    companyLogoUrl: null,
+    avatarUrl: null,
+    score: Math.trunc(score),
+    // getPersonDetail does not derive a stage; "qualified" iff qualifiedAt set.
+    stage: u.qualifiedAt ? "qualified" : "enriched",
+    geo: "",
+    country: null,
+    // industry is not returned by getPersonDetail.
+    industry: null,
+    headcountEstimate: null,
+    cohort: cohortFromScore(score),
+    emailStatus: emailStatusForLead("not_sent"),
+    intentSignals: [],
+    lastContactedAt: null,
+    // Same honesty rule as shapeLead: no real policy source → null.
+    sendPolicy: null,
+    // getPersonDetail does not return createdAt — default to empty ISO.
+    createdAt: "",
+  };
+}
 
-  if (!lead) {
-    res.status(404).json({ error: "Not found" });
-    return;
-  }
+/**
+ * Compose the full LeadDetail. researchBrief + recentEvidenceEvents have no
+ * source on release/go-live-2026-06-01 (getPersonDetail returns neither), so
+ * they degrade honestly to a default brief and an empty event list.
+ */
+export function shapeLeadDetail(u: UpstreamPersonDetail): LeadDetail {
+  return {
+    lead: shapePersonAsLead(u),
+    researchBrief: "",
+    scoreBreakdown: shapePersonScoreBreakdown(u),
+    recentEvidenceEvents: [],
+  };
+}
 
-  const recentEvents = await db
-    .select()
-    .from(activityEventsTable)
-    .where(
-      and(
-        eq(activityEventsTable.orgId, ORG_ID),
-        eq(activityEventsTable.leadId, lead.id),
-      ),
-    )
-    .orderBy(desc(activityEventsTable.timestamp))
-    .limit(5);
+// ─── Routes ─────────────────────────────────────────────────────────────────
 
-  const scoreBreakdown = (lead.scoreBreakdown ?? { fit: 70, intent: 80, engagement: 65, timing: 75 }) as Record<string, number>;
+router.get(
+  "/leads",
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const parsed = ListLeadsQueryParams.safeParse(req.query);
+    const page = parsed.success ? parsed.data.page : 1;
+    const limit = parsed.success ? parsed.data.limit : 25;
+    const minScore = parsed.success ? parsed.data.minScore : undefined;
+    const q = parsed.success ? parsed.data.q : undefined;
+    const stage = parsed.success ? parsed.data.stage : undefined;
 
-  res.json({
-    lead: shapeLead(lead),
-    researchBrief: lead.researchBrief ?? "No research brief available for this lead yet.",
-    scoreBreakdown: {
-      fit: scoreBreakdown["fit"] ?? 70,
-      intent: scoreBreakdown["intent"] ?? 80,
-      engagement: scoreBreakdown["engagement"] ?? 65,
-      timing: scoreBreakdown["timing"] ?? 75,
-    },
-    recentEvidenceEvents: recentEvents.map((e) => ({
-      id: e.id,
-      eventType: e.agentType,
-      description: e.action,
-      timestamp: e.timestamp.toISOString(),
-    })),
-  });
-});
+    // FE query → apex-gtm-api query: q→search, limit→per_page, minScore→min_score.
+    // geo/cohort/industry/intentSignal/sort are NOT honored upstream (audit).
+    const search = new URLSearchParams();
+    search.set("page", String(page));
+    search.set("per_page", String(limit));
+    if (q) search.set("search", q);
+    if (minScore !== undefined) search.set("min_score", String(minScore));
+    if (stage) search.set("stage", stage);
 
-router.post("/leads/:id/trigger-outbound", async (req, res) => {
-  const parsed = TriggerOutboundParams.safeParse(req.params);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid params" });
-    return;
-  }
+    try {
+      const upstream = (await apex.get(
+        `/leads?${search.toString()}`,
+        { req },
+      )) as UpstreamLeadsList;
+      res.json(shapeLeadsList(upstream, page, limit));
+    } catch (err) {
+      if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) {
+        throw err;
+      }
+      next(err);
+    }
+  },
+);
 
-  const runId = `run_${Date.now()}`;
-  res.status(202).json({
-    runId,
-    queued: true,
-    message: "Outbound pipeline run queued",
-  });
-});
+router.get(
+  "/leads/:id",
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const parsed = GetLeadParams.safeParse(req.params);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid params" });
+      return;
+    }
 
-router.post("/leads/bulk-suppress", async (req, res) => {
+    // FE GET /leads/{id} → apex-gtm-api GET /api/leads/people/{id} (audit).
+    try {
+      const upstream = (await apex.get(
+        `/leads/people/${encodeURIComponent(parsed.data.id)}`,
+        { req },
+      )) as UpstreamPersonDetail;
+      res.json(shapeLeadDetail(upstream));
+    } catch (err) {
+      if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) {
+        throw err;
+      }
+      // getPersonDetail uses findFirstOrThrow → upstream 404 on a missing id.
+      if (err instanceof UpstreamError && err.status === 404) {
+        res.status(404).json({ error: "Not found" });
+        return;
+      }
+      next(err);
+    }
+  },
+);
+
+// GAP: no per-lead outbound trigger exists on apex-gtm-api. The only
+// orchestration entry is POST /api/pipeline/run, which is org-wide / all-ICP
+// and single-flight — aliasing it to one lead id is semantically wrong and
+// dangerous (audit). Surface honestly as unavailable.
+router.post(
+  "/leads/:id/trigger-outbound",
+  (req: Request, res: Response): void => {
+    const parsed = TriggerOutboundParams.safeParse(req.params);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid params" });
+      return;
+    }
+    gapResponse(res, "lead-trigger-outbound");
+  },
+);
+
+// GAP: no public bulk-suppress route on apex-gtm-api. OutreachSuppression +
+// SuppressionService.suppress() exist but key on email (not person id) and are
+// only reachable via the signed-token unsubscribe flow — no HTTP batch endpoint
+// and no id→email resolution is wired on release (audit). Surface as unavailable.
+router.post("/leads/bulk-suppress", (req: Request, res: Response): void => {
   const parsed = BulkSuppressLeadsBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid request" });
     return;
   }
-
-  const leads = await db
-    .select()
-    .from(leadsTable)
-    .where(eq(leadsTable.orgId, ORG_ID));
-
-  const toSuppress = leads.filter((l) => parsed.data.ids.includes(l.id));
-
-  let affected = 0;
-  for (const lead of toSuppress) {
-    await db
-      .insert(suppressedEmailsTable)
-      .values({
-        id: `sup_${Date.now()}_${lead.id}`,
-        orgId: ORG_ID,
-        email: lead.email,
-        reason: "bulk suppressed",
-      })
-      .onConflictDoNothing();
-    affected++;
-  }
-
-  res.json({ affected });
+  gapResponse(res, "lead-bulk-suppress");
 });
 
 export default router;

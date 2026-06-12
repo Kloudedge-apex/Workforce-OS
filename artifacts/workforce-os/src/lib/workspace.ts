@@ -3,6 +3,7 @@
 // Phase 1 (now):  workspace = live `GET /settings/org`; user = static Nikxius constant.
 // Phase 2 (later): swap the *source* to Clerk (`useOrganization` / `useUser`) WITHOUT
 //                  changing these return signatures or any consumer.
+import { useUser } from "@clerk/clerk-react";
 import { useGetOrgSettings } from "@workspace/api-client-react";
 
 export interface Workspace {
@@ -72,10 +73,23 @@ export function useWorkspace(): Workspace {
  * exists. Phase 2 swaps the body to Clerk's `useUser()` with no signature change.
  */
 export function useCurrentUser(): CurrentUser {
-  const { name, role } = NIKXIUS_APP_CONTEXT.user;
+  const { user } = useUser();
+  if (!user) {
+    const { name, role } = NIKXIUS_APP_CONTEXT.user;
+    return { name, role, initials: deriveInitials(name) };
+  }
+  const name =
+    user.fullName ||
+    user.primaryEmailAddress?.emailAddress ||
+    NIKXIUS_APP_CONTEXT.user.name;
+  const role =
+    typeof user.publicMetadata?.role === "string"
+      ? user.publicMetadata.role
+      : NIKXIUS_APP_CONTEXT.user.role;
   return {
     name,
     role,
     initials: deriveInitials(name),
+    avatarUrl: user.imageUrl,
   };
 }

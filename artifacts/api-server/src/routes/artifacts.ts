@@ -1,234 +1,398 @@
 import { Router } from "express";
-import { db } from "@workspace/db";
-import { outreachArtifactsTable, suppressedEmailsTable } from "@workspace/db";
-import { eq, and, desc } from "drizzle-orm";
-import {
-  ListPendingArtifactsQueryParams,
-  ListArtifactsQueryParams,
-  GetArtifactParams,
-  ApproveArtifactParams,
-  RejectArtifactParams,
-  RejectArtifactBody,
-  SuppressArtifactParams,
-} from "@workspace/api-zod";
+import { apex } from "../upstream/apex-client";
+import { UpstreamError } from "../upstream/apex-client";
+import { gapResponse } from "../lib/unavailable";
 
 const router = Router();
 
-const ORG_ID = "org_mynoted";
+/**
+ * Raw OutreachArtifact row as returned by apex-gtm-api
+ * (GET /api/outreach-artifacts[/:id]). Dates arrive as ISO strings over HTTP.
+ * Mirrors the deployed prisma model (schema.prisma OutreachArtifact). The FE
+ * OutreachArtifact nested objects are mapped from the persisted `payload` Json
+ * (brief_facts / groundedness_self_check / refusal / langsmith_run_id) where
+ * real data exists, and are `null` where it does not — see shapeArtifact.
+ */
+export interface UpstreamArtifact {
+  id: string;
+  orgId?: string;
+  graphRunId?: string | null;
+  toolName?: string;
+  channel?: string;
+  recipientRef?: string | null;
+  subject?: string | null;
+  bodyText?: string | null;
+  bodyHtml?: string | null;
+  payload?: unknown;
+  status: string;
+  reviewerNote?: string | null;
+  reviewedBy?: string | null;
+  reviewedAt?: string | null;
+  sentAt?: string | null;
+  sendReceiptId?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+}
 
-function shapeArtifact(a: typeof outreachArtifactsTable.$inferSelect) {
-  const scores = (a.evaluatorScores ?? {}) as Record<string, number>;
-  const citations = (a.citations ?? []) as Array<{ factId: string; claim: string; source: string }>;
+/**
+ * One citation row, derived from the persisted research brief
+ * (payload.brief_facts on the upstream OutreachArtifact row).
+ * `cited` is true when the drafter declared this fact id in its
+ * groundedness self-check (payload.groundedness_self_check) —
+ * the FE highlights those rows. `date` is present only when the
+ * fact carried an ISO date (dated signals).
+ */
+export interface ShapedCitation {
+  factId: string;
+  claim: string;
+  source: string;
+  date?: string;
+  cited: boolean;
+}
+
+export interface ShapedEvaluatorScores {
+  pii: number;
+  hallucination: number;
+  citationCoverage: number;
+  toxicity: number;
+}
+
+export interface ShapedSendPolicy {
+  liveSendEnabled: boolean;
+  postalAddressSet: boolean;
+  unsubscribeConfigured: boolean;
+  recipientSuppressed: boolean;
+}
+
+/** Drafter refusal surfaced for the FE refusal banner. */
+export interface ShapedRefusal {
+  refused: boolean;
+  reason: string | null;
+}
+
+/**
+ * FE OutreachArtifact shape (lib/api-spec/openapi.yaml #/components/schemas/OutreachArtifact).
+ * HONESTY contract: evaluatorScores/sendPolicy are `null` whenever the backend
+ * has no real value to report — the FE hides those surfaces. We never invent
+ * zeros or all-false policy verdicts.
+ */
+export interface ShapedArtifact {
+  id: string;
+  status: string;
+  recipient: {
+    id: string;
+    name: string;
+    email: string;
+    title: string;
+    company: string;
+    avatarUrl: string | null;
+  };
+  subject: string;
+  bodyHtml: string;
+  citations: ShapedCitation[];
+  evaluatorScores: ShapedEvaluatorScores | null;
+  sendPolicy: ShapedSendPolicy | null;
+  refusal: ShapedRefusal;
+  langsmithRunId: string | null;
+  createdAt: string;
+  approvedAt: string | null;
+  sentAt: string | null;
+  rejectionReason: string | null;
+  graphRunId: string | null;
+  cohort: string | null;
+}
+
+export interface PaginatedArtifacts {
+  items: ShapedArtifact[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function payloadString(payload: unknown, key: string): string | undefined {
+  const rec = asRecord(payload);
+  if (!rec) return undefined;
+  const v = rec[key];
+  return typeof v === "string" ? v : undefined;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+}
+
+/**
+ * PURE: payload.brief_facts (+ payload.groundedness_self_check) → citations.
+ *
+ * The SDR subgraph persists the structured research brief the drafter actually
+ * saw as `brief_facts: [{ id, category, source, text, date? }]`, and the
+ * drafter's self-check as `groundedness_self_check`. The self-check is stored
+ * with camelCase keys (`citedFactIds`) — the parsed TS object — but we also
+ * accept the LLM wire-format key (`cited_fact_ids`) defensively. Facts without
+ * a string id and text are dropped (never invented).
+ */
+export function shapeCitations(payload: unknown): ShapedCitation[] {
+  const rec = asRecord(payload);
+  if (!rec) return [];
+  const rawFacts = rec["brief_facts"];
+  if (!Array.isArray(rawFacts)) return [];
+
+  const selfCheck = asRecord(rec["groundedness_self_check"]);
+  const citedIds = new Set<string>([
+    ...stringArray(selfCheck?.["citedFactIds"]),
+    ...stringArray(selfCheck?.["cited_fact_ids"]),
+  ]);
+
+  const citations: ShapedCitation[] = [];
+  for (const rawFact of rawFacts) {
+    const fact = asRecord(rawFact);
+    if (!fact) continue;
+    const factId = fact["id"];
+    const claim = fact["text"];
+    if (typeof factId !== "string" || typeof claim !== "string") continue;
+    const source = typeof fact["source"] === "string" ? (fact["source"] as string) : "";
+    const date = fact["date"];
+    citations.push({
+      factId,
+      claim,
+      source,
+      ...(typeof date === "string" && date ? { date } : {}),
+      cited: citedIds.has(factId),
+    });
+  }
+  return citations;
+}
+
+/**
+ * PURE: payload.refusal → FE refusal banner data.
+ *
+ * The drafter persists `refusal: { reason, missing[] }` when it deliberately
+ * declined to draft (e.g. no grounded evidence). `missing` items are appended
+ * to the reason so the reviewer sees the full persisted signal — both parts
+ * are real upstream data, nothing is synthesized.
+ */
+export function shapeRefusal(payload: unknown): ShapedRefusal {
+  const refusal = asRecord(asRecord(payload)?.["refusal"]);
+  if (!refusal || typeof refusal["reason"] !== "string") {
+    return { refused: false, reason: null };
+  }
+  const missing = stringArray(refusal["missing"]);
+  const reason = missing.length > 0
+    ? `${refusal["reason"] as string} (missing: ${missing.join(", ")})`
+    : (refusal["reason"] as string);
+  return { refused: true, reason };
+}
+
+/**
+ * PURE: evaluator scores — only when actually persisted on the payload.
+ *
+ * Today the deployed pipeline does NOT persist per-artifact evaluator scores
+ * (they live in LangSmith), so this returns null and the FE hides the score
+ * strip. If a future image writes `evaluator_scores: { pii, hallucination,
+ * citationCoverage, toxicity }` into the payload, the real numbers flow
+ * through. We NEVER fabricate zeros — a 0 PII score is a claim, not a gap.
+ */
+export function shapeEvaluatorScores(payload: unknown): ShapedEvaluatorScores | null {
+  const scores = asRecord(asRecord(payload)?.["evaluator_scores"]);
+  if (!scores) return null;
+  const pii = scores["pii"];
+  const hallucination = scores["hallucination"];
+  const citationCoverage = scores["citationCoverage"];
+  const toxicity = scores["toxicity"];
+  if (
+    typeof pii !== "number" ||
+    typeof hallucination !== "number" ||
+    typeof citationCoverage !== "number" ||
+    typeof toxicity !== "number"
+  ) {
+    return null;
+  }
+  return { pii, hallucination, citationCoverage, toxicity };
+}
+
+/**
+ * PURE: map a raw apex-gtm-api OutreachArtifact row → the FE OutreachArtifact shape.
+ *
+ * Scalars map 1:1. Nested objects:
+ *  - recipient: best-effort from scalar `recipientRef` + captured `payload` Json
+ *    (no Person FK exists). name/company/title fall back from payload then to ''.
+ *  - citations: REAL — mapped from the persisted research brief
+ *    (payload.brief_facts) with `cited` flags from the drafter's
+ *    groundedness self-check. [] only when the payload has no brief.
+ *  - refusal: REAL — payload.refusal surfaced as { refused, reason } so the
+ *    FE can render a refusal banner instead of presenting a refusal as a draft.
+ *  - evaluatorScores: null unless the payload actually persists scores. We do
+ *    NOT fabricate zeros (a zero score is a verdict, not a gap).
+ *  - sendPolicy: null — no upstream endpoint reachable from this route reports
+ *    the real policy (liveSendEnabled is the env gate OUTREACH_LIVE_FOR_ORGS,
+ *    unsubscribe config has no API; /orgs/me only covers postal address). A
+ *    partial object would paint fake red "No Postal Address" badges on every
+ *    card, so the FE hides the badge until a real org-compliance endpoint
+ *    ships. The SUPPRESSED signal still flows through `status`.
+ * approvedAt/rejectionReason are derived from reviewedAt/reviewerNote gated on status.
+ */
+export function shapeArtifact(a: UpstreamArtifact): ShapedArtifact {
+  const recipientRef = a.recipientRef ?? "";
   return {
     id: a.id,
     status: a.status,
     recipient: {
-      id: a.leadId ?? a.id,
-      name: a.recipientName,
-      email: a.recipientEmail,
-      title: a.recipientTitle ?? "",
-      company: a.recipientCompany,
-      avatarUrl: a.recipientAvatarUrl ?? null,
+      id: recipientRef,
+      name: payloadString(a.payload, "name") ?? recipientRef,
+      email: recipientRef,
+      title: payloadString(a.payload, "title") ?? "",
+      company: payloadString(a.payload, "company") ?? "",
+      avatarUrl: null,
     },
-    subject: a.subject,
-    bodyHtml: a.bodyHtml,
-    citations,
-    evaluatorScores: {
-      pii: scores["pii"] ?? 0.95,
-      hallucination: scores["hallucination"] ?? 0.92,
-      citationCoverage: scores["citationCoverage"] ?? 0.88,
-    },
-    sendPolicy: {
-      liveSendEnabled: false,
-      postalAddressSet: false,
-      unsubscribeConfigured: false,
-      recipientSuppressed: a.status === "SUPPRESSED",
-    },
-    createdAt: a.createdAt.toISOString(),
-    approvedAt: a.approvedAt?.toISOString() ?? null,
-    sentAt: a.sentAt?.toISOString() ?? null,
-    rejectionReason: a.rejectionReason ?? null,
+    subject: a.subject ?? "",
+    bodyHtml: a.bodyHtml ?? a.bodyText ?? "",
+    citations: shapeCitations(a.payload),
+    evaluatorScores: shapeEvaluatorScores(a.payload),
+    sendPolicy: null,
+    refusal: shapeRefusal(a.payload),
+    langsmithRunId: payloadString(a.payload, "langsmith_run_id") ?? null,
+    createdAt: a.createdAt,
+    approvedAt: a.status === "APPROVED" ? (a.reviewedAt ?? null) : null,
+    sentAt: a.sentAt ?? null,
+    rejectionReason: a.status === "REJECTED" ? (a.reviewerNote ?? null) : null,
     graphRunId: a.graphRunId ?? null,
+    cohort: payloadString(a.payload, "cohort") ?? null,
   };
 }
 
-router.get("/artifacts/pending", async (req, res) => {
-  const parsed = ListPendingArtifactsQueryParams.safeParse(req.query);
-  const page = parsed.success ? (parsed.data.page ?? 1) : 1;
-  const limit = parsed.success ? (parsed.data.limit ?? 5) : 5;
+/**
+ * PURE: wrap a full upstream array into the FE PaginatedArtifacts envelope.
+ *
+ * The backend returns a bare array capped at 100 newest rows with NO server-side
+ * count/offset, so pagination is BFF-side: slice by (page,limit). `total` is the
+ * size of the returned array (accurate only up to the 100-row cap).
+ */
+export function shapePaginatedArtifacts(
+  upstream: UpstreamArtifact[],
+  page: number,
+  limit: number,
+): PaginatedArtifacts {
+  const total = upstream.length;
   const offset = (page - 1) * limit;
+  const items = upstream.slice(offset, offset + limit).map(shapeArtifact);
+  return { items, total, page, limit };
+}
 
-  const [items, countResult] = await Promise.all([
-    db
-      .select()
-      .from(outreachArtifactsTable)
-      .where(and(eq(outreachArtifactsTable.orgId, ORG_ID), eq(outreachArtifactsTable.status, "PENDING_REVIEW")))
-      .orderBy(desc(outreachArtifactsTable.createdAt))
-      .limit(limit)
-      .offset(offset),
-    db
-      .select({ id: outreachArtifactsTable.id })
-      .from(outreachArtifactsTable)
-      .where(and(eq(outreachArtifactsTable.orgId, ORG_ID), eq(outreachArtifactsTable.status, "PENDING_REVIEW"))),
-  ]);
+function toInt(v: unknown, fallback: number): number {
+  const n = typeof v === "string" ? Number.parseInt(v, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
 
-  res.json({ items: items.map(shapeArtifact), total: countResult.length, page, limit });
+// GET /artifacts/pending — REAL via GET /api/outreach-artifacts?status=PENDING_REVIEW.
+router.get("/artifacts/pending", async (req, res, next) => {
+  const page = toInt(req.query["page"], 1);
+  const limit = toInt(req.query["limit"], 5);
+  try {
+    const upstream = (await apex.get(
+      "/outreach-artifacts?status=PENDING_REVIEW",
+      { req },
+    )) as UpstreamArtifact[];
+    res.json(shapePaginatedArtifacts(upstream, page, limit));
+  } catch (err) {
+    if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
+    next(err);
+  }
 });
 
-router.get("/artifacts", async (req, res) => {
-  const parsed = ListArtifactsQueryParams.safeParse(req.query);
-  const status = parsed.success ? parsed.data.status : undefined;
-  const page = parsed.success ? (parsed.data.page ?? 1) : 1;
-  const limit = parsed.success ? (parsed.data.limit ?? 20) : 20;
-  const offset = (page - 1) * limit;
-
-  const conditions = status
-    ? and(eq(outreachArtifactsTable.orgId, ORG_ID), eq(outreachArtifactsTable.status, status as "PENDING_REVIEW" | "APPROVED" | "SENT" | "REJECTED" | "SUPPRESSED"))
-    : eq(outreachArtifactsTable.orgId, ORG_ID);
-
-  const [items, allItems] = await Promise.all([
-    db
-      .select()
-      .from(outreachArtifactsTable)
-      .where(conditions)
-      .orderBy(desc(outreachArtifactsTable.createdAt))
-      .limit(limit)
-      .offset(offset),
-    db
-      .select({ id: outreachArtifactsTable.id })
-      .from(outreachArtifactsTable)
-      .where(conditions),
-  ]);
-
-  res.json({ items: items.map(shapeArtifact), total: allItems.length, page, limit });
+// GET /artifacts — REAL via GET /api/outreach-artifacts (optional ?status=).
+router.get("/artifacts", async (req, res, next) => {
+  const page = toInt(req.query["page"], 1);
+  const limit = toInt(req.query["limit"], 20);
+  const status = typeof req.query["status"] === "string" ? (req.query["status"] as string) : undefined;
+  const path = status
+    ? `/outreach-artifacts?status=${encodeURIComponent(status)}`
+    : "/outreach-artifacts";
+  try {
+    const upstream = (await apex.get(path, { req })) as UpstreamArtifact[];
+    res.json(shapePaginatedArtifacts(upstream, page, limit));
+  } catch (err) {
+    if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
+    next(err);
+  }
 });
 
-router.get("/artifacts/:id", async (req, res) => {
-  const parsed = GetArtifactParams.safeParse(req.params);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid params" });
-    return;
-  }
-
-  const [artifact] = await db
-    .select()
-    .from(outreachArtifactsTable)
-    .where(and(eq(outreachArtifactsTable.id, parsed.data.id), eq(outreachArtifactsTable.orgId, ORG_ID)));
-
-  if (!artifact) {
-    res.status(404).json({ error: "Not found" });
-    return;
-  }
-
-  res.json(shapeArtifact(artifact));
-});
-
-router.post("/artifacts/:id/approve", async (req, res) => {
-  const parsed = ApproveArtifactParams.safeParse(req.params);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid params" });
-    return;
-  }
-
-  const [updated] = await db
-    .update(outreachArtifactsTable)
-    .set({ status: "APPROVED", approvedAt: new Date() })
-    .where(and(eq(outreachArtifactsTable.id, parsed.data.id), eq(outreachArtifactsTable.orgId, ORG_ID)))
-    .returning();
-
-  if (!updated) {
-    res.status(404).json({ error: "Not found" });
-    return;
-  }
-
-  res.json(shapeArtifact(updated));
-});
-
-router.post("/artifacts/:id/reject", async (req, res) => {
-  const paramParsed = RejectArtifactParams.safeParse(req.params);
-  const bodyParsed = RejectArtifactBody.safeParse(req.body);
-
-  if (!paramParsed.success || !bodyParsed.success) {
-    res.status(400).json({ error: "Invalid request" });
-    return;
-  }
-
-  const [updated] = await db
-    .update(outreachArtifactsTable)
-    .set({ status: "REJECTED", rejectionReason: bodyParsed.data.reason })
-    .where(and(eq(outreachArtifactsTable.id, paramParsed.data.id), eq(outreachArtifactsTable.orgId, ORG_ID)))
-    .returning();
-
-  if (!updated) {
-    res.status(404).json({ error: "Not found" });
-    return;
-  }
-
-  res.json(shapeArtifact(updated));
-});
-
-router.post("/artifacts/:id/suppress", async (req, res) => {
-  const parsed = SuppressArtifactParams.safeParse(req.params);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid params" });
-    return;
-  }
-
-  const [artifact] = await db
-    .select()
-    .from(outreachArtifactsTable)
-    .where(and(eq(outreachArtifactsTable.id, parsed.data.id), eq(outreachArtifactsTable.orgId, ORG_ID)));
-
-  if (!artifact) {
-    res.status(404).json({ error: "Not found" });
-    return;
-  }
-
-  await db.insert(suppressedEmailsTable).values({
-    id: `sup_${Date.now()}`,
-    orgId: ORG_ID,
-    email: artifact.recipientEmail,
-    reason: "manually suppressed",
-  }).onConflictDoNothing();
-
-  const [updated] = await db
-    .update(outreachArtifactsTable)
-    .set({ status: "SUPPRESSED" })
-    .where(eq(outreachArtifactsTable.id, parsed.data.id))
-    .returning();
-
-  res.json(shapeArtifact(updated!));
-});
-
-router.post("/artifacts/bulk-approve", async (req, res) => {
-  const pending = await db
-    .select()
-    .from(outreachArtifactsTable)
-    .where(and(eq(outreachArtifactsTable.orgId, ORG_ID), eq(outreachArtifactsTable.status, "PENDING_REVIEW")));
-
-  let approved = 0;
-  let skipped = 0;
-  const reasons: string[] = [];
-
-  for (const artifact of pending) {
-    const scores = (artifact.evaluatorScores ?? {}) as Record<string, number>;
-    const pii = scores["pii"] ?? 0;
-    const hallucination = scores["hallucination"] ?? 0;
-    const citation = scores["citationCoverage"] ?? 0;
-
-    if (pii >= 0.9 && hallucination >= 0.9 && citation >= 0.8) {
-      await db
-        .update(outreachArtifactsTable)
-        .set({ status: "APPROVED", approvedAt: new Date() })
-        .where(eq(outreachArtifactsTable.id, artifact.id));
-      approved++;
-    } else {
-      skipped++;
-      reasons.push(`${artifact.recipientName}: scores below threshold`);
+// GET /artifacts/:id — REAL via GET /api/outreach-artifacts/:id.
+router.get("/artifacts/:id", async (req, res, next) => {
+  try {
+    const upstream = (await apex.get(
+      `/outreach-artifacts/${encodeURIComponent(req.params["id"]!)}`,
+      { req },
+    )) as UpstreamArtifact;
+    res.json(shapeArtifact(upstream));
+  } catch (err) {
+    if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
+    if (err instanceof UpstreamError && err.status === 404) {
+      res.status(404).json({ error: "Not found" });
+      return;
     }
+    next(err);
   }
+});
 
-  res.json({ approved, skipped, reasons });
+// POST /artifacts/:id/approve — REAL via POST /api/outreach-artifacts/:id/approve.
+// Backend REQUIRES { reviewedBy } (400 without it); FE schema omits it, so the
+// BFF injects reviewedBy from the authenticated Clerk user.
+router.post("/artifacts/:id/approve", async (req, res, next) => {
+  try {
+    const upstream = (await apex.post(
+      `/outreach-artifacts/${encodeURIComponent(req.params["id"]!)}/approve`,
+      { req },
+      { reviewedBy: req.clerkUserId ?? "bff" },
+    )) as UpstreamArtifact;
+    res.json(shapeArtifact(upstream));
+  } catch (err) {
+    if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
+    if (err instanceof UpstreamError && err.status === 404) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    next(err);
+  }
+});
+
+// POST /artifacts/:id/reject — REAL via POST /api/outreach-artifacts/:id/reject.
+// FE sends { reason }; backend wants { reviewedBy (REQUIRED), reviewerNote }.
+router.post("/artifacts/:id/reject", async (req, res, next) => {
+  const reason = typeof req.body?.reason === "string" ? (req.body.reason as string) : undefined;
+  try {
+    const upstream = (await apex.post(
+      `/outreach-artifacts/${encodeURIComponent(req.params["id"]!)}/reject`,
+      { req },
+      { reviewedBy: req.clerkUserId ?? "bff", reviewerNote: reason },
+    )) as UpstreamArtifact;
+    res.json(shapeArtifact(upstream));
+  } catch (err) {
+    if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
+    if (err instanceof UpstreamError && err.status === 404) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    next(err);
+  }
+});
+
+// POST /artifacts/:id/suppress — GAP. No authenticated per-artifact suppress
+// endpoint exists on the release; SuppressionService is only reachable via the
+// public unsubscribe flow and nothing flips an artifact to SUPPRESSED on demand.
+router.post("/artifacts/:id/suppress", (_req, res) => {
+  return gapResponse(res, "artifact-suppress");
+});
+
+// POST /artifacts/bulk-approve — GAP. No bulk-approve controller/service method,
+// and no queryable per-artifact evaluator score in the DB to gate on (the
+// "approve artifacts that pass evaluators" semantics cannot be honored).
+router.post("/artifacts/bulk-approve", (_req, res) => {
+  return gapResponse(res, "artifact-bulk-approve");
 });
 
 export default router;

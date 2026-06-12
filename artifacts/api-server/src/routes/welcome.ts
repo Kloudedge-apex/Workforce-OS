@@ -1,35 +1,20 @@
 import { Router } from "express";
-import { db } from "@workspace/db";
-import { orgsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { gapResponse } from "../lib/unavailable";
 
 const router = Router();
-const ORG_ID = "org_mynoted";
 
-router.get("/welcome/status", async (req, res) => {
-  const [org] = await db
-    .select()
-    .from(orgsTable)
-    .where(eq(orgsTable.id, ORG_ID));
+// GAP (2026-06-10 release audit): no welcome/onboarding controller exists and
+// neither User nor Org carries an onboarding/complete/currentStep field in the
+// deployed schema. There is no { complete, currentStep } read model to return and
+// no backend write target for completion, so both routes degrade honestly until
+// onboarding state is persisted (schema change, out of BFF scope).
 
-  if (!org) {
-    res.status(404).json({ error: "Org not found" });
-    return;
-  }
-
-  res.json({
-    complete: org.welcomeComplete,
-    currentStep: org.welcomeComplete ? 5 : 1,
-  });
+router.get("/welcome/status", (_req, res) => {
+  return gapResponse(res, "welcome");
 });
 
-router.post("/welcome/complete", async (req, res) => {
-  await db
-    .update(orgsTable)
-    .set({ welcomeComplete: true })
-    .where(eq(orgsTable.id, ORG_ID));
-
-  res.json({ complete: true, currentStep: 5 });
+router.post("/welcome/complete", (_req, res) => {
+  return gapResponse(res, "welcome");
 });
 
 export default router;

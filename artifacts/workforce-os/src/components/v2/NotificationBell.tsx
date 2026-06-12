@@ -5,6 +5,7 @@ import {
   getListNotificationsQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -15,6 +16,7 @@ import { formatDistanceToNow } from "date-fns";
 import { staggerContainer, staggerItem, useReducedMotionSafe } from "@/lib/motion";
 import { EmptyState } from "@/components/states/EmptyState";
 import { ErrorState } from "@/components/states/ErrorState";
+import { isUnavailable } from "@/lib/unavailable";
 
 export function NotificationBell() {
   const reduce = useReducedMotionSafe();
@@ -28,14 +30,20 @@ export function NotificationBell() {
 
   const markRead = useMarkNotificationsRead({
     mutation: {
-      onSuccess: () => {
+      onSuccess: (res) => {
+        if (isUnavailable(res)) {
+          toast("Not available yet — coming soon");
+          return;
+        }
         queryClient.invalidateQueries({ queryKey: ["listNotifications"] });
         queryClient.invalidateQueries({ queryKey: getListNotificationsQueryKey() });
       },
     },
   });
 
-  const items = notifications?.items ?? [];
+  // Gap endpoint: when the notifications backend isn't wired up the BFF returns
+  // `{ unavailable: true }`. Treat that as an empty inbox rather than a broken list.
+  const items = isUnavailable(notifications) ? [] : notifications?.items ?? [];
   const unreadCount = items.filter((n) => !n.read).length;
 
   const handleRowClick = (link?: string | null) => {

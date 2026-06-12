@@ -1,0 +1,10 @@
+**/node_modules
+**/dist
+.git
+.swarm-out
+docs/superpowers/after
+docs/superpowers/after-foundation
+docs/superpowers/after-routes
+docs/superpowers/baseline
+**/*.log
+.DS_Store

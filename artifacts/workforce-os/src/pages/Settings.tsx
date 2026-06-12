@@ -11,7 +11,7 @@ import {
   useGetBilling,
   useListApiKeys, useCreateApiKey, useRevokeApiKey,
   useGetNotificationPrefs, useUpdateNotificationPrefs,
-  type CadenceStage, type NotificationPrefs,
+  type CadenceStage, type NotificationPrefs, type OrgSettings,
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +36,7 @@ import { fadeSlideUp, useReducedMotionSafe } from "@/lib/motion";
 import { CountUp } from "@/components/motion/CountUp";
 import { EmptyState } from "@/components/states/EmptyState";
 import { ErrorState } from "@/components/states/ErrorState";
+import { isUnavailable, UnavailableState } from "@/lib/unavailable";
 import { cn } from "@/lib/utils";
 
 // ─── Tab config ─────────────────────────────────────────────────────────────
@@ -120,6 +121,9 @@ export default function Settings() {
 function HealthBar() {
   const { data: health, isLoading, isError } = useGetOrgHealth({ query: { queryKey: ["getOrgHealth"] } });
   if (isLoading) return <div className="h-10 bg-ink-900 animate-pulse" />;
+  // Gap endpoint: org/health backend isn't wired up yet. Stay neutral — hide the
+  // bar rather than showing a scary "health unavailable" banner.
+  if (isUnavailable(health)) return null;
   if (isError || !health)
     return (
       <div className="shrink-0 px-6 py-2.5 flex items-center gap-3 bg-ember-500">
@@ -160,18 +164,17 @@ function HealthDot({ label, ok }: { label: string; ok: boolean }) {
 function OrgTab() {
   const { data, isLoading, isError, refetch } = useGetOrgSettings({ query: { queryKey: ["getOrgSettings"] } });
   const { mutate: update, isPending } = useUpdateOrgSettings({
-    mutation: { onSuccess: () => toast.success("Settings saved"), onError: () => toast.error("Save failed") },
+    mutation: { onSuccess: () => toast.success("Settings saved"), onError: (err) => toast.error(saveErrorMessage(err)) },
   });
 
   const [form, setForm] = useState({
-    name: "", slug: "", country: "", timezone: "", senderName: "", postalAddress: "", unsubscribeUrl: "", liveSendEnabled: false,
+    name: "", slug: "", timezone: "", unsubscribeUrl: "", liveSendEnabled: false,
   });
   const initialized = useRef(false);
   useEffect(() => {
     if (data && !initialized.current) {
       setForm({
-        name: data.orgName, slug: data.slug, country: data.country, timezone: data.timezone,
-        senderName: data.senderName ?? "", postalAddress: data.postalAddress ?? "",
+        name: data.orgName, slug: data.slug, timezone: data.timezone,
         unsubscribeUrl: data.unsubscribeUrl ?? "", liveSendEnabled: data.liveSendEnabled,
       });
       initialized.current = true;
@@ -191,23 +194,16 @@ function OrgTab() {
           </Field>
         </TwoCol>
         <TwoCol>
-          <Field label="Country">
-            <Input value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value }))} placeholder="IN" />
-          </Field>
           <Field label="Timezone">
             <Input value={form.timezone} onChange={e => setForm(f => ({ ...f, timezone: e.target.value }))} placeholder="Asia/Kolkata" />
           </Field>
+          <Field label="Unsubscribe URL">
+            <Input value={form.unsubscribeUrl} onChange={e => setForm(f => ({ ...f, unsubscribeUrl: e.target.value }))} placeholder="https://app.mynoted.ai/unsubscribe" />
+          </Field>
         </TwoCol>
-        <Field label="Sender Name (visible to recipients)">
-          <Input value={form.senderName} onChange={e => setForm(f => ({ ...f, senderName: e.target.value }))} />
-        </Field>
-        <Field label="Postal Address (CAN-SPAM required)">
-          <Textarea value={form.postalAddress} onChange={e => setForm(f => ({ ...f, postalAddress: e.target.value }))} rows={2} className="resize-none" />
-        </Field>
-        <Field label="Unsubscribe URL">
-          <Input value={form.unsubscribeUrl} onChange={e => setForm(f => ({ ...f, unsubscribeUrl: e.target.value }))} placeholder="https://app.mynoted.ai/unsubscribe" />
-        </Field>
       </SettingsCard>
+
+      {data && <ComplianceCard settings={data} />}
 
       <SettingsCard className="border-l-4 border-l-rust-500 p-5">
         <div className="flex items-center justify-between">
@@ -226,12 +222,66 @@ function OrgTab() {
         <Button
           className="bg-rust-500 hover:bg-rust-600 text-white"
           disabled={isPending}
-          onClick={() => update({ data: { name: form.name, slug: form.slug, country: form.country, timezone: form.timezone, senderName: form.senderName, postalAddress: form.postalAddress, liveSendEnabled: form.liveSendEnabled } })}
+          onClick={() => update({ data: { name: form.name, slug: form.slug, timezone: form.timezone, liveSendEnabled: form.liveSendEnabled } })}
         >
           {isPending ? "Saving…" : "Save Changes"}
         </Button>
       </div>
     </TabBoundary>
+  );
+}
+
+// ─── Compliance Card (CAN-SPAM sender identity) ──────────────────────────────
+/**
+ * Sender-identity fields the backend actually persists (Org.senderName /
+ * Org.physicalAddress / Org.country via the BFF → PATCH /api/orgs/:id). Saved
+ * independently from the general card so a compliance fix is one focused
+ * action, with the upstream validation error (e.g. non-ISO-2 country) surfaced
+ * verbatim instead of a generic "Save failed".
+ */
+function ComplianceCard({ settings }: { settings: OrgSettings }) {
+  const { mutate: save, isPending } = useUpdateOrgSettings({
+    mutation: {
+      onSuccess: () => toast.success("Compliance settings saved"),
+      onError: (err) => toast.error(saveErrorMessage(err)),
+    },
+  });
+  const [form, setForm] = useState({
+    senderName: settings.senderName ?? "",
+    physicalAddress: settings.postalAddress ?? "",
+    country: settings.country,
+  });
+
+  return (
+    <SettingsCard className="p-5 space-y-4">
+      <div className="flex items-start gap-2.5">
+        <Shield className="h-4 w-4 text-rust-500 mt-1 shrink-0" />
+        <div>
+          <p className="font-medium text-ink-900 dark:text-paper-50">Compliance</p>
+          <p className="text-sm text-ink-500 mt-0.5">Required by CAN-SPAM before live sending.</p>
+        </div>
+      </div>
+      <TwoCol>
+        <Field label="Sender Name (visible to recipients)">
+          <Input value={form.senderName} onChange={e => setForm(f => ({ ...f, senderName: e.target.value }))} />
+        </Field>
+        <Field label="Country (ISO-2)">
+          <Input value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value }))} placeholder="US" className="font-mono uppercase" />
+        </Field>
+      </TwoCol>
+      <Field label="Physical Address">
+        <Textarea value={form.physicalAddress} onChange={e => setForm(f => ({ ...f, physicalAddress: e.target.value }))} rows={2} className="resize-none" placeholder="Street, city, state, ZIP — appears in every email footer" />
+      </Field>
+      <div className="flex justify-end">
+        <Button
+          className="bg-rust-500 hover:bg-rust-600 text-white"
+          disabled={isPending}
+          onClick={() => save({ data: { senderName: form.senderName, postalAddress: form.physicalAddress, country: form.country } })}
+        >
+          {isPending ? "Saving…" : "Save Compliance"}
+        </Button>
+      </div>
+    </SettingsCard>
   );
 }
 
@@ -276,14 +326,23 @@ function IcpTab() {
 function CadenceTab() {
   const { data, isLoading, isError, refetch } = useGetCadence({ query: { queryKey: ["getCadence"] } });
   const { mutate: update, isPending } = useUpdateCadence({
-    mutation: { onSuccess: () => toast.success("Cadence saved"), onError: () => toast.error("Save failed") },
+    mutation: {
+      onSuccess: (res) => {
+        if (isUnavailable(res)) { toast("Not available yet — coming soon"); return; }
+        toast.success("Cadence saved");
+      },
+      onError: () => toast.error("Save failed"),
+    },
   });
   const [stages, setStages] = useState<CadenceStage[]>([]);
   const initialized = useRef(false);
+  const unavailable = isUnavailable(data);
 
   useEffect(() => {
-    if (data && !initialized.current) { setStages([...data].sort((a, b) => a.position - b.position)); initialized.current = true; }
-  }, [data]);
+    if (data && !unavailable && !initialized.current) { setStages([...data].sort((a, b) => a.position - b.position)); initialized.current = true; }
+  }, [data, unavailable]);
+
+  if (unavailable) return <UnavailableState feature="outreach cadence" />;
 
   const move = (idx: number, dir: -1 | 1) => {
     const next = [...stages];
@@ -357,14 +416,23 @@ function CadenceTab() {
 function BrandTab() {
   const { data, isLoading, isError, refetch } = useGetStyleConfig({ query: { queryKey: ["getStyleConfig"] } });
   const { mutate: update, isPending } = useUpdateStyleConfig({
-    mutation: { onSuccess: () => toast.success("Brand voice saved"), onError: () => toast.error("Save failed") },
+    mutation: {
+      onSuccess: (res) => {
+        if (isUnavailable(res)) { toast("Not available yet — coming soon"); return; }
+        toast.success("Brand voice saved");
+      },
+      onError: () => toast.error("Save failed"),
+    },
   });
   const [form, setForm] = useState({ voice: "professional", toneValue: 50, signatureHtml: "" });
   const initialized = useRef(false);
+  const unavailable = isUnavailable(data);
 
   useEffect(() => {
-    if (data && !initialized.current) { setForm({ ...data }); initialized.current = true; }
-  }, [data]);
+    if (data && !unavailable && !initialized.current) { setForm({ ...data }); initialized.current = true; }
+  }, [data, unavailable]);
+
+  if (unavailable) return <UnavailableState feature="brand voice" />;
 
   const PRESETS = [
     { id: "professional", label: "Professional" },
@@ -514,10 +582,22 @@ const ROLE_STYLES: Record<string, string> = {
 function TeamTab() {
   const { data, isLoading, isError, refetch } = useListTeamMembers({ query: { queryKey: ["listTeamMembers"] } });
   const { mutate: invite, isPending: inviting } = useInviteTeamMember({
-    mutation: { onSuccess: () => { toast.success("Invitation sent"); refetch(); setInviteOpen(false); }, onError: () => toast.error("Invite failed") },
+    mutation: {
+      onSuccess: (res) => {
+        if (isUnavailable(res)) { toast("Not available yet — coming soon"); setInviteOpen(false); return; }
+        toast.success("Invitation sent"); refetch(); setInviteOpen(false);
+      },
+      onError: () => toast.error("Invite failed"),
+    },
   });
   const { mutate: remove } = useRemoveTeamMember({
-    mutation: { onSuccess: () => { toast.success("Member removed"); refetch(); }, onError: () => toast.error("Remove failed") },
+    mutation: {
+      onSuccess: (res) => {
+        if (isUnavailable(res)) { toast("Not available yet — coming soon"); return; }
+        toast.success("Member removed"); refetch();
+      },
+      onError: () => toast.error("Remove failed"),
+    },
   });
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteForm, setInviteForm] = useState({ name: "", email: "", role: "MEMBER" as "ADMIN" | "MEMBER" });
@@ -701,16 +781,27 @@ function ApiKeysTab() {
   const { data, isLoading, isError, refetch } = useListApiKeys({ query: { queryKey: ["listApiKeys"] } });
   const { mutate: create, isPending: creating } = useCreateApiKey({
     mutation: {
-      onSuccess: (d) => { setNewKey(d.fullKey); refetch(); setKeyName(""); },
+      onSuccess: (d) => {
+        if (isUnavailable(d)) { toast("Not available yet — coming soon"); return; }
+        setNewKey(d.fullKey); refetch(); setKeyName("");
+      },
       onError: () => toast.error("Failed to create key"),
     },
   });
   const { mutate: revoke } = useRevokeApiKey({
-    mutation: { onSuccess: () => { toast.success("Key revoked"); refetch(); }, onError: () => toast.error("Revoke failed") },
+    mutation: {
+      onSuccess: (res) => {
+        if (isUnavailable(res)) { toast("Not available yet — coming soon"); return; }
+        toast.success("Key revoked"); refetch();
+      },
+      onError: () => toast.error("Revoke failed"),
+    },
   });
   const [keyName, setKeyName] = useState("");
   const [newKey, setNewKey] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
+
+  if (isUnavailable(data)) return <UnavailableState feature="API keys" />;
 
   return (
     <>
@@ -794,14 +885,23 @@ const NOTIF_EVENTS: { key: keyof NotificationPrefs; label: string; description: 
 function NotificationsTab() {
   const { data, isLoading, isError, refetch } = useGetNotificationPrefs({ query: { queryKey: ["getNotificationPrefs"] } });
   const { mutate: update } = useUpdateNotificationPrefs({
-    mutation: { onSuccess: () => toast.success("Preferences saved"), onError: () => toast.error("Save failed") },
+    mutation: {
+      onSuccess: (res) => {
+        if (isUnavailable(res)) { toast("Not available yet — coming soon"); return; }
+        toast.success("Preferences saved");
+      },
+      onError: () => toast.error("Save failed"),
+    },
   });
   const [prefs, setPrefs] = useState<NotificationPrefs>({ emailEnabled: true, slackEnabled: false, approvalQueueFull: true, sendFailed: true, suppressionHit: false, weeklyReport: true, newReply: true });
   const initialized = useRef(false);
+  const unavailable = isUnavailable(data);
 
   useEffect(() => {
-    if (data && !initialized.current) { setPrefs({ ...data }); initialized.current = true; }
-  }, [data]);
+    if (data && !unavailable && !initialized.current) { setPrefs({ ...data }); initialized.current = true; }
+  }, [data, unavailable]);
+
+  if (unavailable) return <UnavailableState feature="notification preferences" />;
 
   const toggle = (key: keyof NotificationPrefs, val: boolean) => {
     const next = { ...prefs, [key]: val };
@@ -895,6 +995,24 @@ function TabPanel({ tabId }: { tabId: TabId }) {
 }
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
+/**
+ * Honest save-error copy: surface the BFF/upstream validation message (the
+ * ApiError body's `message`, e.g. "country must be ISO-2") when one exists,
+ * falling back to the error's own message, then a generic line. Never claims
+ * success and never hides the real reason behind "Save failed".
+ */
+function saveErrorMessage(err: unknown): string {
+  if (err && typeof err === "object" && "data" in err) {
+    const data = (err as { data?: unknown }).data;
+    if (data && typeof data === "object" && "message" in data) {
+      const message = (data as { message?: unknown }).message;
+      if (typeof message === "string" && message.trim() !== "") return message;
+    }
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return "Save failed — your changes were not stored.";
+}
+
 function SectionHeader({ title, description }: { title: string; description: string }) {
   return (
     <div>

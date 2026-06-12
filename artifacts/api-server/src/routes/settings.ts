@@ -1,82 +1,171 @@
 import { Router } from "express";
-import { db } from "@workspace/db";
-import {
-  orgsTable,
-  allowlistedDomainsTable,
-  suppressedEmailsTable,
-} from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { apex, UpstreamError } from "../upstream/apex-client";
+import { gapResponse } from "../lib/unavailable";
 
 const router = Router();
 
-const ORG_ID = "org_mynoted";
+/**
+ * The subset of the apex-gtm-api Org row (GET /api/orgs/me →
+ * OrgsService.findByClerkUser) that the BFF reads. The deployed Org model has
+ * NO logoUrl/timezone/liveSendEnabled/unsubscribeUrl/allowlistedDomains/
+ * creditsRemaining/welcomeComplete columns, so those FE fields are DEFAULTED
+ * (synthesized) — see the audit's transform for endpoint 0.
+ */
+export interface ApexOrg {
+  id: string;
+  name: string;
+  slug: string;
+  website?: string | null;
+  physicalAddress?: string | null;
+  country?: string | null;
+  senderName?: string | null;
+  plan?: string;
+}
 
-router.get("/settings/org", async (req, res) => {
-  const [org] = await db
-    .select()
-    .from(orgsTable)
-    .where(eq(orgsTable.id, ORG_ID));
+export interface OrgSettings {
+  orgId: string;
+  orgName: string;
+  slug: string;
+  logoUrl: string | null;
+  country: string;
+  timezone: string;
+  senderName: string | null;
+  liveSendEnabled: boolean;
+  postalAddress: string | null;
+  unsubscribeUrl: string | null;
+  suppressionCount: number;
+  allowlistedDomains: string[];
+  plan: string;
+  creditsRemaining: number;
+  welcomeComplete: boolean;
+}
 
-  if (!org) {
-    res.status(404).json({ error: "Org not found" });
-    return;
-  }
-
-  const [domains, suppressionCountResult] = await Promise.all([
-    db
-      .select()
-      .from(allowlistedDomainsTable)
-      .where(eq(allowlistedDomainsTable.orgId, ORG_ID)),
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(suppressedEmailsTable)
-      .where(eq(suppressedEmailsTable.orgId, ORG_ID)),
-  ]);
-
-  res.json({
+/**
+ * Pure mapper: apex Org row → FE OrgSettings.
+ *
+ * SYNTHESIZED (no backing Org column on the deployed backend, per audit):
+ *   logoUrl=null, timezone='UTC', liveSendEnabled=false (real live-send is the
+ *   env OUTREACH_LIVE_FOR_ORGS, not per-row), unsubscribeUrl=null,
+ *   allowlistedDomains=[], creditsRemaining=0, welcomeComplete=true.
+ *   suppressionCount has no count endpoint upstream → 0 unless caller supplies one.
+ */
+export function shapeOrgSettings(org: ApexOrg, suppressionCount = 0): OrgSettings {
+  return {
     orgId: org.id,
     orgName: org.name,
-    liveSendEnabled: org.liveSendEnabled,
-    postalAddress: org.postalAddress ?? null,
-    unsubscribeUrl: org.unsubscribeUrl ?? null,
-    suppressionCount: Number(suppressionCountResult[0]?.count ?? 0),
-    allowlistedDomains: domains.map((d) => d.domain),
-    plan: org.plan,
-    creditsRemaining: org.creditsRemaining,
-  });
+    slug: org.slug,
+    logoUrl: null,
+    country: org.country ?? "",
+    timezone: "UTC",
+    senderName: org.senderName ?? null,
+    liveSendEnabled: false,
+    postalAddress: org.physicalAddress ?? null,
+    unsubscribeUrl: null,
+    suppressionCount,
+    allowlistedDomains: [],
+    plan: org.plan ?? "TRIAL",
+    creditsRemaining: 0,
+    welcomeComplete: true,
+  };
+}
+
+// ─── Org settings ──────────────────────────────────────────────────────────
+
+router.get("/settings/org", async (req, res, next) => {
+  try {
+    const org = (await apex.get("/orgs/me", { req })) as ApexOrg;
+    res.json(shapeOrgSettings(org));
+  } catch (err) {
+    if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
+    next(err);
+  }
 });
 
-router.get("/settings/org/health", async (req, res) => {
-  const [org] = await db
-    .select()
-    .from(orgsTable)
-    .where(eq(orgsTable.id, ORG_ID));
+/** Upstream UpdateOrgDto fields the BFF forwards from the FE UpdateOrgInput. */
+export interface OrgPatchBody {
+  name?: string;
+  senderName?: string;
+  country?: string;
+  physicalAddress?: string;
+}
 
-  if (!org) {
-    res.status(404).json({ error: "Org not found" });
-    return;
+/**
+ * PURE: FE UpdateOrgInput → upstream UpdateOrgDto patch body.
+ *
+ * Forwards every field the upstream DTO accepts (name, senderName, country
+ * ISO-2, physicalAddress). The FE spec names the address `postalAddress`
+ * (OrgSettings read shape), the upstream column is `physicalAddress` — both
+ * are accepted, `physicalAddress` winning when both are present. Fields the
+ * upstream DTO does NOT accept (slug/timezone/logoUrl/liveSendEnabled/
+ * unsubscribeUrl) are still not forwarded — they have no backing column.
+ */
+export function buildOrgPatchBody(raw: unknown): OrgPatchBody {
+  const body = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const patch: OrgPatchBody = {};
+  if (typeof body["name"] === "string") patch.name = body["name"];
+  if (typeof body["senderName"] === "string") patch.senderName = body["senderName"];
+  if (typeof body["country"] === "string") patch.country = body["country"];
+  const address =
+    typeof body["physicalAddress"] === "string"
+      ? body["physicalAddress"]
+      : typeof body["postalAddress"] === "string"
+        ? body["postalAddress"]
+        : undefined;
+  if (address !== undefined) patch.physicalAddress = address;
+  return patch;
+}
+
+/**
+ * PURE: extract a human-readable message from an upstream NestJS error body
+ * ({ statusCode, message: string | string[], error }). Falls back to null when
+ * the body carries nothing usable — the caller then sends a generic message.
+ */
+export function upstreamErrorMessage(body: unknown): string | null {
+  const rec = body && typeof body === "object" ? (body as Record<string, unknown>) : null;
+  const message = rec?.["message"];
+  if (typeof message === "string" && message.trim() !== "") return message;
+  if (Array.isArray(message)) {
+    const parts = message.filter((m): m is string => typeof m === "string" && m.trim() !== "");
+    if (parts.length > 0) return parts.join("; ");
   }
+  const error = rec?.["error"];
+  if (typeof error === "string" && error.trim() !== "") return error;
+  return null;
+}
 
-  const suppressionCountResult = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(suppressedEmailsTable)
-    .where(eq(suppressedEmailsTable.orgId, ORG_ID));
+router.put("/settings/org", async (req, res, next) => {
+  try {
+    // PATCH /api/orgs/:id requires :id === caller's resolved orgId, so resolve
+    // it via /orgs/me first. The upstream UpdateOrgDto now accepts the sender
+    // identity / CAN-SPAM fields (senderName, country, physicalAddress) in
+    // addition to name — buildOrgPatchBody forwards exactly those.
+    const me = (await apex.get("/orgs/me", { req })) as ApexOrg;
+    await apex.patch(`/orgs/${me.id}`, { req }, buildOrgPatchBody(req.body));
+    const updated = (await apex.get("/orgs/me", { req })) as ApexOrg;
+    res.json(shapeOrgSettings(updated));
+  } catch (err) {
+    if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
+    // Surface upstream validation failures honestly (e.g. country must be
+    // ISO-2) instead of collapsing them into a generic 502 "upstream" blob —
+    // the FE shows this message verbatim in its save-error state.
+    if (err instanceof UpstreamError && (err.status === 400 || err.status === 422)) {
+      res.status(err.status).json({
+        error: "validation",
+        message: upstreamErrorMessage(err.body) ?? "The backend rejected these settings.",
+      });
+      return;
+    }
+    next(err);
+  }
+});
 
-  const postalAddressConfigured = !!org.postalAddress;
-  const unsubscribeConfigured = !!org.unsubscribeUrl;
+// ─── Org health (GAP) ────────────────────────────────────────────────────────
+// No org compliance/health route exists upstream (audit endpoint 2). The signals
+// (liveSendEnabled / unsubscribeConfigured) have no source of truth, so we degrade
+// honestly rather than synthesize a misleading compliance verdict.
 
-  const blockers: string[] = [];
-  if (!org.liveSendEnabled) blockers.push("Live send not enabled for this org");
-  if (!postalAddressConfigured) blockers.push("Physical postal address not configured");
-  if (!unsubscribeConfigured) blockers.push("Unsubscribe URL not configured");
-
-  res.json({
-    liveSendEnabled: org.liveSendEnabled,
-    postalAddressConfigured,
-    unsubscribeConfigured,
-    suppressionCount: Number(suppressionCountResult[0]?.count ?? 0),
-    blockers,
-  });
+router.get("/settings/org/health", (_req, res) => {
+  return gapResponse(res, "org-health");
 });
 
 export default router;
