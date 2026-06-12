@@ -17,6 +17,7 @@ import { CheckCircle2, ShieldAlert, Check, XCircle, Ban, History, Inbox, Send, T
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { isUnavailable } from "@/lib/unavailable";
+import { artifactStatusBadge } from "@/lib/artifactStatus";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { Stagger, StaggerItem } from "@/components/motion/Stagger";
@@ -195,29 +196,35 @@ function ArtifactList({ status }: { status?: OutreachArtifactStatus }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-paper-100">
-              {items.map((item) => (
-                <tr 
-                  key={item.id} 
-                  className="hover:bg-paper-50 cursor-pointer transition-colors group"
-                  onClick={() => setLocation(`/outbound/${item.id}`)}
-                >
-                  <td className="px-6 py-4 font-tabular text-ink-700 whitespace-nowrap">
-                    {item.sentAt ? format(new Date(item.sentAt), "MMM d, h:mm a") : "-"}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="font-semibold text-ink-900 group-hover:text-rust-500 transition-colors">{item.recipient.name}</div>
-                    <div className="text-xs text-ink-400">{item.recipient.company}</div>
-                  </td>
-                  <td className="px-6 py-4 text-ink-700 max-w-[300px] truncate" title={item.subject}>
-                    {item.subject}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold uppercase bg-signal-positive/10 text-signal-positive">
-                      <Check className="w-3 h-3" /> Sent
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {items.map((item) => {
+                // HONESTY: render the server status verbatim — SENDING/SIMULATED
+                // rows must never read as "Sent" just because they're on this tab.
+                const badge = artifactStatusBadge(item.status);
+                return (
+                  <tr
+                    key={item.id}
+                    className="hover:bg-paper-50 cursor-pointer transition-colors group"
+                    onClick={() => setLocation(`/outbound/${item.id}`)}
+                  >
+                    <td className="px-6 py-4 font-tabular text-ink-700 whitespace-nowrap">
+                      {item.sentAt ? format(new Date(item.sentAt), "MMM d, h:mm a") : "-"}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="font-semibold text-ink-900 group-hover:text-rust-500 transition-colors">{item.recipient.name}</div>
+                      <div className="text-xs text-ink-400">{item.recipient.company}</div>
+                    </td>
+                    <td className="px-6 py-4 text-ink-700 max-w-[300px] truncate" title={item.subject}>
+                      {item.subject}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className={cn("inline-flex items-center gap-1.5 px-2 py-1 rounded border text-[10px] font-bold uppercase whitespace-nowrap", badge.className)}>
+                        {item.status === "SENT" && <Check className="w-3 h-3" />}
+                        {badge.label}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

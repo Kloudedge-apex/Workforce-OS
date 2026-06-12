@@ -9,7 +9,7 @@ import { AgentActivityStream } from "@/components/v2/AgentActivityStream";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowUpRight, ArrowDownRight, CheckCircle2, Inbox } from "lucide-react";
+import { CheckCircle2, Inbox } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CountUp } from "@/components/motion/CountUp";
 import { EmptyState } from "@/components/states/EmptyState";
@@ -50,37 +50,33 @@ export default function Today() {
       {/* Top KPI Grid */}
       <div className="p-6 border-b border-paper-200 bg-white dark:bg-card shrink-0">
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          {/* HONESTY: no delta badges — there is no real prior-period baseline
+              yet. Deltas return when the backend serves one. Values are live. */}
           <KpiTile
             label="Pending Approval"
             value={kpisLoading ? "-" : <CountUp value={kpis?.artifactsPending ?? 0} />}
-            delta={computeDelta(kpis?.artifactsPending ?? 0, KPI_BASELINE.artifactsPending)}
             alert={!!kpis && kpis.artifactsPending > 5}
           />
           <KpiTile
             label="Sent Today"
             value={kpisLoading ? "-" : <CountUp value={kpis?.artifactsSentToday ?? 0} />}
-            delta={computeDelta(kpis?.artifactsSentToday ?? 0, KPI_BASELINE.artifactsSentToday)}
           />
           <KpiTile
             label="Reply Rate 7d"
             value={kpisLoading ? "-" : <CountUp value={(kpis?.replyRate7d ?? 0) * 100} decimals={1} suffix="%" />}
-            delta={computeDelta(kpis?.replyRate7d ?? 0, KPI_BASELINE.replyRate7d)}
           />
           <KpiTile
             label="Meetings Booked"
             value={kpisLoading ? "-" : <CountUp value={kpis?.qualifiedMeetingsBooked ?? 0} />}
-            delta={computeDelta(kpis?.qualifiedMeetingsBooked ?? 0, KPI_BASELINE.qualifiedMeetingsBooked)}
             positive={!!kpis && kpis.qualifiedMeetingsBooked > 0}
           />
           <KpiTile
             label="Leads Sourced"
             value={kpisLoading ? "-" : <CountUp value={kpis?.leadsSourcedToday ?? 0} />}
-            delta={computeDelta(kpis?.leadsSourcedToday ?? 0, KPI_BASELINE.leadsSourcedToday)}
           />
           <KpiTile
             label="Leads Scored"
             value={kpisLoading ? "-" : <CountUp value={kpis?.leadsScored ?? 0} />}
-            delta={computeDelta(kpis?.leadsScored ?? 0, KPI_BASELINE.leadsScored)}
           />
         </div>
       </div>
@@ -160,7 +156,7 @@ export default function Today() {
   );
 }
 
-function KpiTile({ label, value, delta, alert, positive }: { label: React.ReactNode; value: React.ReactNode; delta: KpiDelta; alert?: boolean; positive?: boolean }) {
+function KpiTile({ label, value, alert, positive }: { label: React.ReactNode; value: React.ReactNode; alert?: boolean; positive?: boolean }) {
   return (
     <Card className="p-4 bg-ink-0 border-paper-200 flex flex-col justify-between shadow-sm transition-all duration-200 hover:shadow-md hover:border-paper-300 hover:-translate-y-0.5">
       <div>
@@ -172,64 +168,8 @@ function KpiTile({ label, value, delta, alert, positive }: { label: React.ReactN
           )}>
             {value}
           </span>
-          <div className={cn(
-            "flex items-center text-[10px] font-medium",
-            delta.direction === "down" ? "text-signal-critical"
-              : delta.direction === "up" ? "text-signal-positive"
-              : "text-ink-400"
-          )}>
-            {delta.direction === "down"
-              ? <ArrowDownRight className="h-2.5 w-2.5 mr-0.5" />
-              : delta.direction === "up"
-              ? <ArrowUpRight className="h-2.5 w-2.5 mr-0.5" />
-              : null}
-            {delta.label}
-          </div>
         </div>
       </div>
     </Card>
   );
-}
-
-/**
- * Prior-period baseline for the six Today KPIs. Used only to derive the
- * delta badges — the displayed values always come from the live query.
- * Kept deterministic so deltas are reproducible in screenshots/tests.
- */
-const KPI_BASELINE = {
-  artifactsPending: 18,
-  artifactsSentToday: 12,
-  replyRate7d: 0.18,
-  qualifiedMeetingsBooked: 3,
-  leadsSourcedToday: 26,
-  leadsScored: 40,
-} as const;
-
-export interface KpiDelta {
-  /** Signed, formatted percentage, e.g. "+12%" or "-4%". */
-  label: string;
-  /** "up" | "down" | "flat" — drives arrow + color. */
-  direction: "up" | "down" | "flat";
-}
-
-/**
- * Pure: percentage change of `current` vs `previous`, rounded to a whole
- * percent. Returns a signed label + direction. Guards divide-by-zero
- * (previous === 0): any positive current reads "+100%", else "0%".
- */
-export function computeDelta(current: number, previous: number): KpiDelta {
-  const safeCurrent = Number.isFinite(current) ? current : 0;
-  const safePrevious = Number.isFinite(previous) ? previous : 0;
-
-  let pct: number;
-  if (safePrevious === 0) {
-    pct = safeCurrent > 0 ? 100 : 0;
-  } else {
-    pct = Math.round(((safeCurrent - safePrevious) / safePrevious) * 100);
-  }
-
-  const direction: KpiDelta["direction"] =
-    pct > 0 ? "up" : pct < 0 ? "down" : "flat";
-  const sign = pct > 0 ? "+" : "";
-  return { label: `${sign}${pct}%`, direction };
 }

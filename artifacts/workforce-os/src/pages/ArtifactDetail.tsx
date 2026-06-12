@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, CheckCircle2, XCircle, ShieldOff, FileX2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, XCircle, ShieldOff, FileX2, ShieldAlert } from "lucide-react";
 import { EmptyState } from "@/components/states/EmptyState";
 import { ErrorState } from "@/components/states/ErrorState";
 import { Stagger, StaggerItem } from "@/components/motion/Stagger";
@@ -23,9 +23,25 @@ import { motion } from "framer-motion";
 import { sanitizeHtml } from "@/lib/sanitize";
 import { springHover, useReducedMotionSafe } from "@/lib/motion";
 import { CountUp } from "@/components/motion/CountUp";
+import { artifactStatusBadge } from "@/lib/artifactStatus";
+import { getArtifactRefusal, uiCitations } from "@/lib/artifactContract";
 
-function ScoreBar({ label, value }: { label: string; value: number }) {
+/**
+ * Quality score row. `null`/`undefined`/non-finite means the score is NOT
+ * AVAILABLE (the BFF sends null when nothing is persisted) — render the same
+ * muted "not available" treatment as ApprovalCard's ScorePill, never a fake
+ * 0% red bar.
+ */
+function ScoreBar({ label, value }: { label: string; value: number | null | undefined }) {
   const reduced = useReducedMotionSafe();
+  if (value == null || !Number.isFinite(value)) {
+    return (
+      <div className="flex items-center gap-3">
+        <span className="text-xs text-ink-600 w-32 shrink-0">{label}</span>
+        <span className="text-xs text-ink-400">not available</span>
+      </div>
+    );
+  }
   const pct = Math.round(value * 100);
   // Brand thresholds: signal-positive (pass) / ember (caution) / rust (fail).
   const fill =
@@ -124,8 +140,15 @@ export default function ArtifactDetail() {
     </div>
   );
 
-  const scores = data.evaluatorScores as { pii: number; hallucination: number; citationCoverage: number; toxicity: number };
+  // The BFF sends evaluatorScores: null when nothing is persisted — never
+  // invent zeros. (Generated client type lags the contract; regen pending.)
+  const scores = data.evaluatorScores ?? null;
+  const sendPolicy = data.sendPolicy ?? null;
+  const refusal = getArtifactRefusal(data);
+  const refused = refusal?.refused === true;
   const isPending = data.status === "PENDING_REVIEW";
+  const statusBadge = artifactStatusBadge(data.status);
+  const citations = uiCitations(data.citations);
 
   return (
     <div className="flex flex-col h-full overflow-y-auto bg-paper-50">
@@ -134,50 +157,79 @@ export default function ArtifactDetail() {
           <ArrowLeft className="h-4 w-4 mr-1" /> Outbound
         </Button>
         <span className="text-ink-300">/</span>
-        <span className="text-sm font-medium text-ink-900 truncate">{data.subject}</span>
+        <span className="text-sm font-medium text-ink-900 truncate">
+          {refused ? "Refused to draft" : data.subject}
+        </span>
         <div className="ml-auto flex items-center gap-2">
-          <Badge className={cn("text-xs", {
-            "bg-amber-100 text-amber-800 border-amber-200": data.status === "PENDING_REVIEW",
-            "bg-green-100 text-green-800 border-green-200": data.status === "APPROVED",
-            "bg-blue-100 text-blue-800 border-blue-200": data.status === "SENT",
-            "bg-red-100 text-red-800 border-red-200": data.status === "REJECTED",
-            "bg-paper-200 text-ink-600": data.status === "SUPPRESSED",
-          })}>
-            {data.status?.replace(/_/g, " ")}
+          <Badge variant="outline" className={cn("text-xs border", statusBadge.className)}>
+            {statusBadge.label}
           </Badge>
         </div>
       </div>
 
       <Stagger className="max-w-5xl mx-auto w-full p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Email preview */}
+        {/* Email preview — a refusal renders a banner, never an (empty) draft */}
         <StaggerItem className="lg:col-span-2 space-y-4">
-          <motion.div
-            className="bg-white border border-paper-200 rounded-xl overflow-hidden shadow-md transition-shadow hover:shadow-lg"
-            variants={reduced ? undefined : springHover}
-            initial="rest"
-            whileHover="hover"
-          >
-            <div className="px-5 py-4 border-b border-paper-100 bg-paper-50">
-              <p className="text-xs text-ink-400 uppercase tracking-wide mb-1">Subject</p>
-              <p className="text-sm font-medium text-ink-900">{data.subject}</p>
+          {refused ? (
+            <div
+              role="alert"
+              data-testid="refusal-banner"
+              className="rounded-xl border border-rust-500/30 bg-rust-500/5 p-5 shadow-sm"
+            >
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="h-5 w-5 text-rust-500 shrink-0" />
+                <h2 className="font-serif text-lg text-ink-900">Refused to draft — no grounded evidence</h2>
+              </div>
+              <p className="text-sm text-ink-700 mt-2">
+                {refusal?.reason ??
+                  "The agent declined to write this email because it couldn't ground it in real, dated evidence."}
+              </p>
             </div>
-            <div className="px-5 py-4">
-              <div
-                className="text-sm text-ink-800 leading-relaxed prose prose-sm max-w-none"
-                dangerouslySetInnerHTML={{ __html: sanitizeHtml(data.bodyHtml) }}
-              />
-            </div>
-          </motion.div>
+          ) : (
+            <motion.div
+              className="bg-white border border-paper-200 rounded-xl overflow-hidden shadow-md transition-shadow hover:shadow-lg"
+              variants={reduced ? undefined : springHover}
+              initial="rest"
+              whileHover="hover"
+            >
+              <div className="px-5 py-4 border-b border-paper-100 bg-paper-50">
+                <p className="text-xs text-ink-400 uppercase tracking-wide mb-1">Subject</p>
+                <p className="text-sm font-medium text-ink-900">{data.subject}</p>
+              </div>
+              <div className="px-5 py-4">
+                <div
+                  className="text-sm text-ink-800 leading-relaxed prose prose-sm max-w-none"
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(data.bodyHtml) }}
+                />
+              </div>
+            </motion.div>
+          )}
 
-          {/* Citations */}
-          {(data.citations ?? []).length > 0 && (
+          {/* Citations — `cited` rows are the facts the drafter actually used */}
+          {citations.length > 0 && (
             <div className="bg-white border border-paper-200 rounded-lg p-4">
               <h3 className="text-xs font-semibold text-ink-500 uppercase tracking-wide mb-3">Citations</h3>
               <div className="space-y-2">
-                {(data.citations as { factId: string; claim: string; source: string }[]).map((c) => (
-                  <div key={c.factId} className="text-sm">
+                {citations.map((c) => (
+                  <div
+                    key={c.factId}
+                    className={cn(
+                      "text-sm rounded-md border p-2",
+                      c.cited
+                        ? "bg-signal-positive/5 border-signal-positive/30"
+                        : "border-transparent"
+                    )}
+                  >
                     <p className="text-ink-800">{c.claim}</p>
-                    <p className="text-xs text-ink-400 mt-0.5 font-mono truncate">{c.source}</p>
+                    <p className="text-xs text-ink-400 mt-0.5 font-mono truncate">
+                      {c.source}
+                      {c.date ? ` · ${c.date}` : ""}
+                    </p>
+                    {c.cited && (
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-signal-positive mt-1">
+                        Cited in draft
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -187,15 +239,21 @@ export default function ArtifactDetail() {
 
         {/* Sidebar */}
         <StaggerItem className="space-y-4">
-          {/* Actions */}
+          {/* Actions — no approve path for a refusal (there is no draft to send) */}
           {isPending && (
             <div className="bg-white border border-paper-200 rounded-xl p-4 space-y-2 shadow-sm">
-              <Button
-                className="w-full bg-rust-500 hover:bg-rust-600 text-white shadow-sm active-elevate-2"
-                onClick={() => approve({ id })}
-              >
-                <CheckCircle2 className="h-4 w-4 mr-2" /> Approve
-              </Button>
+              {refused ? (
+                <p className="text-xs text-ink-500 px-1 py-2">
+                  Approval disabled — the agent refused to draft this email.
+                </p>
+              ) : (
+                <Button
+                  className="w-full bg-rust-500 hover:bg-rust-600 text-white shadow-sm active-elevate-2"
+                  onClick={() => approve({ id })}
+                >
+                  <CheckCircle2 className="h-4 w-4 mr-2" /> Approve
+                </Button>
+              )}
               <Button
                 variant="outline"
                 className="w-full border-paper-300 hover-elevate active-elevate-2"
@@ -222,36 +280,48 @@ export default function ArtifactDetail() {
             <p className="text-xs text-ink-400 mt-1 font-mono">{data.recipient.email}</p>
           </div>
 
-          {/* Evaluator scores */}
-          {scores && (
-            <div className="bg-white border border-paper-200 rounded-xl p-4 shadow-sm">
-              <h3 className="text-xs font-semibold text-ink-500 uppercase tracking-wide mb-3">Quality Scores</h3>
+          {/* Evaluator scores — null from the BFF means "not persisted":
+              show the muted not-available treatment, never fake 0% bars. */}
+          <div className="bg-white border border-paper-200 rounded-xl p-4 shadow-sm">
+            <h3 className="text-xs font-semibold text-ink-500 uppercase tracking-wide mb-3">Quality Scores</h3>
+            {scores ? (
               <div className="space-y-2.5">
                 <ScoreBar label="PII check" value={scores.pii} />
                 <ScoreBar label="Hallucination" value={scores.hallucination} />
                 <ScoreBar label="Citation coverage" value={scores.citationCoverage} />
                 {scores.toxicity != null && <ScoreBar label="Toxicity" value={scores.toxicity} />}
               </div>
-            </div>
-          )}
+            ) : (
+              <Badge variant="outline" className="text-xs bg-paper-100 text-ink-400 border-paper-200">
+                Evaluator scores not available
+              </Badge>
+            )}
+          </div>
 
-          {/* Send policy */}
+          {/* Send policy — the BFF sends null when no real verdicts exist;
+              never render invented all-false rows (and never crash). */}
           <div className="bg-white border border-paper-200 rounded-xl p-4 shadow-sm">
             <h3 className="text-xs font-semibold text-ink-500 uppercase tracking-wide mb-3">Send Policy</h3>
-            {([
-              { key: "liveSendEnabled", label: "Live send enabled" },
-              { key: "postalAddressSet", label: "Postal address set" },
-              { key: "unsubscribeConfigured", label: "Unsubscribe configured" },
-              { key: "recipientSuppressed", label: "Recipient not suppressed" },
-            ] as const).map(({ key, label }) => {
-              const ok = key === "recipientSuppressed" ? !data.sendPolicy[key] : data.sendPolicy[key];
-              return (
-                <div key={key} className="flex items-center gap-2 py-1">
-                  <div className={cn("w-1.5 h-1.5 rounded-full", ok ? "bg-signal-positive" : "bg-rust-500")} />
-                  <span className="text-xs text-ink-600">{label}</span>
-                </div>
-              );
-            })}
+            {sendPolicy ? (
+              ([
+                { key: "liveSendEnabled", label: "Live send enabled" },
+                { key: "postalAddressSet", label: "Postal address set" },
+                { key: "unsubscribeConfigured", label: "Unsubscribe configured" },
+                { key: "recipientSuppressed", label: "Recipient not suppressed" },
+              ] as const).map(({ key, label }) => {
+                const ok = key === "recipientSuppressed" ? !sendPolicy[key] : sendPolicy[key];
+                return (
+                  <div key={key} className="flex items-center gap-2 py-1">
+                    <div className={cn("w-1.5 h-1.5 rounded-full", ok ? "bg-signal-positive" : "bg-rust-500")} />
+                    <span className="text-xs text-ink-600">{label}</span>
+                  </div>
+                );
+              })
+            ) : (
+              <Badge variant="outline" className="text-xs bg-paper-100 text-ink-400 border-paper-200">
+                Send policy not available
+              </Badge>
+            )}
           </div>
         </StaggerItem>
       </Stagger>

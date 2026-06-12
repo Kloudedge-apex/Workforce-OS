@@ -157,7 +157,26 @@ export default function RunDetail() {
     </div>
   );
 
-  if (!data) return (
+  // The BFF gaps GET /runs/:id (no deployed per-run evidence-timeline
+  // endpoint), so `data` can be the { unavailable: true } sentinel rather
+  // than a run envelope. Guard BEFORE destructuring or `run.id` throws and
+  // takes down the whole page.
+  if (isUnavailable(data)) return (
+    <div className="flex flex-col h-full bg-paper-50">
+      <div className="sticky top-0 z-10 bg-paper-100 border-b border-paper-200 px-6 py-3 flex items-center gap-3">
+        <Button variant="ghost" size="sm" onClick={() => navigate("/runs")} className="text-ink-600 hover:text-ink-900">
+          <ArrowLeft className="h-4 w-4 mr-1" /> Runs
+        </Button>
+        <span className="text-ink-300">/</span>
+        <span className="text-sm font-mono text-ink-600">{id}</span>
+      </div>
+      <div className="flex-1 flex items-center justify-center">
+        <UnavailableState feature="the run detail view" />
+      </div>
+    </div>
+  );
+
+  if (!data || !data.run) return (
     <div className="flex h-full items-center justify-center bg-paper-50">
       <EmptyState
         icon={Activity}
