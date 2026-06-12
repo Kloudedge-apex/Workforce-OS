@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { OutreachArtifact } from "@workspace/api-client-react";
-import { useApproveArtifact, useRejectArtifact } from "@workspace/api-client-react";
+import { useApproveArtifact, useRejectArtifact, useGetOrgSettings } from "@workspace/api-client-react";
+import { workspaceLiveState } from "@/lib/sendReadiness";
 import { cardEnter, useReducedMotionSafe } from "@/lib/motion";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -128,6 +129,15 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
   const approveMut = useApproveArtifact();
   const rejectMut = useRejectArtifact();
 
+  // GL5 live-state indicator: per-artifact sendPolicy is null from the BFF
+  // today, so workspace readiness (OrgSettings.sendReadiness, runtime-guarded)
+  // is the honest signal. Query is shared/deduped via the same key Settings
+  // and Outbound use. Live = the artifact's own policy says so, OR the
+  // workspace is explicitly live; unknown readiness stays dry-run.
+  const { data: orgSettings } = useGetOrgSettings({ query: { queryKey: ["getOrgSettings"] } });
+  const workspaceLive = workspaceLiveState(orgSettings);
+  const isLiveSend = artifact.sendPolicy?.liveSendEnabled === true || workspaceLive === true;
+
   const handleApprove = async () => {
     try {
       const updated = await approveMut.mutateAsync({ id: artifact.id });
@@ -220,7 +230,7 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
               <p className="text-xs text-ink-400">{artifact.recipient.email}</p>
             </div>
           </div>
-          <PolicyBadge policy={artifact.sendPolicy} />
+          <PolicyBadge policy={artifact.sendPolicy} workspaceLive={workspaceLive} />
         </div>
 
         {/* Content — a refusal renders a banner, never an (empty) draft preview */}
@@ -371,23 +381,38 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
             </Button>
           </div>
         ) : (
-          <div className="flex items-center gap-2">
-            <Button onClick={handleApprove} disabled={approveMut.isPending} className="flex-1 bg-rust-500 hover:bg-rust-500/90 text-white">
-              {approveMut.isPending ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> Approving…
-                </>
-              ) : (
-                "Approve"
-              )}
-            </Button>
-            <Button variant="outline" className="flex-1 bg-paper-50">
-              <Edit2 className="w-3 h-3 mr-2" />
-              Edit & Approve
-            </Button>
-            <Button variant="ghost" className="text-ink-400 hover:text-rust-500" onClick={() => setRejectMode(true)}>
-              Reject
-            </Button>
+          <div className="flex flex-col gap-2">
+            {/* GL5: when sending is live, the approve area must say so —
+                approving queues a REAL email, not a simulation. */}
+            {isLiveSend && (
+              <div
+                data-testid="live-send-notice"
+                className="flex items-center gap-2 px-3 py-2 rounded-md bg-rust-500/10 border border-rust-500/30"
+              >
+                <Send className="h-3.5 w-3.5 text-rust-500 shrink-0" />
+                <p className="text-xs font-medium text-rust-600">
+                  Live sending is ON — approving queues a real email to {artifact.recipient.email}.
+                </p>
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <Button onClick={handleApprove} disabled={approveMut.isPending} className="flex-1 bg-rust-500 hover:bg-rust-500/90 text-white">
+                {approveMut.isPending ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> Approving…
+                  </>
+                ) : (
+                  "Approve"
+                )}
+              </Button>
+              <Button variant="outline" className="flex-1 bg-paper-50">
+                <Edit2 className="w-3 h-3 mr-2" />
+                Edit & Approve
+              </Button>
+              <Button variant="ghost" className="text-ink-400 hover:text-rust-500" onClick={() => setRejectMode(true)}>
+                Reject
+              </Button>
+            </div>
           </div>
         )}
       </Card>

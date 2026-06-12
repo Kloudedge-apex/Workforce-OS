@@ -4,6 +4,7 @@ import {
   toIcpCreateBody,
   shapeIntegration,
   shapeIntegrations,
+  shapeAuthUrl,
   shapeTeamMembers,
   shapeBilling,
   type ApexIcpProfile,
@@ -35,7 +36,7 @@ describe("shapeIcpProfile", () => {
     expect(out.intentSignals).toEqual(["hiring_spike"]);
     expect(out.seedDomains).toEqual(["acme.com"]);
     expect(out.sizeBand).toBe("200-2000");
-    expect(out.exclusionDomains).toEqual([]); // synthesized
+    expect(out.exclusionDomains).toEqual([]); // row carries none → honest empty
   });
 
   it("derives sizeBand variants and defaults empty list", () => {
@@ -46,6 +47,17 @@ describe("shapeIcpProfile", () => {
     expect(empty.industries).toEqual([]);
     expect(empty.sizeBand).toBe("");
     expect(empty.exclusionDomains).toEqual([]);
+  });
+
+  it("maps exclusionDomains from the row when the backend persists them", () => {
+    expect(
+      shapeIcpProfile([{ id: "a", exclusionDomains: ["competitor.com"] }]).exclusionDomains,
+    ).toEqual(["competitor.com"]);
+    // tolerate a malformed value from an older/odd backend
+    expect(
+      shapeIcpProfile([{ id: "a", exclusionDomains: "competitor.com" as unknown as string[] }])
+        .exclusionDomains,
+    ).toEqual([]);
   });
 });
 
@@ -74,6 +86,12 @@ describe("toIcpCreateBody", () => {
     expect(body.minEmployees).toBeUndefined();
     expect(body.maxEmployees).toBeUndefined();
     expect(body.targetTitles).toEqual([]);
+  });
+
+  it("forwards exclusionDomains upstream instead of dropping them", () => {
+    expect(toIcpCreateBody({ exclusionDomains: ["competitor.com", "spam.io"] }).exclusionDomains)
+      .toEqual(["competitor.com", "spam.io"]);
+    expect(toIcpCreateBody({}).exclusionDomains).toEqual([]);
   });
 
   it("parses an open-ended size band", () => {
@@ -146,6 +164,26 @@ describe("shapeIntegrations", () => {
   it("returns only catalog entries when there are no connected rows", () => {
     const out = shapeIntegrations([], catalog);
     expect(out.every((i) => i.status === "available")).toBe(true);
+  });
+});
+
+describe("shapeAuthUrl", () => {
+  it("extracts a well-formed { authUrl } payload", () => {
+    expect(shapeAuthUrl({ authUrl: "https://accounts.google.com/o/oauth2/v2/auth?x=1" })).toBe(
+      "https://accounts.google.com/o/oauth2/v2/auth?x=1",
+    );
+    expect(shapeAuthUrl({ authUrl: "  https://a.example/path " })).toBe("https://a.example/path");
+  });
+
+  it("returns null for missing/garbage payloads — the route must 502, not fake a URL", () => {
+    expect(shapeAuthUrl(undefined)).toBeNull();
+    expect(shapeAuthUrl(null)).toBeNull();
+    expect(shapeAuthUrl({})).toBeNull();
+    expect(shapeAuthUrl({ authUrl: "" })).toBeNull();
+    expect(shapeAuthUrl({ authUrl: 42 })).toBeNull();
+    expect(shapeAuthUrl({ authUrl: "javascript:alert(1)" })).toBeNull();
+    expect(shapeAuthUrl({ authUrl: "not-a-url" })).toBeNull();
+    expect(shapeAuthUrl("https://raw-string.example")).toBeNull();
   });
 });
 

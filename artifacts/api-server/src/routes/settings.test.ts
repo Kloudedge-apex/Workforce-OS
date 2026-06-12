@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildOrgPatchBody,
+  parseSendReadiness,
   shapeOrgSettings,
   upstreamErrorMessage,
   type ApexOrg,
@@ -33,12 +34,37 @@ describe("shapeOrgSettings", () => {
     const out = shapeOrgSettings(upstream);
     expect(out.logoUrl).toBeNull();
     expect(out.timezone).toBe("UTC");
-    expect(out.liveSendEnabled).toBe(false);
     expect(out.unsubscribeUrl).toBeNull();
     expect(out.allowlistedDomains).toEqual([]);
     expect(out.creditsRemaining).toBe(0);
     expect(out.welcomeComplete).toBe(true);
     expect(out.suppressionCount).toBe(0);
+  });
+
+  it("treats a missing sendReadiness as unknown → dry-run, never live", () => {
+    const out = shapeOrgSettings(upstream); // no sendReadiness on the row
+    expect(out.sendReadiness).toBeNull();
+    expect(out.liveSendEnabled).toBe(false);
+  });
+
+  it("forwards a well-formed sendReadiness and derives liveSendEnabled from it", () => {
+    const readiness = {
+      liveSendAllowed: true,
+      physicalAddressSet: true,
+      senderNameSet: true,
+      mailboxConnected: true,
+      dailyCapRemaining: 37,
+    };
+    const out = shapeOrgSettings({ ...upstream, sendReadiness: readiness });
+    expect(out.sendReadiness).toEqual(readiness);
+    expect(out.liveSendEnabled).toBe(true);
+
+    const dry = shapeOrgSettings({
+      ...upstream,
+      sendReadiness: { ...readiness, liveSendAllowed: false },
+    });
+    expect(dry.liveSendEnabled).toBe(false);
+    expect(dry.sendReadiness?.liveSendAllowed).toBe(false);
   });
 
   it("threads a caller-supplied suppression count through", () => {
@@ -52,6 +78,38 @@ describe("shapeOrgSettings", () => {
     expect(out.senderName).toBeNull();
     expect(out.postalAddress).toBeNull();
     expect(out.plan).toBe("TRIAL");
+  });
+});
+
+describe("parseSendReadiness", () => {
+  const full = {
+    liveSendAllowed: true,
+    physicalAddressSet: true,
+    senderNameSet: false,
+    mailboxConnected: true,
+    dailyCapRemaining: 12,
+  };
+
+  it("accepts the exact GL5 contract", () => {
+    expect(parseSendReadiness(full)).toEqual(full);
+  });
+
+  it("accepts dailyCapRemaining: null and degrades a missing/non-finite cap to null", () => {
+    expect(parseSendReadiness({ ...full, dailyCapRemaining: null })?.dailyCapRemaining).toBeNull();
+    const { dailyCapRemaining: _omitted, ...withoutCap } = full;
+    expect(parseSendReadiness(withoutCap)?.dailyCapRemaining).toBeNull();
+    expect(parseSendReadiness({ ...full, dailyCapRemaining: Number.NaN })?.dailyCapRemaining).toBeNull();
+    expect(parseSendReadiness({ ...full, dailyCapRemaining: "20" })?.dailyCapRemaining).toBeNull();
+  });
+
+  it("returns null (all-unknown) for absent or malformed envelopes — never fabricates", () => {
+    expect(parseSendReadiness(undefined)).toBeNull();
+    expect(parseSendReadiness(null)).toBeNull();
+    expect(parseSendReadiness("live")).toBeNull();
+    expect(parseSendReadiness([])).toBeNull();
+    expect(parseSendReadiness({})).toBeNull();
+    expect(parseSendReadiness({ ...full, liveSendAllowed: "true" })).toBeNull();
+    expect(parseSendReadiness({ ...full, mailboxConnected: undefined })).toBeNull();
   });
 });
 

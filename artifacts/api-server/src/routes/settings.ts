@@ -7,9 +7,11 @@ const router = Router();
 /**
  * The subset of the apex-gtm-api Org row (GET /api/orgs/me →
  * OrgsService.findByClerkUser) that the BFF reads. The deployed Org model has
- * NO logoUrl/timezone/liveSendEnabled/unsubscribeUrl/allowlistedDomains/
- * creditsRemaining/welcomeComplete columns, so those FE fields are DEFAULTED
- * (synthesized) — see the audit's transform for endpoint 0.
+ * NO logoUrl/timezone/unsubscribeUrl/allowlistedDomains/creditsRemaining/
+ * welcomeComplete columns, so those FE fields are DEFAULTED (synthesized) —
+ * see the audit's transform for endpoint 0. `sendReadiness` is the GL5
+ * contract the backend now attaches to the org read; it is typed `unknown`
+ * here because the BFF must runtime-guard it (older backends omit it).
  */
 export interface ApexOrg {
   id: string;
@@ -20,6 +22,50 @@ export interface ApexOrg {
   country?: string | null;
   senderName?: string | null;
   plan?: string;
+  sendReadiness?: unknown;
+}
+
+/**
+ * GL5 send-readiness contract (mirrors the apex-gtm-api org read). The FE
+ * renders each precondition as a check/cross row and derives the overall
+ * "LIVE for this workspace" vs "Dry-run mode" state from `liveSendAllowed`.
+ */
+export interface SendReadiness {
+  liveSendAllowed: boolean;
+  physicalAddressSet: boolean;
+  senderNameSet: boolean;
+  mailboxConnected: boolean;
+  dailyCapRemaining: number | null;
+}
+
+/**
+ * PURE: tolerant runtime guard for the upstream `sendReadiness` envelope.
+ *
+ * Returns null when the field is absent or malformed (e.g. the deployed
+ * backend predates GL5) — the caller then treats live state as UNKNOWN and
+ * the workspace as dry-run. NEVER fabricates a readiness verdict. A missing
+ * or non-finite `dailyCapRemaining` degrades to null ("no cap reported")
+ * without discarding the rest of the envelope.
+ */
+export function parseSendReadiness(raw: unknown): SendReadiness | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  if (
+    typeof r["liveSendAllowed"] !== "boolean" ||
+    typeof r["physicalAddressSet"] !== "boolean" ||
+    typeof r["senderNameSet"] !== "boolean" ||
+    typeof r["mailboxConnected"] !== "boolean"
+  ) {
+    return null;
+  }
+  const cap = r["dailyCapRemaining"];
+  return {
+    liveSendAllowed: r["liveSendAllowed"],
+    physicalAddressSet: r["physicalAddressSet"],
+    senderNameSet: r["senderNameSet"],
+    mailboxConnected: r["mailboxConnected"],
+    dailyCapRemaining: typeof cap === "number" && Number.isFinite(cap) ? cap : null,
+  };
 }
 
 export interface OrgSettings {
@@ -38,18 +84,26 @@ export interface OrgSettings {
   plan: string;
   creditsRemaining: number;
   welcomeComplete: boolean;
+  /** GL5: forwarded verbatim from upstream; null = backend didn't report it. */
+  sendReadiness: SendReadiness | null;
 }
 
 /**
  * Pure mapper: apex Org row → FE OrgSettings.
  *
+ * REAL: `sendReadiness` is forwarded from the upstream org read (null when the
+ * backend doesn't send it), and `liveSendEnabled` is derived from
+ * `sendReadiness.liveSendAllowed` — true ONLY when the backend explicitly says
+ * live sending is allowed; absent/malformed readiness means dry-run (false),
+ * never a fabricated "live".
+ *
  * SYNTHESIZED (no backing Org column on the deployed backend, per audit):
- *   logoUrl=null, timezone='UTC', liveSendEnabled=false (real live-send is the
- *   env OUTREACH_LIVE_FOR_ORGS, not per-row), unsubscribeUrl=null,
- *   allowlistedDomains=[], creditsRemaining=0, welcomeComplete=true.
+ *   logoUrl=null, timezone='UTC', unsubscribeUrl=null, allowlistedDomains=[],
+ *   creditsRemaining=0, welcomeComplete=true.
  *   suppressionCount has no count endpoint upstream → 0 unless caller supplies one.
  */
 export function shapeOrgSettings(org: ApexOrg, suppressionCount = 0): OrgSettings {
+  const sendReadiness = parseSendReadiness(org.sendReadiness);
   return {
     orgId: org.id,
     orgName: org.name,
@@ -58,7 +112,7 @@ export function shapeOrgSettings(org: ApexOrg, suppressionCount = 0): OrgSetting
     country: org.country ?? "",
     timezone: "UTC",
     senderName: org.senderName ?? null,
-    liveSendEnabled: false,
+    liveSendEnabled: sendReadiness?.liveSendAllowed === true,
     postalAddress: org.physicalAddress ?? null,
     unsubscribeUrl: null,
     suppressionCount,
@@ -66,6 +120,7 @@ export function shapeOrgSettings(org: ApexOrg, suppressionCount = 0): OrgSetting
     plan: org.plan ?? "TRIAL",
     creditsRemaining: 0,
     welcomeComplete: true,
+    sendReadiness,
   };
 }
 

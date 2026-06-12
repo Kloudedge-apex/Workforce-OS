@@ -37,6 +37,8 @@ import { CountUp } from "@/components/motion/CountUp";
 import { EmptyState } from "@/components/states/EmptyState";
 import { ErrorState } from "@/components/states/ErrorState";
 import { isUnavailable, UnavailableState } from "@/lib/unavailable";
+import { getSendReadiness } from "@/lib/sendReadiness";
+import { fetchGmailAuthUrl } from "@/lib/oauthConnect";
 import { cn } from "@/lib/utils";
 
 // ─── Tab config ─────────────────────────────────────────────────────────────
@@ -168,14 +170,14 @@ function OrgTab() {
   });
 
   const [form, setForm] = useState({
-    name: "", slug: "", timezone: "", unsubscribeUrl: "", liveSendEnabled: false,
+    name: "", slug: "", timezone: "", unsubscribeUrl: "",
   });
   const initialized = useRef(false);
   useEffect(() => {
     if (data && !initialized.current) {
       setForm({
         name: data.orgName, slug: data.slug, timezone: data.timezone,
-        unsubscribeUrl: data.unsubscribeUrl ?? "", liveSendEnabled: data.liveSendEnabled,
+        unsubscribeUrl: data.unsubscribeUrl ?? "",
       });
       initialized.current = true;
     }
@@ -205,29 +207,95 @@ function OrgTab() {
 
       {data && <ComplianceCard settings={data} />}
 
-      <SettingsCard className="border-l-4 border-l-rust-500 p-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="font-medium text-ink-900 dark:text-paper-50">Live Send Enabled</p>
-            <p className="text-sm text-ink-500 mt-0.5">When off, agents operate in dry-run mode — no emails are dispatched.</p>
-          </div>
-          <Switch
-            checked={form.liveSendEnabled}
-            onCheckedChange={v => setForm(f => ({ ...f, liveSendEnabled: v }))}
-          />
-        </div>
-      </SettingsCard>
+      {data && <LiveStatusCard settings={data} />}
 
       <div className="flex justify-end">
         <Button
           className="bg-rust-500 hover:bg-rust-600 text-white"
           disabled={isPending}
-          onClick={() => update({ data: { name: form.name, slug: form.slug, timezone: form.timezone, liveSendEnabled: form.liveSendEnabled } })}
+          onClick={() => update({ data: { name: form.name, slug: form.slug, timezone: form.timezone } })}
         >
           {isPending ? "Saving…" : "Save Changes"}
         </Button>
       </div>
     </TabBoundary>
+  );
+}
+
+// ─── Live Status (read-only, GL5) ────────────────────────────────────────────
+/**
+ * Replaces the old "Live Send Enabled" toggle, which was a decoy: the BFF
+ * silently dropped the flag while the UI toasted success. Live sending is
+ * controlled server-side; this panel only REPORTS the backend's
+ * `sendReadiness` (runtime-guarded — see lib/sendReadiness.ts). When the
+ * backend doesn't report readiness we say "unknown" and treat the workspace
+ * as dry-run; we never fabricate a verdict.
+ */
+function LiveStatusCard({ settings }: { settings: OrgSettings }) {
+  const readiness = getSendReadiness(settings);
+  const live = readiness?.liveSendAllowed === true;
+
+  const rows: { label: string; ok: boolean | null }[] = [
+    { label: "Mailbox connected", ok: readiness ? readiness.mailboxConnected : null },
+    { label: "Sender name set", ok: readiness ? readiness.senderNameSet : null },
+    { label: "Physical address set", ok: readiness ? readiness.physicalAddressSet : null },
+  ];
+
+  return (
+    <SettingsCard className={cn("p-5 space-y-4 border-l-4", live ? "border-l-signal-positive" : "border-l-ember-400")}>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <p className="font-medium text-ink-900 dark:text-paper-50">Live Status</p>
+          <p className="text-sm text-ink-500 mt-0.5">
+            {live
+              ? "Approved emails are dispatched to real recipients."
+              : "No real emails are dispatched — approvals run as simulations."}
+          </p>
+        </div>
+        <Badge
+          data-testid="live-status-overall"
+          className={cn(
+            "text-[11px] border shrink-0",
+            live
+              ? "bg-signal-positive/10 text-signal-positive border-signal-positive"
+              : "bg-paper-100 text-ink-600 border-paper-300",
+          )}
+        >
+          {live ? "LIVE for this workspace" : "Dry-run mode"}
+        </Badge>
+      </div>
+
+      {!readiness && (
+        <p className="text-xs text-ink-500 bg-paper-100 border border-paper-200 rounded-md px-3 py-2">
+          The backend did not report send readiness, so live status is unknown — this workspace is
+          treated as dry-run until the backend confirms otherwise.
+        </p>
+      )}
+
+      <div className="space-y-2">
+        {rows.map(({ label, ok }) => (
+          <div key={label} className="flex items-center gap-2.5 text-sm">
+            {ok === true ? (
+              <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+            ) : ok === false ? (
+              <X className="h-4 w-4 text-ember-500 shrink-0" />
+            ) : (
+              <span className="h-4 w-4 text-center text-ink-300 leading-4 shrink-0">–</span>
+            )}
+            <span className={cn(ok === null ? "text-ink-400" : "text-ink-700 dark:text-paper-200")}>
+              {label}
+              {ok === null && <span className="text-ink-300"> (unknown)</span>}
+            </span>
+          </div>
+        ))}
+        <div className="flex items-center justify-between text-sm pt-1 border-t border-paper-100">
+          <span className="text-ink-600">Daily send cap remaining</span>
+          <span className="font-mono text-ink-900 dark:text-paper-50">
+            {readiness?.dailyCapRemaining != null ? readiness.dailyCapRemaining : "not reported"}
+          </span>
+        </div>
+      </div>
+    </SettingsCard>
   );
 }
 
@@ -289,7 +357,25 @@ function ComplianceCard({ settings }: { settings: OrgSettings }) {
 function IcpTab() {
   const { data, isLoading, isError, refetch } = useGetIcpProfile({ query: { queryKey: ["getIcpProfile"] } });
   const { mutate: update, isPending } = useUpdateIcpProfile({
-    mutation: { onSuccess: () => toast.success("ICP saved"), onError: () => toast.error("Save failed") },
+    mutation: {
+      onSuccess: (saved, vars) => {
+        // The BFF now forwards exclusionDomains upstream and echoes back what
+        // was actually PERSISTED. If we sent exclusions and none came back,
+        // the backend dropped them — say so instead of claiming success.
+        const sent = vars.data.exclusionDomains ?? [];
+        const persisted = Array.isArray(saved.exclusionDomains) ? saved.exclusionDomains : [];
+        if (sent.length > 0 && persisted.length === 0) {
+          toast.warning(
+            "ICP saved, but exclusion domains were NOT stored — the backend doesn't persist them yet.",
+          );
+          return;
+        }
+        toast.success("ICP saved");
+      },
+      // Surface the upstream validation message verbatim (e.g. a rejected
+      // exclusionDomains field) instead of a generic "Save failed".
+      onError: (err) => toast.error(saveErrorMessage(err)),
+    },
   });
   const [profile, setProfile] = useState({ industries: [] as string[], titles: [] as string[], geos: [] as string[], sizeBand: "", intentSignals: [] as string[], seedDomains: [] as string[], exclusionDomains: [] as string[] });
   const initialized = useRef(false);
@@ -521,14 +607,66 @@ const PROVIDER_META: Record<string, { name: string; description: string }> = {
   webhooks:    { name: "Webhooks", description: "Send events to any external endpoint via HTTP POST." },
 };
 
+/** How often to refetch integration status while a Gmail OAuth tab is open. */
+const GMAIL_POLL_INTERVAL_MS = 3_000;
+/** Stop polling after this long without a CONNECTED/ERROR resolution. */
+const GMAIL_POLL_TIMEOUT_MS = 180_000;
+
 function IntegrationsTab() {
-  const { data, isLoading, isError, refetch } = useListIntegrations({ query: { queryKey: ["listIntegrations"] } });
+  // GL3: gmail is an OAuth provider — the consent screen happens in a new tab
+  // and the callback lands on the backend, so the FE only learns the outcome
+  // by polling integration status. While waiting, the list refetches on an
+  // interval; the card reflects CONNECTED/errored only when the server says so.
+  const [gmailWaiting, setGmailWaiting] = useState(false);
+  const [gmailLaunching, setGmailLaunching] = useState(false);
+  const gmailDeadline = useRef<number | null>(null);
+
+  const { data, isLoading, isError, refetch } = useListIntegrations({
+    query: {
+      queryKey: ["listIntegrations"],
+      refetchInterval: gmailWaiting ? GMAIL_POLL_INTERVAL_MS : false,
+    },
+  });
   const { mutate: connect, isPending: connecting } = useConnectIntegration({
     mutation: { onSuccess: () => { toast.success("Connected"); refetch(); }, onError: () => toast.error("Connection failed") },
   });
   const { mutate: disconnect, isPending: disconnecting } = useDisconnectIntegration({
     mutation: { onSuccess: () => { toast.success("Disconnected"); refetch(); }, onError: () => toast.error("Disconnect failed") },
   });
+
+  const gmailRow = (data ?? []).find(i => i.provider === "gmail");
+  useEffect(() => {
+    if (!gmailWaiting) return;
+    if (gmailRow?.status === "connected") {
+      setGmailWaiting(false);
+      toast.success("Gmail connected — this workspace can now send from your mailbox.");
+    } else if (gmailRow?.status === "errored") {
+      setGmailWaiting(false);
+      toast.error(gmailRow.errorMessage ?? "Gmail connection failed.");
+    } else if (gmailDeadline.current !== null && Date.now() > gmailDeadline.current) {
+      setGmailWaiting(false);
+      toast("Gmail still isn't connected — finish the Google consent screen, then check back here.");
+    }
+  }, [gmailWaiting, gmailRow]);
+
+  const handleConnectGmail = async () => {
+    setGmailLaunching(true);
+    try {
+      const url = await fetchGmailAuthUrl();
+      const win = window.open(url, "_blank", "noopener,noreferrer");
+      if (!win) {
+        toast.error("Your browser blocked the Google sign-in window — allow popups and try again.");
+        return;
+      }
+      gmailDeadline.current = Date.now() + GMAIL_POLL_TIMEOUT_MS;
+      setGmailWaiting(true);
+    } catch (err) {
+      // Surface the BFF/upstream failure verbatim — never a fake success.
+      toast.error(saveErrorMessage(err));
+    } finally {
+      setGmailLaunching(false);
+    }
+  };
 
   if (isLoading) return <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-lg" />)}</div>;
   if (isError) return <ErrorState description="We couldn't load your integrations just now. Please try again." onRetry={() => refetch()} />;
@@ -541,6 +679,8 @@ function IntegrationsTab() {
         {(data ?? []).map(int => {
           const meta = PROVIDER_META[int.provider] ?? { name: int.provider, description: "" };
           const isConnected = int.status === "connected";
+          const isGmail = int.provider === "gmail";
+          const gmailBusy = isGmail && (gmailLaunching || gmailWaiting);
           return (
             <SettingsCard key={int.id} className="p-4 flex gap-3 hover-elevate">
               <IntegrationLogo provider={int.provider} size={28} className="mt-0.5" />
@@ -554,14 +694,30 @@ function IntegrationsTab() {
                 <p className="text-xs text-ink-500 leading-relaxed mb-2">{meta.description}</p>
                 {int.accountEmail && <p className="text-xs font-mono text-ink-400 mb-2 truncate">{int.accountEmail}</p>}
                 {int.errorMessage && <p className="text-xs text-red-500 mb-2">{int.errorMessage}</p>}
+                {isGmail && gmailWaiting && !isConnected && (
+                  <p className="text-xs text-ink-500 mb-2">
+                    Waiting for Google authorization — complete the consent screen in the other tab.
+                    This card updates when the mailbox is actually connected.
+                  </p>
+                )}
                 <Button
                   size="sm"
                   variant={isConnected ? "outline" : "default"}
                   className={cn("h-7 text-xs", isConnected ? "border-paper-300 text-ink-600" : "bg-rust-500 hover:bg-rust-600 text-white")}
-                  disabled={connecting || disconnecting}
-                  onClick={() => isConnected ? disconnect({ provider: int.provider }) : connect({ provider: int.provider })}
+                  disabled={connecting || disconnecting || gmailBusy}
+                  onClick={() =>
+                    isConnected
+                      ? disconnect({ provider: int.provider })
+                      : isGmail
+                        ? handleConnectGmail()
+                        : connect({ provider: int.provider })
+                  }
                 >
-                  {isConnected ? "Disconnect" : "Connect"}
+                  {isConnected
+                    ? "Disconnect"
+                    : isGmail
+                      ? (gmailWaiting ? "Waiting for Google…" : gmailLaunching ? "Opening Google…" : "Connect with Google")
+                      : "Connect"}
                 </Button>
               </div>
             </SettingsCard>
