@@ -1,82 +1,57 @@
 import React, { useState } from "react";
 import { 
   useListPendingArtifacts, 
-  useGetTodayKpis, 
-  useBulkApproveArtifacts 
+  useGetTodayKpis,
 } from "@workspace/api-client-react";
 import { ApprovalCard, ApprovalCardSkeleton } from "@/components/v2/ApprovalCard";
 import { AgentActivityStream } from "@/components/v2/AgentActivityStream";
 import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CheckCircle2, Inbox } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CountUp } from "@/components/motion/CountUp";
 import { EmptyState } from "@/components/states/EmptyState";
 import { ErrorState } from "@/components/states/ErrorState";
 import { Stagger, StaggerItem } from "@/components/motion/Stagger";
-import { toast } from "sonner";
-import { isUnavailable } from "@/lib/unavailable";
 
 export default function Today() {
-  const [activeFilter, setActiveFilter] = useState<"all" | "outbound" | "pipeline" | "conversations">("all");
+  const [activeFilter, setActiveFilter] = useState<"all" | "outbound" | "pipeline">("all");
   
   const { data: artifactsData, isLoading: artifactsLoading, isError: artifactsError, refetch: refetchArtifacts } = useListPendingArtifacts(
     { page: 1, limit: 10 },
     { query: { refetchInterval: 8000, queryKey: ["listPendingArtifacts"] } }
   );
 
-  const { data: kpis, isLoading: kpisLoading } = useGetTodayKpis(
+  const { data: kpis, isLoading: kpisLoading, isError: kpisError } = useGetTodayKpis(
     { query: { refetchInterval: 15000, queryKey: ["getTodayKpis"] } }
   );
 
-  const bulkApproveMut = useBulkApproveArtifacts();
-
   const artifacts = artifactsData?.items || [];
-
-  const handleBulkApprove = async () => {
-    toast("Bulk approving all pending drafts...");
-    try {
-      const res = await bulkApproveMut.mutateAsync();
-      if (isUnavailable(res)) { toast("Not available yet — coming soon"); return; }
-      toast.success("Bulk approval complete");
-    } catch (e) {
-      toast.error("Bulk approval failed");
-    }
-  };
 
   return (
     <div className="flex flex-col h-full bg-paper-50 dark:bg-background overflow-hidden">
       {/* Top KPI Grid */}
       <div className="p-6 border-b border-paper-200 bg-white dark:bg-card shrink-0">
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {/* HONESTY: no delta badges — there is no real prior-period baseline
               yet. Deltas return when the backend serves one. Values are live. */}
           <KpiTile
-            label="Pending Approval"
-            value={kpisLoading ? "-" : <CountUp value={kpis?.artifactsPending ?? 0} />}
+            label="New Review Items · 24h"
+            value={kpisLoading ? "-" : kpisError || !kpis ? "Unavailable" : <CountUp value={kpis.artifactsPending} />}
             alert={!!kpis && kpis.artifactsPending > 5}
           />
           <KpiTile
-            label="Sent Today"
-            value={kpisLoading ? "-" : <CountUp value={kpis?.artifactsSentToday ?? 0} />}
+            label="Confirmed Sends · 24h"
+            value={kpisLoading ? "-" : kpisError || !kpis ? "Unavailable" : <CountUp value={kpis.artifactsSentToday} />}
           />
           <KpiTile
-            label="Reply Rate 7d"
-            value={kpisLoading ? "-" : <CountUp value={(kpis?.replyRate7d ?? 0) * 100} decimals={1} suffix="%" />}
-          />
-          <KpiTile
-            label="Meetings Booked"
-            value={kpisLoading ? "-" : <CountUp value={kpis?.qualifiedMeetingsBooked ?? 0} />}
+            label="Confirmed Meetings · All time"
+            value={kpisLoading ? "-" : kpisError || !kpis ? "Unavailable" : <CountUp value={kpis.qualifiedMeetingsBooked} />}
             positive={!!kpis && kpis.qualifiedMeetingsBooked > 0}
           />
           <KpiTile
-            label="Leads Sourced"
-            value={kpisLoading ? "-" : <CountUp value={kpis?.leadsSourcedToday ?? 0} />}
-          />
-          <KpiTile
-            label="Leads Scored"
-            value={kpisLoading ? "-" : <CountUp value={kpis?.leadsScored ?? 0} />}
+            label="Leads Scored · All time"
+            value={kpisLoading ? "-" : kpisError || !kpis ? "Unavailable" : <CountUp value={kpis.leadsScored} />}
           />
         </div>
       </div>
@@ -85,13 +60,12 @@ export default function Today() {
         {/* Left: Activity Stream */}
         <div className="flex-1 flex flex-col border-r border-paper-200 min-w-0">
           <div className="p-4 border-b border-paper-200 bg-paper-50 dark:bg-card flex items-center justify-between shrink-0">
-            <h3 className="font-serif text-lg text-ink-900 dark:text-paper-50">Live Activity</h3>
+            <h3 className="font-serif text-lg text-ink-900 dark:text-paper-50">Recorded Activity</h3>
             <Tabs value={activeFilter} onValueChange={(v: any) => setActiveFilter(v)} className="h-8">
               <TabsList className="bg-paper-100 h-8">
                 <TabsTrigger value="all" className="text-[10px] px-2 h-6">All</TabsTrigger>
                 <TabsTrigger value="outbound" className="text-[10px] px-2 h-6">Outbound</TabsTrigger>
                 <TabsTrigger value="pipeline" className="text-[10px] px-2 h-6">Pipeline</TabsTrigger>
-                <TabsTrigger value="conversations" className="text-[10px] px-2 h-6">Inbound</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
@@ -106,21 +80,12 @@ export default function Today() {
             <div>
               <h3 className="font-serif text-lg text-ink-900 dark:text-paper-50">Pending Approval</h3>
               <p className="text-[10px] text-ink-400 uppercase font-mono tracking-wider">
-                {artifacts.length} Items remaining
+                {artifactsData?.total ?? artifacts.length} Items remaining
               </p>
             </div>
-            {artifacts.length > 0 && (
-              <Button 
-                size="sm" 
-                variant="outline" 
-                className="h-8 text-xs bg-white dark:bg-card border-rust-200 text-rust-500 hover:bg-rust-50 hover:text-rust-600"
-                onClick={handleBulkApprove}
-                disabled={bulkApproveMut.isPending}
-              >
-                <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
-                Approve All
-              </Button>
-            )}
+            <span className="text-[10px] text-ink-400 uppercase font-mono tracking-wider">
+              Review each draft individually
+            </span>
           </div>
           <div className="flex-1 overflow-y-auto p-4">
             {artifactsLoading ? (

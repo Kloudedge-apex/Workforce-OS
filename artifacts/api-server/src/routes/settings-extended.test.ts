@@ -22,6 +22,7 @@ describe("shapeIcpProfile", () => {
         targetIndustries: ["SaaS"],
         targetTitles: ["CEO", "Founder"],
         targetGeos: ["US", "India"],
+        techStackSignals: ["Salesforce"],
         intentKeywords: ["hiring_spike"],
         seedDomains: ["acme.com"],
         minEmployees: 200,
@@ -33,6 +34,7 @@ describe("shapeIcpProfile", () => {
     expect(out.industries).toEqual(["SaaS"]);
     expect(out.titles).toEqual(["CEO", "Founder"]);
     expect(out.geos).toEqual(["US", "India"]);
+    expect(out.techStackSignals).toEqual(["Salesforce"]);
     expect(out.intentSignals).toEqual(["hiring_spike"]);
     expect(out.seedDomains).toEqual(["acme.com"]);
     expect(out.sizeBand).toBe("200-2000");
@@ -46,6 +48,7 @@ describe("shapeIcpProfile", () => {
     const empty = shapeIcpProfile([]);
     expect(empty.industries).toEqual([]);
     expect(empty.sizeBand).toBe("");
+    expect(empty.techStackSignals).toEqual([]);
     expect(empty.exclusionDomains).toEqual([]);
   });
 
@@ -68,6 +71,7 @@ describe("toIcpCreateBody", () => {
       titles: ["CEO"],
       geos: ["US"],
       intentSignals: ["funding"],
+      techStackSignals: ["HubSpot"],
       seedDomains: ["a.com"],
       sizeBand: "11-50",
     });
@@ -76,28 +80,39 @@ describe("toIcpCreateBody", () => {
     expect(body.targetTitles).toEqual(["CEO"]);
     expect(body.targetGeos).toEqual(["US"]);
     expect(body.intentKeywords).toEqual(["funding"]);
+    expect(body.techStackSignals).toEqual(["HubSpot"]);
     expect(body.seedDomains).toEqual(["a.com"]);
     expect(body.minEmployees).toBe(11);
     expect(body.maxEmployees).toBe(50);
   });
 
-  it("omits employee bounds when sizeBand is unparseable/absent", () => {
+  it("clears employee bounds when sizeBand is absent", () => {
     const body = toIcpCreateBody({});
-    expect(body.minEmployees).toBeUndefined();
-    expect(body.maxEmployees).toBeUndefined();
+    expect(body.minEmployees).toBeNull();
+    expect(body.maxEmployees).toBeNull();
     expect(body.targetTitles).toEqual([]);
   });
 
-  it("forwards exclusionDomains upstream instead of dropping them", () => {
-    expect(toIcpCreateBody({ exclusionDomains: ["competitor.com", "spam.io"] }).exclusionDomains)
-      .toEqual(["competitor.com", "spam.io"]);
-    expect(toIcpCreateBody({}).exclusionDomains).toEqual([]);
+  it("rejects malformed or descending company-size bands", () => {
+    expect(() => toIcpCreateBody({ sizeBand: "about fifty" })).toThrow(
+      'Company size must look like "50-500" or "1000+".',
+    );
+    expect(() => toIcpCreateBody({ sizeBand: "500-50" })).toThrow(
+      "Company size minimum must not exceed the maximum.",
+    );
+  });
+
+  it("does not forward the unsupported exclusionDomains field", () => {
+    expect(
+      "exclusionDomains" in
+        toIcpCreateBody({ exclusionDomains: ["competitor.com", "spam.io"] }),
+    ).toBe(false);
   });
 
   it("parses an open-ended size band", () => {
     const body = toIcpCreateBody({ sizeBand: "1000+" });
     expect(body.minEmployees).toBe(1000);
-    expect(body.maxEmployees).toBeUndefined();
+    expect(body.maxEmployees).toBeNull();
   });
 });
 

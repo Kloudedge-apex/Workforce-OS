@@ -1,12 +1,21 @@
 import { describe, it, expect } from "vitest";
 import {
   shapeArtifact,
+  artifactSuppressionPath,
   shapeCitations,
   shapeEvaluatorScores,
   shapePaginatedArtifacts,
   shapeRefusal,
   type UpstreamArtifact,
 } from "./artifacts";
+
+describe("artifactSuppressionPath", () => {
+  it("targets the authenticated manual-suppression endpoint and encodes the id", () => {
+    expect(artifactSuppressionPath("art/one two")).toBe(
+      "/outreach/suppression/artifacts/art%2Fone%20two",
+    );
+  });
+});
 
 // A raw OutreachArtifact row as apex-gtm-api serializes it (response_shape from
 // the Phase-2 release audit): bare prisma fields, dates as ISO strings.
@@ -39,10 +48,19 @@ describe("shapeArtifact", () => {
     const out = shapeArtifact(makeUpstream());
     expect(out.id).toBe("art_1");
     expect(out.status).toBe("PENDING_REVIEW");
+    expect(out.channel).toBe("EMAIL");
     expect(out.subject).toBe("Quick question");
     expect(out.bodyHtml).toBe("<p>Hi Jane</p>");
     expect(out.createdAt).toBe("2026-06-01T10:00:00.000Z");
+    expect(out.updatedAt).toBe("2026-06-01T10:00:00.000Z");
     expect(out.graphRunId).toBe("gr_99");
+  });
+
+  it("preserves supported channels and marks missing or novel channels unknown", () => {
+    expect(shapeArtifact(makeUpstream({ channel: "HUBSPOT_NOTE" })).channel).toBe("HUBSPOT_NOTE");
+    expect(shapeArtifact(makeUpstream({ channel: "LINKEDIN" })).channel).toBe("LINKEDIN");
+    expect(shapeArtifact(makeUpstream({ channel: "SMS" })).channel).toBe("UNKNOWN");
+    expect(shapeArtifact(makeUpstream({ channel: undefined })).channel).toBe("UNKNOWN");
   });
 
   it("synthesizes recipient from recipientRef + payload Json", () => {
@@ -127,14 +145,15 @@ describe("shapeArtifact", () => {
     ).toBe("ls-run-42");
   });
 
-  it("derives approvedAt from reviewedAt only when status is APPROVED", () => {
+  it("preserves the approval timestamp across later status transitions", () => {
     const approved = shapeArtifact(
       makeUpstream({ status: "APPROVED", reviewedAt: "2026-06-02T09:00:00.000Z" }),
     );
     expect(approved.approvedAt).toBe("2026-06-02T09:00:00.000Z");
-    // reviewedAt present but not APPROVED → approvedAt null
-    const pending = shapeArtifact(makeUpstream({ reviewedAt: "2026-06-02T09:00:00.000Z" }));
-    expect(pending.approvedAt).toBeNull();
+    const unknown = shapeArtifact(
+      makeUpstream({ status: "DELIVERY_UNKNOWN", reviewedAt: "2026-06-02T09:00:00.000Z" }),
+    );
+    expect(unknown.approvedAt).toBe("2026-06-02T09:00:00.000Z");
   });
 
   it("derives rejectionReason from reviewerNote only when status is REJECTED", () => {
@@ -144,6 +163,20 @@ describe("shapeArtifact", () => {
     expect(rejected.rejectionReason).toBe("off-base claim");
     const pending = shapeArtifact(makeUpstream({ reviewerNote: "note" }));
     expect(pending.rejectionReason).toBeNull();
+  });
+
+  it("exposes persisted transition evidence for delivery reconciliation", () => {
+    const out = shapeArtifact(
+      makeUpstream({
+        status: "DELIVERY_UNKNOWN",
+        reviewerNote: "delivery-unknown: provider outcome was ambiguous",
+        sendReceiptId: "receipt-42",
+        updatedAt: "2026-06-03T11:12:13.000Z",
+      }),
+    );
+    expect(out.statusReason).toBe("delivery-unknown: provider outcome was ambiguous");
+    expect(out.sendReceiptId).toBe("receipt-42");
+    expect(out.updatedAt).toBe("2026-06-03T11:12:13.000Z");
   });
 
   it("maps sentAt and cohort (from payload), nulling when absent", () => {
@@ -180,6 +213,18 @@ describe("shapePaginatedArtifacts", () => {
     expect(page2.items).toHaveLength(2);
     expect(page2.items[0]!.id).toBe("art_5");
     expect(page2.items[1]!.id).toBe("art_6");
+  });
+
+  it("preserves the pagination-aware backend total without slicing twice", () => {
+    const out = shapePaginatedArtifacts(
+      { items: rows.slice(0, 2), total: 42, page: 3, limit: 2 },
+      3,
+      2,
+    );
+    expect(out.total).toBe(42);
+    expect(out.page).toBe(3);
+    expect(out.limit).toBe(2);
+    expect(out.items.map((item) => item.id)).toEqual(["art_0", "art_1"]);
   });
 
   it("returns shaped (not raw) items", () => {

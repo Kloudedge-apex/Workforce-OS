@@ -7,7 +7,6 @@ import {
   LayoutDashboard, 
   Target, 
   BarChart2, 
-  Bot,
   MoreHorizontal
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -25,7 +24,6 @@ const NAV_ITEMS = [
   { href: "/outbound", label: "Outbound", icon: Activity },
   { href: "/runs", label: "Runs", icon: BarChart2 },
   { href: "/conversations", label: "Conversations", icon: Inbox },
-  { href: "/agents", label: "Agents", icon: Bot },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

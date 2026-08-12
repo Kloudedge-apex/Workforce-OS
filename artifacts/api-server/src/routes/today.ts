@@ -28,9 +28,9 @@ export interface QualityKpiUpstream {
 export interface TodayKpis {
   artifactsPending: number;
   artifactsSentToday: number;
-  replyRate7d: number;
+  replyRate7d: number | null;
   qualifiedMeetingsBooked: number;
-  leadsSourcedToday: number;
+  leadsSourcedToday: number | null;
   leadsScored: number;
 }
 
@@ -41,11 +41,9 @@ export interface TodayKpis {
  * - artifactsPending  <- kpis.quality.outreach_artifacts.pending_review
  * - artifactsSentToday <- kpis.quality.outreach_artifacts.sent (windowDays=1 ~= "today")
  * - qualifiedMeetingsBooked <- dashboard.stats.meetingsBooked
- * - leadsScored <- dashboard.stats.leadsSourced (every LeadScore row is a scored lead)
- * - replyRate7d <- dashboard.stats.replyRate (backend HARDCODES 0; no real 7d reply
- *   telemetry surfaced — passed through honestly)
- * - leadsSourcedToday <- dashboard.stats.leadsSourced (no calendar-today endpoint exists;
- *   all-time count is the closest available signal — see audit "true gaps within this tile")
+ * - leadsScored <- sum of the all-time lead-score distribution
+ * - replyRate7d <- null: the dashboard upstream hardcodes zero, which is not evidence
+ * - leadsSourcedToday <- null: no calendar-day sourcing query exists
  */
 export function shapeTodayKpis(
   stats: DashboardStatsUpstream,
@@ -54,10 +52,13 @@ export function shapeTodayKpis(
   return {
     artifactsPending: quality.outreach_artifacts.pending_review,
     artifactsSentToday: quality.outreach_artifacts.sent,
-    replyRate7d: stats.replyRate,
+    replyRate7d: null,
     qualifiedMeetingsBooked: stats.meetingsBooked,
-    leadsSourcedToday: stats.leadsSourced,
-    leadsScored: stats.leadsSourced,
+    leadsSourcedToday: null,
+    leadsScored:
+      quality.lead_score_distribution.A +
+      quality.lead_score_distribution.B +
+      quality.lead_score_distribution.C,
   };
 }
 

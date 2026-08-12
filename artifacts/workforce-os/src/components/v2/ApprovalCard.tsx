@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { OutreachArtifact } from "@workspace/api-client-react";
 import { useApproveArtifact, useRejectArtifact, useGetOrgSettings } from "@workspace/api-client-react";
-import { workspaceLiveState } from "@/lib/sendReadiness";
+import { workspaceLiveAuthorization } from "@/lib/sendReadiness";
 import { cardEnter, useReducedMotionSafe } from "@/lib/motion";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PolicyBadge } from "./PolicyBadge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ChevronDown, Check, X, Edit2, Quote, Send, FlaskConical, Ban, Loader2, ShieldAlert } from "lucide-react";
+import { ChevronDown, Check, X, Quote, Send, FlaskConical, Ban, Loader2, ShieldAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { sanitizeHtml } from "@/lib/sanitize";
 import { toast } from "sonner";
@@ -42,8 +42,8 @@ const RESOLVED_CARDS: Partial<Record<ArtifactUiStatus, ResolvedCardConfig>> = {
     icon: <Check className="h-5 w-5 text-white" />,
     cardClass: "bg-signal-info/5 border-signal-info/20",
     iconWrapClass: "bg-signal-info",
-    title: (name) => `Approved — queued to send to ${name}`,
-    detail: "Nothing has been sent yet. The send worker will pick this up.",
+    title: (name) => `Approved for processing for ${name}`,
+    detail: "Nothing has been sent. The worker will evaluate live-send readiness before any provider attempt.",
   },
   SENDING: {
     icon: <Loader2 className="h-5 w-5 text-white animate-spin" />,
@@ -65,6 +65,14 @@ const RESOLVED_CARDS: Partial<Record<ArtifactUiStatus, ResolvedCardConfig>> = {
     iconWrapClass: "bg-ember-500",
     title: (name) => `Simulated send for ${name}`,
     detail: "Dry-run only — no real email was sent. Enable live sending to deliver.",
+  },
+  DELIVERY_UNKNOWN: {
+    icon: <ShieldAlert className="h-5 w-5 text-white" />,
+    cardClass: "bg-ember-400/10 border-ember-400/40",
+    iconWrapClass: "bg-ember-500",
+    title: (name) => `Delivery to ${name} could not be confirmed`,
+    detail:
+      "Do not resend. Reconcile the provider Sent folder or message receipt before creating any separately reviewed replacement.",
   },
   REJECTED: {
     icon: <X className="h-5 w-5 text-white" />,
@@ -135,8 +143,19 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
   // and Outbound use. Live = the artifact's own policy says so, OR the
   // workspace is explicitly live; unknown readiness stays dry-run.
   const { data: orgSettings } = useGetOrgSettings({ query: { queryKey: ["getOrgSettings"] } });
-  const workspaceLive = workspaceLiveState(orgSettings);
-  const isLiveSend = artifact.sendPolicy?.liveSendEnabled === true || workspaceLive === true;
+  const workspaceAuthorization = workspaceLiveAuthorization(orgSettings);
+  const liveAuthorization = artifact.sendPolicy
+    ? artifact.sendPolicy.liveSendEnabled
+    : workspaceAuthorization;
+  const isLiveAuthorized = liveAuthorization === true;
+  const dispatchSupported = artifact.channel === "EMAIL" || artifact.channel === "LINKEDIN";
+  const channelLabel = artifact.channel === "EMAIL"
+    ? "Email"
+    : artifact.channel === "LINKEDIN"
+      ? "LinkedIn"
+      : artifact.channel === "HUBSPOT_NOTE"
+        ? "HubSpot note"
+        : "Unknown channel";
 
   const handleApprove = async () => {
     try {
@@ -148,7 +167,7 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
       // Follow whatever status the server actually assigned — approving
       // queues the email, it does NOT send it.
       setLocalStatus(updated.status as ArtifactUiStatus);
-      toast.success("Approved — queued to send");
+      toast.success("Approved — queued for policy evaluation");
     } catch (err) {
       toast.error("Failed to approve.");
     }
@@ -230,7 +249,10 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
               <p className="text-xs text-ink-400">{artifact.recipient.email}</p>
             </div>
           </div>
-          <PolicyBadge policy={artifact.sendPolicy} workspaceLive={workspaceLive} />
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="text-[10px] uppercase">{channelLabel}</Badge>
+            {artifact.channel === "EMAIL" && <PolicyBadge policy={artifact.sendPolicy} workspaceAuthorization={workspaceAuthorization} />}
+          </div>
         </div>
 
         {/* Content — a refusal renders a banner, never an (empty) draft preview */}
@@ -246,8 +268,17 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
             </div>
             <p className="text-sm text-ink-700 mt-2">
               {refusal?.reason ??
-                "The agent declined to write this email because it couldn't ground it in real, dated evidence."}
+                "The agent declined to write this artifact because it couldn't ground it in real, dated evidence."}
             </p>
+          </div>
+        ) : !dispatchSupported ? (
+          <div className="flex items-center gap-2">
+            <p className="flex-1 text-xs text-ink-500">
+              Approval unavailable — {channelLabel.toLowerCase()} dispatch is not supported in this release.
+            </p>
+            <Button variant="ghost" className="text-ink-400 hover:text-rust-500" onClick={() => setRejectMode(true)}>
+              Reject
+            </Button>
           </div>
         ) : (
           <div className="mb-4">
@@ -374,7 +405,16 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
           // No approve path for a refusal — there is no draft to send.
           <div className="flex items-center gap-2">
             <p className="flex-1 text-xs text-ink-500">
-              Approval disabled — the agent refused to draft this email.
+              Approval disabled — the agent refused to draft this artifact.
+            </p>
+            <Button variant="ghost" className="text-ink-400 hover:text-rust-500" onClick={() => setRejectMode(true)}>
+              Reject
+            </Button>
+          </div>
+        ) : !dispatchSupported ? (
+          <div className="flex items-center gap-2">
+            <p className="flex-1 text-xs text-ink-500">
+              Approval unavailable — {channelLabel.toLowerCase()} dispatch is not supported in this release.
             </p>
             <Button variant="ghost" className="text-ink-400 hover:text-rust-500" onClick={() => setRejectMode(true)}>
               Reject
@@ -384,19 +424,27 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
           <div className="flex flex-col gap-2">
             {/* GL5: when sending is live, the approve area must say so —
                 approving queues a REAL email, not a simulation. */}
-            {isLiveSend && (
+            {isLiveAuthorized && (
               <div
                 data-testid="live-send-notice"
                 className="flex items-center gap-2 px-3 py-2 rounded-md bg-rust-500/10 border border-rust-500/30"
               >
                 <Send className="h-3.5 w-3.5 text-rust-500 shrink-0" />
                 <p className="text-xs font-medium text-rust-600">
-                  Live sending is ON — approving queues a real email to {artifact.recipient.email}.
+                  Live delivery is authorized — approval may deliver this {channelLabel.toLowerCase()} now or later after temporary policy gates clear.
+                </p>
+              </div>
+            )}
+            {liveAuthorization === null && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-paper-100 border border-paper-300" role="alert">
+                <ShieldAlert className="h-3.5 w-3.5 text-ink-500 shrink-0" />
+                <p className="text-xs font-medium text-ink-600">
+                  Approval is disabled until live-delivery authorization can be verified.
                 </p>
               </div>
             )}
             <div className="flex items-center gap-2">
-              <Button onClick={handleApprove} disabled={approveMut.isPending} className="flex-1 bg-rust-500 hover:bg-rust-500/90 text-white">
+              <Button onClick={handleApprove} disabled={approveMut.isPending || liveAuthorization === null} className="flex-1 bg-rust-500 hover:bg-rust-500/90 text-white">
                 {approveMut.isPending ? (
                   <>
                     <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> Approving…
@@ -404,10 +452,6 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
                 ) : (
                   "Approve"
                 )}
-              </Button>
-              <Button variant="outline" className="flex-1 bg-paper-50">
-                <Edit2 className="w-3 h-3 mr-2" />
-                Edit & Approve
               </Button>
               <Button variant="ghost" className="text-ink-400 hover:text-rust-500" onClick={() => setRejectMode(true)}>
                 Reject

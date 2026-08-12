@@ -21,6 +21,7 @@ const STATUS_STYLES: Record<string, string> = {
   RUNNING: "bg-ember-400/15 text-ember-500 border-ember-400/30",
   AWAITING_APPROVAL: "bg-rust-100 text-rust-800 border-rust-200",
   FAILED: "bg-rust-500/10 text-rust-500 border-rust-500/20",
+  CANCELLED: "bg-paper-100 text-ink-600 border-paper-200",
 };
 
 const NODE_ICONS: Record<string, React.ReactNode> = {
@@ -221,10 +222,8 @@ export default function RunDetail() {
     </div>
   );
 
-  // The BFF gaps GET /runs/:id (no deployed per-run evidence-timeline
-  // endpoint), so `data` can be the { unavailable: true } sentinel rather
-  // than a run envelope. Guard BEFORE destructuring or `run.id` throws and
-  // takes down the whole page.
+  // Retain compatibility with an older BFF gap sentinel. Current builds serve
+  // the real tenant-scoped run header and mark only the timeline unavailable.
   if (isUnavailable(data)) return (
     <div className="flex flex-col h-full bg-paper-50">
       <div className="sticky top-0 z-10 bg-paper-100 border-b border-paper-200 px-6 py-3 flex items-center gap-3">
@@ -342,11 +341,15 @@ export default function RunDetail() {
                 initial="rest"
                 whileHover="hover"
               >
-                <p className="text-xs text-ink-400 uppercase tracking-wide">Leads sourced</p>
-                <CountUp
-                  value={run.leadsSourced}
-                  className="block text-xl font-mono font-semibold text-ink-900 dark:text-paper-50 mt-1 font-tabular"
-                />
+                <p className="text-xs text-ink-400 uppercase tracking-wide">Leads scored</p>
+                {run.leadsScored == null ? (
+                  <p className="text-xl font-mono font-semibold text-ink-900 dark:text-paper-50 mt-1">Not recorded</p>
+                ) : (
+                  <CountUp
+                    value={run.leadsScored}
+                    className="block text-xl font-mono font-semibold text-ink-900 dark:text-paper-50 mt-1 font-tabular"
+                  />
+                )}
               </motion.div>
             </StaggerItem>
             <StaggerItem>
@@ -356,11 +359,15 @@ export default function RunDetail() {
                 initial="rest"
                 whileHover="hover"
               >
-                <p className="text-xs text-ink-400 uppercase tracking-wide">Drafts generated</p>
-                <CountUp
-                  value={run.artifactsGenerated}
-                  className="block text-xl font-mono font-semibold text-ink-900 dark:text-paper-50 mt-1 font-tabular"
-                />
+                <p className="text-xs text-ink-400 uppercase tracking-wide">Drafts recorded</p>
+                {run.artifactsGenerated == null ? (
+                  <p className="text-xl font-mono font-semibold text-ink-900 dark:text-paper-50 mt-1">Not recorded</p>
+                ) : (
+                  <CountUp
+                    value={run.artifactsGenerated}
+                    className="block text-xl font-mono font-semibold text-ink-900 dark:text-paper-50 mt-1 font-tabular"
+                  />
+                )}
               </motion.div>
             </StaggerItem>
             <StaggerItem>
@@ -392,14 +399,20 @@ export default function RunDetail() {
               >
                 <p className="text-xs text-ink-400 uppercase tracking-wide">Cost</p>
                 <p className="text-xl font-mono font-semibold text-ink-900 dark:text-paper-50 mt-1 font-tabular">
-                  $<CountUp value={run.costUsd} decimals={3} />
+                  {run.costUsd == null ? (
+                    "Not recorded"
+                  ) : (
+                    <>
+                      $<CountUp value={run.costUsd} decimals={3} />
+                    </>
+                  )}
                 </p>
               </motion.div>
             </StaggerItem>
           </Stagger>
           <div className="flex flex-wrap gap-3 text-xs text-ink-500">
-            <span>Agents: {run.agentsInvolved.join(", ")}</span>
-            <span>Triggered by: {run.triggeredBy}</span>
+            <span>Stages completed: {run.stagesCompleted.join(", ") || "Not recorded"}</span>
+            <span>Approved by: {run.approvedBy ?? "Not recorded"}</span>
             <span>Started: {new Date(run.startedAt).toLocaleString()}</span>
             {run.completedAt && <span>Completed: {new Date(run.completedAt).toLocaleString()}</span>}
           </div>
@@ -411,7 +424,7 @@ export default function RunDetail() {
             <h2 className="font-serif font-semibold text-ink-900 dark:text-paper-50 mb-4">Evidence Timeline</h2>
             <UnavailableState feature="the run timeline" />
           </div>
-        ) : (timeline ?? []).length > 0 ? (
+        ) : Array.isArray(timeline) && timeline.length > 0 ? (
           <div className="bg-ink-0 border border-paper-200 rounded-xl p-5 shadow-sm">
             <h2 className="font-serif font-semibold text-ink-900 dark:text-paper-50 mb-4">Evidence Timeline</h2>
             <Stagger className="space-y-1">

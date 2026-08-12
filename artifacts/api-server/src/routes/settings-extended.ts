@@ -7,9 +7,8 @@ const router = Router();
 
 // ─── ICP ──────────────────────────────────────────────────────────────────
 //
-// Backend ICP lives under leads/ as a COLLECTION (GET/POST /api/leads/icp) with
-// different field names; the FE treats it as a singleton. We map the most-recent
-// profile on read and create-a-new-profile on "update" (no upstream PUT exists).
+// Backend exposes the historical collection for reads plus a tenant-scoped
+// current-profile upsert. The FE deliberately edits only that current ICP.
 
 /** apex IcpProfile row (Prisma model, GET /api/leads/icp → newest-first list). */
 export interface ApexIcpProfile {
@@ -32,6 +31,7 @@ export interface IcpProfile {
   titles: string[];
   geos: string[];
   sizeBand: string;
+  techStackSignals: string[];
   intentSignals: string[];
   seedDomains: string[];
   exclusionDomains: string[];
@@ -42,6 +42,7 @@ const EMPTY_ICP: IcpProfile = {
   titles: [],
   geos: [],
   sizeBand: "",
+  techStackSignals: [],
   intentSignals: [],
   seedDomains: [],
   exclusionDomains: [],
@@ -73,6 +74,7 @@ export function shapeIcpProfile(profiles: ApexIcpProfile[]): IcpProfile {
     titles: p.targetTitles ?? [],
     geos: p.targetGeos ?? [],
     sizeBand: deriveSizeBand(p.minEmployees, p.maxEmployees),
+    techStackSignals: p.techStackSignals ?? [],
     intentSignals: p.intentKeywords ?? [],
     seedDomains: p.seedDomains ?? [],
     exclusionDomains: Array.isArray(p.exclusionDomains) ? p.exclusionDomains : [],
@@ -80,23 +82,30 @@ export function shapeIcpProfile(profiles: ApexIcpProfile[]): IcpProfile {
 }
 
 /** Parse a FE "200-2000" / "50+" sizeBand into upstream min/max employee bounds. */
-function parseSizeBand(sizeBand?: string): { minEmployees?: number; maxEmployees?: number } {
-  if (!sizeBand) return {};
-  const m = /^(\d+)\s*-\s*(\d+)$/.exec(sizeBand);
-  if (m) return { minEmployees: Number(m[1]), maxEmployees: Number(m[2]) };
-  const plus = /^(\d+)\s*\+$/.exec(sizeBand);
-  if (plus) return { minEmployees: Number(plus[1]) };
-  return {};
+class IcpInputError extends Error {}
+
+function parseSizeBand(sizeBand?: string): { minEmployees: number | null; maxEmployees: number | null } {
+  const trimmed = sizeBand?.trim() ?? "";
+  if (!trimmed) return { minEmployees: null, maxEmployees: null };
+  const m = /^(\d+)\s*-\s*(\d+)$/.exec(trimmed);
+  if (m) {
+    const minEmployees = Number(m[1]);
+    const maxEmployees = Number(m[2]);
+    if (minEmployees > maxEmployees) {
+      throw new IcpInputError("Company size minimum must not exceed the maximum.");
+    }
+    return { minEmployees, maxEmployees };
+  }
+  const plus = /^(\d+)\s*\+$/.exec(trimmed);
+  if (plus) return { minEmployees: Number(plus[1]), maxEmployees: null };
+  throw new IcpInputError('Company size must look like "50-500" or "1000+".');
 }
 
 /**
  * Pure mapper: FE IcpProfile input → apex POST /api/leads/icp create body.
  *
- * exclusionDomains IS forwarded (previously dropped here while the FE toasted
- * success — the GL "ICP exclusions" lie). The deployed backend may ignore or
- * reject it: a rejection surfaces via the PUT route's validation pass-through,
- * and an ignore reads back as [] through shapeIcpProfile, so the FE can tell
- * the user the truth either way.
+ * The release backend has no exclusionDomains column, so that unsupported
+ * field is not forwarded or shown in the minimum setup flow.
  */
 export function toIcpCreateBody(input: Partial<IcpProfile>): {
   name: string;
@@ -104,10 +113,10 @@ export function toIcpCreateBody(input: Partial<IcpProfile>): {
   targetIndustries: string[];
   targetGeos: string[];
   intentKeywords: string[];
+  techStackSignals: string[];
   seedDomains: string[];
-  exclusionDomains: string[];
-  minEmployees?: number;
-  maxEmployees?: number;
+  minEmployees: number | null;
+  maxEmployees: number | null;
 } {
   const { minEmployees, maxEmployees } = parseSizeBand(input.sizeBand);
   return {
@@ -115,11 +124,11 @@ export function toIcpCreateBody(input: Partial<IcpProfile>): {
     targetTitles: input.titles ?? [],
     targetIndustries: input.industries ?? [],
     targetGeos: input.geos ?? [],
+    techStackSignals: input.techStackSignals ?? [],
     intentKeywords: input.intentSignals ?? [],
     seedDomains: input.seedDomains ?? [],
-    exclusionDomains: input.exclusionDomains ?? [],
-    ...(minEmployees != null ? { minEmployees } : {}),
-    ...(maxEmployees != null ? { maxEmployees } : {}),
+    minEmployees,
+    maxEmployees,
   };
 }
 
@@ -136,14 +145,19 @@ router.get("/settings/icp", async (req, res, next) => {
 router.put("/settings/icp", async (req, res, next) => {
   const body = req.body as Partial<IcpProfile>;
   try {
-    // No upstream PUT — each save creates a NEW profile; the GET singleton
-    // mapper then reads the most-recent (this one) back (audit endpoint 4).
-    const created = (await apex.post("/leads/icp", { req }, toIcpCreateBody(body))) as ApexIcpProfile;
-    res.json(shapeIcpProfile([created]));
+    const persisted = (await apex.patch(
+      "/leads/icp/current",
+      { req },
+      toIcpCreateBody(body),
+    )) as ApexIcpProfile;
+    res.json(shapeIcpProfile([persisted]));
   } catch (err) {
+    if (err instanceof IcpInputError) {
+      res.status(400).json({ error: "validation", message: err.message });
+      return;
+    }
     if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
-    // Surface upstream validation failures verbatim (e.g. the backend rejecting
-    // exclusionDomains) instead of a generic 502 — the FE shows this message.
+    // Surface upstream validation failures verbatim instead of a generic 502.
     if (err instanceof UpstreamError && (err.status === 400 || err.status === 422)) {
       res.status(err.status).json({
         error: "validation",

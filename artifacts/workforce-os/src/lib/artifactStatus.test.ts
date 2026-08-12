@@ -22,6 +22,14 @@ describe("artifactStatusBadge", () => {
     expect(badge.className).not.toContain("signal-positive");
   });
 
+  it("quarantines DELIVERY_UNKNOWN without claiming delivery or retryability", () => {
+    const badge = artifactStatusBadge("DELIVERY_UNKNOWN");
+    expect(badge.label).toContain("Delivery unknown");
+    expect(badge.label).toContain("reconcile");
+    expect(badge.label).not.toBe("Sent");
+    expect(badge.className).not.toContain("signal-positive");
+  });
+
   it("labels APPROVED as queued, not delivered", () => {
     expect(artifactStatusBadge("APPROVED").label).toBe("Approved — queued to send");
   });

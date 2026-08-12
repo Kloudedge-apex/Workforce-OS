@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { parseSendReadiness, getSendReadiness, workspaceLiveState } from "./sendReadiness";
+import { parseSendReadiness, getSendReadiness, workspaceLiveAuthorization, workspaceLiveState } from "./sendReadiness";
 
 const FULL = {
   liveSendAllowed: true,
   physicalAddressSet: true,
-  senderNameSet: false,
+  senderNameSet: true,
   mailboxConnected: true,
   dailyCapRemaining: 25,
 };
@@ -47,15 +47,39 @@ describe("getSendReadiness", () => {
 });
 
 describe("workspaceLiveState", () => {
-  it("is true only when the backend explicitly allows live sending", () => {
+  it("is true only when every effective live-send gate is open", () => {
     expect(workspaceLiveState({ sendReadiness: FULL })).toBe(true);
-    expect(
-      workspaceLiveState({ sendReadiness: { ...FULL, liveSendAllowed: false } }),
-    ).toBe(false);
+    for (const blocked of [
+      { liveSendAllowed: false },
+      { physicalAddressSet: false },
+      { senderNameSet: false },
+      { mailboxConnected: false },
+      { dailyCapRemaining: 0 },
+      { dailyCapRemaining: null },
+    ]) {
+      expect(workspaceLiveState({ sendReadiness: { ...FULL, ...blocked } })).toBe(false);
+    }
   });
 
   it("is null (unknown) when readiness is absent — callers must not claim live OR dry-run as fact", () => {
     expect(workspaceLiveState(undefined)).toBeNull();
     expect(workspaceLiveState({ orgId: "o1" })).toBeNull();
+  });
+});
+
+describe("workspaceLiveAuthorization", () => {
+  it("stays true through temporary readiness blockers", () => {
+    expect(
+      workspaceLiveAuthorization({
+        sendReadiness: { ...FULL, mailboxConnected: false, dailyCapRemaining: 0 },
+      }),
+    ).toBe(true);
+  });
+
+  it("is false only when the operator allowlist is explicitly off", () => {
+    expect(
+      workspaceLiveAuthorization({ sendReadiness: { ...FULL, liveSendAllowed: false } }),
+    ).toBe(false);
+    expect(workspaceLiveAuthorization(undefined)).toBeNull();
   });
 });

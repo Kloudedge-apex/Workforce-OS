@@ -28,16 +28,16 @@ describe("shapeTodayKpis", () => {
     expect(shapeTodayKpis(stats, quality)).toEqual({
       artifactsPending: 9,
       artifactsSentToday: 13,
-      replyRate7d: 0,
+      replyRate7d: null,
       qualifiedMeetingsBooked: 6,
-      leadsSourcedToday: 42,
+      leadsSourcedToday: null,
       leadsScored: 42,
     });
   });
 
-  it("passes the hardcoded-0 replyRate through untouched", () => {
-    const out = shapeTodayKpis({ ...stats, replyRate: 0 }, quality);
-    expect(out.replyRate7d).toBe(0);
+  it("does not present the upstream hardcoded reply rate as measured telemetry", () => {
+    expect(shapeTodayKpis({ ...stats, replyRate: 0 }, quality).replyRate7d).toBeNull();
+    expect(shapeTodayKpis({ ...stats, replyRate: 0.73 }, quality).replyRate7d).toBeNull();
   });
 
   it("returns only the six contract keys (no extra upstream leakage)", () => {

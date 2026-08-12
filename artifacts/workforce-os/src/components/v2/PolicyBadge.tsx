@@ -1,7 +1,7 @@
 import React from "react";
 import { SendPolicy } from "@workspace/api-client-react";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, AlertTriangle, ShieldAlert, Navigation } from "lucide-react";
+import { CheckCircle2, AlertTriangle, ShieldAlert, Navigation, CircleHelp } from "lucide-react";
 
 interface PolicyBadgeProps {
   policy?: SendPolicy | null;
@@ -12,13 +12,13 @@ interface PolicyBadgeProps {
    * workspace must not be painted "Dry Run" just because the per-item policy
    * wasn't populated. false/null keep the fail-closed Dry Run rendering.
    */
-  workspaceLive?: boolean | null;
+  workspaceAuthorization?: boolean | null;
 }
 
 const LIVE_SEND_BADGE = (
   <Badge variant="outline" className="border-signal-positive text-signal-positive bg-signal-positive/10">
     <CheckCircle2 className="mr-1 h-3 w-3" />
-    Live Send
+    Live authorized
   </Badge>
 );
 
@@ -29,12 +29,23 @@ const DRY_RUN_BADGE = (
   </Badge>
 );
 
-export function PolicyBadge({ policy, workspaceLive = null }: PolicyBadgeProps) {
+const UNKNOWN_BADGE = (
+  <Badge variant="outline" className="border-paper-300 text-ink-500 bg-paper-100">
+    <CircleHelp className="mr-1 h-3 w-3" />
+    Readiness unknown
+  </Badge>
+);
+
+export function PolicyBadge({ policy, workspaceAuthorization = null }: PolicyBadgeProps) {
   if (!policy) {
     // No per-item policy data. The workspace readiness is the only honest
     // signal left: live → Live Send; dry-run or unknown → Dry Run (fail-closed,
     // matching the backend's dry-run-by-default behavior).
-    return workspaceLive === true ? LIVE_SEND_BADGE : DRY_RUN_BADGE;
+    return workspaceAuthorization === true
+      ? LIVE_SEND_BADGE
+      : workspaceAuthorization === false
+        ? DRY_RUN_BADGE
+        : UNKNOWN_BADGE;
   }
 
   if (policy.recipientSuppressed) {

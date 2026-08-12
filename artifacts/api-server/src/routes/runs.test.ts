@@ -30,23 +30,23 @@ describe("shapeRun", () => {
     expect(shapeRun(completedRun)).toEqual({
       id: "gr_1",
       status: "COMPLETED",
-      agentsInvolved: ["supervisor", "sourcing", "scoring"],
-      leadsSourced: 25,
+      stagesCompleted: ["supervisor", "sourcing", "scoring"],
+      leadsScored: 25,
       artifactsGenerated: 8,
       durationMs: 5 * 60 * 1000,
-      costUsd: 0,
-      triggeredBy: "user_42",
+      costUsd: null,
+      approvedBy: "user_42",
       startedAt: "2026-06-10T10:00:00.000Z",
       completedAt: "2026-06-10T10:05:00.000Z",
     });
   });
 
-  it("maps CANCELLED → FAILED (openapi enum omits CANCELLED)", () => {
+  it("preserves a cancelled run instead of misreporting it as failed", () => {
     const r: UpstreamGraphRun = { ...completedRun, status: "CANCELLED" };
-    expect(shapeRun(r).status).toBe("FAILED");
+    expect(shapeRun(r).status).toBe("CANCELLED");
   });
 
-  it("derives duration from now for an in-flight run and falls back to the supervisor roster", () => {
+  it("derives duration from now and leaves unrecorded fields unknown", () => {
     const now = Date.parse("2026-06-10T10:03:00.000Z");
     const running: UpstreamGraphRun = {
       id: "gr_2",
@@ -58,18 +58,12 @@ describe("shapeRun", () => {
     const out = shapeRun(running, now);
     expect(out.durationMs).toBe(3 * 60 * 1000);
     expect(out.completedAt).toBeNull();
-    // no scored count → falls back to companies; no stagesCompleted → full roster
-    expect(out.leadsSourced).toBe(5);
-    expect(out.artifactsGenerated).toBe(0);
-    expect(out.agentsInvolved).toEqual([
-      "supervisor",
-      "sourcing",
-      "enrichment",
-      "scoring",
-      "outreach",
-    ]);
-    // no approvedBy anywhere → "system"
-    expect(out.triggeredBy).toBe("system");
+    // A company count is not a scored-lead count; absent metrics stay unknown.
+    expect(out.leadsScored).toBeNull();
+    expect(out.artifactsGenerated).toBeNull();
+    expect(out.stagesCompleted).toEqual([]);
+    expect(out.approvedBy).toBeNull();
+    expect(out.costUsd).toBeNull();
   });
 });
 
@@ -81,6 +75,21 @@ describe("shapeRunsList", () => {
     expect(out.limit).toBe(20);
     expect(out.items).toHaveLength(1);
     expect(out.items[0].id).toBe("gr_1");
+  });
+
+  it("preserves the real total and server page from a paginated response", () => {
+    const out = shapeRunsList(
+      {
+        items: [completedRun],
+        total: 37,
+        page: 2,
+        limit: 10,
+        totalPages: 4,
+      },
+      { page: 2, limit: 10 },
+    );
+    expect(out).toMatchObject({ total: 37, page: 2, limit: 10 });
+    expect(out.items.map((item) => item.id)).toEqual(["gr_1"]);
   });
 
   it("post-filters by status when provided", () => {
@@ -114,7 +123,7 @@ describe("shapeRunDetail", () => {
     expect(out).not.toBeNull();
     expect(out!.run.id).toBe("gr_hitl");
     expect(out!.run.status).toBe("AWAITING_APPROVAL");
-    expect(out!.run.leadsSourced).toBe(9);
+    expect(out!.run.leadsScored).toBe(9);
     // the timeline half stays an honest gap — no fabricated/empty timeline
     expect(out!.timeline).toEqual({
       unavailable: true,

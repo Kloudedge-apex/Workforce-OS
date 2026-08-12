@@ -74,7 +74,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [PENDING_REVIEW, APPROVED, SENT, REJECTED, SUPPRESSED]
+            enum: [DRAFT, PENDING_REVIEW, APPROVED, REJECTED, SENT, SUPPRESSED, SENDING, SIMULATED, DELIVERY_UNKNOWN]
         - name: page
           in: query
           schema: { type: integer, default: 1 }
@@ -165,30 +165,17 @@ paths:
           schema: { type: string }
       responses:
         "200":
-          description: Suppressed artifact
+          description: Recipient suppressed; artifact status changes only when it is safe to do so
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/OutreachArtifact"
-
-  /artifacts/bulk-approve:
-    post:
-      operationId: bulkApproveArtifacts
-      tags: [artifacts]
-      summary: Bulk approve artifacts that pass evaluators
-      responses:
-        "200":
-          description: Bulk approve result
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/BulkApproveResult"
+                $ref: "#/components/schemas/ArtifactSuppressionResult"
 
   /activity:
     get:
       operationId: getActivityStream
       tags: [activity]
-      summary: Get agent activity stream
+      summary: Get recorded activity stream
       parameters:
         - name: limit
           in: query
@@ -197,7 +184,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [all, outbound, pipeline, conversations]
+            enum: [all, outbound, pipeline]
             default: all
       responses:
         "200":
@@ -228,33 +215,15 @@ paths:
       tags: [leads]
       summary: List leads with filters
       parameters:
-        - name: stage
-          in: query
-          schema: { type: string }
         - name: minScore
           in: query
           schema: { type: integer }
-        - name: intentSignal
-          in: query
-          schema: { type: string }
-        - name: geo
-          in: query
-          schema: { type: string }
-        - name: cohort
-          in: query
-          schema: { type: string }
-        - name: industry
-          in: query
-          schema: { type: string }
-        - name: sort
-          in: query
-          schema: { type: string, default: score_desc }
         - name: page
           in: query
-          schema: { type: integer, default: 1 }
+          schema: { type: integer, minimum: 1, default: 1 }
         - name: limit
           in: query
-          schema: { type: integer, default: 25 }
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
         - name: q
           in: query
           schema: { type: string }
@@ -286,24 +255,6 @@ paths:
         "404":
           description: Not found
 
-  /leads/{id}/trigger-outbound:
-    post:
-      operationId: triggerOutbound
-      tags: [leads]
-      summary: Trigger an outbound pipeline run for a lead
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema: { type: string }
-      responses:
-        "202":
-          description: Pipeline run triggered
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/TriggerResult"
-
   /leads/bulk-suppress:
     post:
       operationId: bulkSuppressLeads
@@ -317,11 +268,11 @@ paths:
               $ref: "#/components/schemas/BulkLeadIds"
       responses:
         "200":
-          description: Suppressed count
+          description: Per-person suppression results
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/BulkActionResult"
+                $ref: "#/components/schemas/BulkPersonSuppressionResult"
 
   /conversations:
     get:
@@ -346,6 +297,10 @@ paths:
         - name: leadId
           in: query
           schema: { type: string }
+        - name: search
+          in: query
+          description: Case-insensitive search across contact name, contact email, subject, and latest-message preview
+          schema: { type: string, minLength: 1, maxLength: 200 }
         - name: page
           in: query
           schema: { type: integer, default: 1 }
@@ -391,12 +346,144 @@ paths:
           required: true
           schema: { type: string }
       responses:
-        "202":
-          description: Draft queued
+        "200":
+          description: Existing active, sent, or delivery-unknown reply artifact returned idempotently
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/TriggerResult"
+        "202":
+          description: New reply artifact created and held for review
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TriggerResult"
+
+  /conversations/{id}/read:
+    post:
+      operationId: markConversationRead
+      tags: [conversations]
+      summary: Mark a conversation as read
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Conversation marked read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkActionResult"
+
+  /conversations/{id}/replies:
+    post:
+      operationId: createConversationReply
+      tags: [conversations]
+      summary: Resolve a human-written reply artifact for review
+      description: Creates a PENDING_REVIEW artifact or returns the existing artifact for the same inbound message. This endpoint never sends the reply.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConversationReplyInput"
+      responses:
+        "200":
+          description: Existing active, sent, or delivery-unknown reply artifact returned idempotently
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TriggerResult"
+        "201":
+          description: Reply artifact created and held for review
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TriggerResult"
+
+  /conversations/{id}/follow-ups:
+    post:
+      operationId: createConversationFollowUp
+      tags: [conversations]
+      summary: Create an internal follow-up reminder
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConversationFollowUpInput"
+      responses:
+        "201":
+          description: Follow-up reminder created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationFollowUp"
+
+  /conversations/{id}/follow-ups/{followUpId}:
+    patch:
+      operationId: updateConversationFollowUp
+      tags: [conversations]
+      summary: Complete or cancel an open follow-up reminder
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: followUpId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateConversationFollowUpInput"
+      responses:
+        "200":
+          description: Follow-up reminder updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationFollowUp"
+
+  /conversations/{id}/meetings:
+    post:
+      operationId: createConversationMeeting
+      tags: [conversations]
+      summary: Record an internal meeting proposal
+      description: Records a proposal in the meeting ledger. This does not send an invite or contact the lead.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConversationMeetingInput"
+      responses:
+        "201":
+          description: Internal meeting proposal recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationMeeting"
 
   /conversations/{id}/archive:
     post:
@@ -424,13 +511,15 @@ paths:
       parameters:
         - name: page
           in: query
-          schema: { type: integer, default: 1 }
+          schema: { type: integer, minimum: 1, maximum: 10000, default: 1 }
         - name: limit
           in: query
-          schema: { type: integer, default: 20 }
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
         - name: status
           in: query
-          schema: { type: string }
+          schema:
+            type: string
+            enum: [RUNNING, AWAITING_APPROVAL, COMPLETED, FAILED, CANCELLED]
       responses:
         "200":
           description: Paginated graph runs
@@ -456,7 +545,7 @@ paths:
     get:
       operationId: getRun
       tags: [runs]
-      summary: Get full evidence timeline for one run
+      summary: Get one run and its evidence-timeline availability
       parameters:
         - name: id
           in: path
@@ -464,7 +553,7 @@ paths:
           schema: { type: string }
       responses:
         "200":
-          description: Run with evidence timeline
+          description: Run with evidence timeline, or an explicit unavailable sentinel
           content:
             application/json:
               schema:
@@ -859,19 +948,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/WelcomeStatus"
 
-  /welcome/complete:
-    post:
-      operationId: completeWelcome
-      tags: [welcome]
-      summary: Mark onboarding as complete
-      responses:
-        "200":
-          description: Completed
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/WelcomeStatus"
-
   /graph-runs/{id}/timeline:
     get:
       operationId: getGraphRunTimeline
@@ -926,7 +1002,9 @@ components:
         factId: { type: string }
         claim: { type: string }
         source: { type: string }
-      required: [factId, claim, source]
+        date: { type: string }
+        cited: { type: boolean }
+      required: [factId, claim, source, cited]
 
     SendPolicy:
       type: object
@@ -943,7 +1021,10 @@ components:
         id: { type: string }
         status:
           type: string
-          enum: [PENDING_REVIEW, APPROVED, SENT, REJECTED, SUPPRESSED]
+          enum: [DRAFT, PENDING_REVIEW, APPROVED, REJECTED, SENT, SUPPRESSED, SENDING, SIMULATED, DELIVERY_UNKNOWN]
+        channel:
+          type: string
+          enum: [EMAIL, LINKEDIN, HUBSPOT_NOTE, UNKNOWN]
         recipient:
           $ref: "#/components/schemas/Recipient"
         subject: { type: string }
@@ -953,16 +1034,33 @@ components:
           items:
             $ref: "#/components/schemas/FactCitation"
         evaluatorScores:
-          $ref: "#/components/schemas/EvaluatorScores"
+          anyOf:
+            - $ref: "#/components/schemas/EvaluatorScores"
+            - type: "null"
         sendPolicy:
-          $ref: "#/components/schemas/SendPolicy"
+          anyOf:
+            - $ref: "#/components/schemas/SendPolicy"
+            - type: "null"
+        refusal:
+          $ref: "#/components/schemas/ArtifactRefusal"
+        langsmithRunId: { type: ["string", "null"] }
         createdAt: { type: string }
+        updatedAt: { type: string }
         approvedAt: { type: ["string", "null"] }
         sentAt: { type: ["string", "null"] }
         rejectionReason: { type: ["string", "null"] }
+        statusReason: { type: ["string", "null"] }
+        sendReceiptId: { type: ["string", "null"] }
         graphRunId: { type: ["string", "null"] }
         cohort: { type: ["string", "null"] }
-      required: [id, status, recipient, subject, bodyHtml, citations, evaluatorScores, sendPolicy, createdAt]
+      required: [id, status, channel, recipient, subject, bodyHtml, citations, evaluatorScores, sendPolicy, refusal, langsmithRunId, createdAt, updatedAt, approvedAt, sentAt, rejectionReason, statusReason, sendReceiptId, graphRunId, cohort]
+
+    ArtifactRefusal:
+      type: object
+      properties:
+        refused: { type: boolean }
+        reason: { type: ["string", "null"] }
+      required: [refused, reason]
 
     PaginatedArtifacts:
       type: object
@@ -982,6 +1080,35 @@ components:
         reason: { type: string }
       required: [reason]
 
+    SuppressionRecordResult:
+      type: object
+      properties:
+        id: { type: string }
+        recipientRef: { type: string }
+        reason:
+          type: string
+          enum: [USER_UNSUBSCRIBED, BOUNCED, COMPLAINED, MANUAL]
+        source: { type: ["string", "null"] }
+        created: { type: boolean }
+        upgraded: { type: boolean }
+      required: [id, recipientRef, reason, source, created, upgraded]
+
+    ArtifactSuppressionResult:
+      type: object
+      properties:
+        artifact:
+          type: object
+          properties:
+            id: { type: string }
+            status:
+              type: string
+              enum: [DRAFT, PENDING_REVIEW, APPROVED, REJECTED, SENT, SUPPRESSED, SENDING, SIMULATED, DELIVERY_UNKNOWN]
+            statusChanged: { type: boolean }
+          required: [id, status, statusChanged]
+        suppression:
+          $ref: "#/components/schemas/SuppressionRecordResult"
+      required: [artifact, suppression]
+
     BulkApproveResult:
       type: object
       properties:
@@ -996,25 +1123,23 @@ components:
       type: object
       properties:
         id: { type: string }
-        agentName: { type: string }
-        agentType:
+        kind:
           type: string
-          enum: [sdr, content, ops, pipeline, reply, reporting]
+          enum: [run_started, run_needs_approval, run_completed, run_failed, draft_created, draft_approved, draft_rejected, draft_sent, delivery_unknown, meeting_proposed, meeting_confirmed]
         action: { type: string }
-        stage: { type: string }
         timestamp: { type: string }
         artifactId: { type: ["string", "null"] }
         leadId: { type: ["string", "null"] }
-      required: [id, agentName, agentType, action, stage, timestamp]
+      required: [id, kind, action, timestamp, artifactId, leadId]
 
     TodayKpis:
       type: object
       properties:
         artifactsPending: { type: integer }
         artifactsSentToday: { type: integer }
-        replyRate7d: { type: number }
+        replyRate7d: { type: [number, "null"] }
         qualifiedMeetingsBooked: { type: integer }
-        leadsSourcedToday: { type: integer }
+        leadsSourcedToday: { type: [integer, "null"] }
         leadsScored: { type: integer }
       required: [artifactsPending, artifactsSentToday, replyRate7d, qualifiedMeetingsBooked, leadsSourcedToday, leadsScored]
 
@@ -1036,22 +1161,26 @@ components:
         domain: { type: ["string", "null"] }
         companyLogoUrl: { type: ["string", "null"] }
         avatarUrl: { type: ["string", "null"] }
-        score: { type: integer }
+        score: { type: [integer, "null"] }
         stage: { type: string }
-        geo: { type: string }
+        geo: { type: ["string", "null"] }
         country: { type: ["string", "null"] }
         industry: { type: ["string", "null"] }
         headcountEstimate: { type: ["string", "null"] }
-        cohort: { type: string, enum: [A, B] }
-        emailStatus: { type: string, enum: [DELIVERABLE, HIGH_PROBABILITY, CATCH_ALL] }
+        cohort: { type: ["string", "null"], enum: [A, B, null] }
+        emailStatus: { type: ["string", "null"], enum: [DELIVERABLE, HIGH_PROBABILITY, CATCH_ALL, null] }
         intentSignals:
-          type: array
-          items:
-            $ref: "#/components/schemas/IntentSignal"
+          anyOf:
+            - type: array
+              items:
+                $ref: "#/components/schemas/IntentSignal"
+            - type: "null"
         lastContactedAt: { type: ["string", "null"] }
         sendPolicy:
-          $ref: "#/components/schemas/SendPolicy"
-        createdAt: { type: string }
+          anyOf:
+            - $ref: "#/components/schemas/SendPolicy"
+            - type: "null"
+        createdAt: { type: ["string", "null"] }
       required: [id, name, email, company, score, stage, cohort, emailStatus, intentSignals, sendPolicy, createdAt]
 
     ScoreBreakdown:
@@ -1077,9 +1206,11 @@ components:
       properties:
         lead:
           $ref: "#/components/schemas/Lead"
-        researchBrief: { type: string }
+        researchBrief: { type: ["string", "null"] }
         scoreBreakdown:
-          $ref: "#/components/schemas/ScoreBreakdown"
+          anyOf:
+            - $ref: "#/components/schemas/ScoreBreakdown"
+            - type: "null"
         recentEvidenceEvents:
           type: array
           items:
@@ -1108,17 +1239,155 @@ components:
 
     BulkLeadIds:
       type: object
+      additionalProperties: false
       properties:
-        ids:
+        personIds:
           type: array
-          items: { type: string }
-      required: [ids]
+          minItems: 1
+          maxItems: 200
+          items: { type: string, minLength: 1, maxLength: 256 }
+      required: [personIds]
+
+    PersonSuppressionResult:
+      oneOf:
+        - type: object
+          properties:
+            personId: { type: string }
+            status: { type: string, enum: [SUPPRESSED] }
+            suppression:
+              $ref: "#/components/schemas/SuppressionRecordResult"
+          required: [personId, status, suppression]
+        - type: object
+          properties:
+            personId: { type: string }
+            status: { type: string, enum: [SKIPPED] }
+            reason:
+              type: string
+              enum: [NOT_FOUND_OR_CROSS_ORG, MISSING_EMAIL, AMBIGUOUS_EMAIL]
+          required: [personId, status, reason]
+
+    BulkPersonSuppressionResult:
+      type: object
+      properties:
+        requestedCount: { type: integer }
+        uniqueCount: { type: integer }
+        affectedCount: { type: integer }
+        alreadySuppressedCount: { type: integer }
+        skippedCount: { type: integer }
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/PersonSuppressionResult"
+      required: [requestedCount, uniqueCount, affectedCount, alreadySuppressedCount, skippedCount, results]
 
     BulkActionResult:
       type: object
       properties:
         affected: { type: integer }
       required: [affected]
+
+    CreateConversationReplyInput:
+      type: object
+      properties:
+        subject:
+          type: string
+          minLength: 1
+          maxLength: 200
+          pattern: "^[^\\r\\n]*$"
+        body:
+          type: string
+          minLength: 1
+          maxLength: 8000
+      required: [body]
+
+    CreateConversationFollowUpInput:
+      type: object
+      properties:
+        dueAt:
+          type: string
+          format: date-time
+        note:
+          type: string
+          maxLength: 2000
+      required: [dueAt]
+
+    UpdateConversationFollowUpInput:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [DONE, CANCELLED]
+      required: [status]
+
+    ConversationFollowUp:
+      type: object
+      properties:
+        id: { type: string }
+        conversationId: { type: string }
+        dueAt: { type: string }
+        note: { type: ["string", "null"] }
+        status:
+          type: string
+          enum: [OPEN, DONE, CANCELLED]
+        source:
+          type: string
+          enum: [HUMAN, AGENT]
+        createdAt: { type: string }
+        updatedAt: { type: string }
+      required:
+        [id, conversationId, dueAt, status, source, createdAt, updatedAt]
+
+    CreateConversationMeetingInput:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        scheduledFor:
+          type: string
+          format: date-time
+        durationMinutes:
+          type: integer
+          minimum: 1
+          maximum: 1440
+        notes:
+          type: string
+          maxLength: 2000
+      required: [scheduledFor]
+
+    ConversationMeeting:
+      type: object
+      properties:
+        id: { type: string }
+        conversationId: { type: ["string", "null"] }
+        title: { type: string }
+        scheduledFor: { type: string }
+        durationMinutes: { type: integer }
+        attendeeEmails:
+          type: array
+          items: { type: string }
+        notes: { type: ["string", "null"] }
+        status:
+          type: string
+          enum: [PROPOSED, CONFIRMED, CANCELLED, COMPLETED, NO_SHOW]
+        source:
+          type: string
+          enum: [AGENT_PROPOSED, HUMAN_LOGGED, IMPORTED]
+        createdAt: { type: string }
+        updatedAt: { type: string }
+      required:
+        [
+          id,
+          title,
+          scheduledFor,
+          durationMinutes,
+          attendeeEmails,
+          status,
+          source,
+          createdAt,
+          updatedAt,
+        ]
 
     ConversationMessage:
       type: object
@@ -1135,15 +1404,19 @@ components:
     ReplyIntelligence:
       type: object
       properties:
+        analysisStatus:
+          type: string
+          enum: [PENDING, READY, FAILED]
+          description: Whether the AI analysis is pending, usable, or failed.
         sentiment:
-          type: string
-          enum: [positive, objection, neutral, negative]
-        sentimentConfidence: { type: number }
-        nextBestAction: { type: string }
+          type: [string, "null"]
+          enum: [positive, objection, neutral, negative, null]
+        sentimentConfidence: { type: [number, "null"] }
+        nextBestAction: { type: [string, "null"] }
         nextBestActionType:
-          type: string
-          enum: [send_content, qualify, disqualify, follow_up]
-      required: [sentiment, sentimentConfidence, nextBestAction, nextBestActionType]
+          type: [string, "null"]
+          enum: [send_content, qualify, disqualify, follow_up, null]
+      required: [analysisStatus, sentiment, sentimentConfidence, nextBestAction, nextBestActionType]
 
     Conversation:
       type: object
@@ -1173,7 +1446,15 @@ components:
           items:
             $ref: "#/components/schemas/ConversationMessage"
         pendingDraftId: { type: ["string", "null"] }
-      required: [conversation, messages]
+        followUps:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConversationFollowUp"
+        meetings:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConversationMeeting"
+      required: [conversation, messages, followUps, meetings]
 
     PaginatedConversations:
       type: object
@@ -1187,12 +1468,23 @@ components:
         limit: { type: integer }
       required: [items, total, page, limit]
 
+    SendReadiness:
+      type: object
+      properties:
+        liveSendAllowed: { type: boolean }
+        physicalAddressSet: { type: boolean }
+        senderNameSet: { type: boolean }
+        mailboxConnected: { type: boolean }
+        dailyCapRemaining: { type: [integer, "null"] }
+      required: [liveSendAllowed, physicalAddressSet, senderNameSet, mailboxConnected, dailyCapRemaining]
+
     OrgSettings:
       type: object
       properties:
         orgId: { type: string }
         orgName: { type: string }
         slug: { type: string }
+        website: { type: ["string", "null"] }
         logoUrl: { type: ["string", "null"] }
         country: { type: string }
         timezone: { type: string }
@@ -1207,12 +1499,17 @@ components:
         plan: { type: string }
         creditsRemaining: { type: integer }
         welcomeComplete: { type: boolean }
-      required: [orgId, orgName, slug, country, timezone, liveSendEnabled, suppressionCount, allowlistedDomains, creditsRemaining, welcomeComplete]
+        sendReadiness:
+          anyOf:
+            - $ref: "#/components/schemas/SendReadiness"
+            - type: "null"
+      required: [orgId, orgName, slug, website, country, timezone, liveSendEnabled, suppressionCount, allowlistedDomains, creditsRemaining, welcomeComplete, sendReadiness]
 
     UpdateOrgInput:
       type: object
       properties:
         name: { type: string }
+        website: { type: string }
         slug: { type: string }
         logoUrl: { type: string }
         country: { type: string }
@@ -1246,6 +1543,9 @@ components:
           type: array
           items: { type: string }
         sizeBand: { type: string }
+        techStackSignals:
+          type: array
+          items: { type: string }
         intentSignals:
           type: array
           items: { type: string }
@@ -1255,7 +1555,7 @@ components:
         exclusionDomains:
           type: array
           items: { type: string }
-      required: [industries, titles, geos, sizeBand, intentSignals, seedDomains, exclusionDomains]
+      required: [industries, titles, geos, sizeBand, techStackSignals, intentSignals, seedDomains, exclusionDomains]
 
     Integration:
       type: object
@@ -1402,9 +1702,41 @@ components:
     WelcomeStatus:
       type: object
       properties:
+        organization:
+          type: object
+          properties:
+            nameSet: { type: boolean }
+            websiteSet: { type: boolean }
+            complete: { type: boolean }
+          required: [nameSet, websiteSet, complete]
+        senderIdentity:
+          type: object
+          properties:
+            senderNameSet: { type: boolean }
+            countrySet: { type: boolean }
+            physicalAddressSet: { type: boolean }
+            complete: { type: boolean }
+          required: [senderNameSet, countrySet, physicalAddressSet, complete]
+        icp:
+          type: object
+          properties:
+            usable: { type: boolean }
+            complete: { type: boolean }
+          required: [usable, complete]
+        mailbox:
+          type: object
+          properties:
+            connected: { type: boolean }
+            complete: { type: boolean }
+          required: [connected, complete]
+        sendReadiness:
+          $ref: "#/components/schemas/SendReadiness"
         complete: { type: boolean }
-        currentStep: { type: integer }
-      required: [complete, currentStep]
+        currentStep:
+          type: string
+          enum: [organization, sender_identity, icp, mailbox, complete]
+        readyForLiveSend: { type: boolean }
+      required: [organization, senderIdentity, icp, mailbox, sendReadiness, complete, currentStep, readyForLiveSend]
 
     GraphRun:
       type: object
@@ -1412,18 +1744,18 @@ components:
         id: { type: string }
         status:
           type: string
-          enum: [RUNNING, AWAITING_APPROVAL, COMPLETED, FAILED]
-        agentsInvolved:
+          enum: [RUNNING, AWAITING_APPROVAL, COMPLETED, FAILED, CANCELLED]
+        stagesCompleted:
           type: array
           items: { type: string }
-        leadsSourced: { type: integer }
-        artifactsGenerated: { type: integer }
+        leadsScored: { type: [integer, "null"] }
+        artifactsGenerated: { type: [integer, "null"] }
         durationMs: { type: integer }
-        costUsd: { type: number }
-        triggeredBy: { type: string }
+        costUsd: { type: [number, "null"] }
+        approvedBy: { type: ["string", "null"] }
         startedAt: { type: string }
         completedAt: { type: ["string", "null"] }
-      required: [id, status, agentsInvolved, leadsSourced, artifactsGenerated, durationMs, costUsd, triggeredBy, startedAt]
+      required: [id, status, stagesCompleted, leadsScored, artifactsGenerated, durationMs, costUsd, approvedBy, startedAt, completedAt]
 
     PaginatedRuns:
       type: object
@@ -1443,9 +1775,15 @@ components:
         run:
           $ref: "#/components/schemas/GraphRun"
         timeline:
-          type: array
-          items:
-            $ref: "#/components/schemas/TimelineNode"
+          anyOf:
+            - type: array
+              items:
+                $ref: "#/components/schemas/TimelineNode"
+            - type: object
+              properties:
+                unavailable: { type: boolean, enum: [true] }
+                feature: { type: string }
+              required: [unavailable, feature]
       required: [run, timeline]
 
     Agent:

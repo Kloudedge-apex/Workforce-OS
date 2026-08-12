@@ -21,8 +21,10 @@ FROM node:24-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=8080
-# FE_DIST points the BFF at the built SPA; CLERK_JWKS_URL / API_UPSTREAM_URL are
-# injected as Container App env/secrets at deploy (D2). DEV_TRUST_X_ORG_ID stays false.
+# FE_DIST points the BFF at the built SPA. CLERK_JWKS_URL, CLERK_ISSUER,
+# CLERK_AUTHORIZED_PARTIES, and API_UPSTREAM_URL are injected at deploy (D2).
+# CLERK_AUDIENCE stays unset unless session tokens carry it; DEV_TRUST_X_ORG_ID
+# stays false and is ignored unconditionally when NODE_ENV=production.
 ENV FE_DIST=/app/artifacts/workforce-os/dist/public
 # Bring the built workspace (BFF dist + node_modules for pino worker threads + FE dist).
 COPY --from=build /app /app

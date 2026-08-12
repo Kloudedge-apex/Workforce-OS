@@ -2,7 +2,7 @@ import { SignIn } from "@clerk/clerk-react";
 import { Logo } from "@/components/brand/Logo";
 
 /**
- * Public sign-in surface (shown by <SignedOut> in App.tsx). On-brand Nikxius
+ * Public sign-in surface (shown by <SignedOut> in App.tsx). On-brand Workforce OS
  * frame around Clerk's prebuilt <SignIn>.
  */
 export default function SignInPage() {
@@ -11,7 +11,7 @@ export default function SignInPage() {
       <div className="flex items-center gap-3">
         <Logo size={36} />
         <span className="font-serif font-semibold tracking-tight text-ink-900 text-2xl leading-none">
-          Nikxius
+          Workforce OS
         </span>
       </div>
       <SignIn routing="hash" />

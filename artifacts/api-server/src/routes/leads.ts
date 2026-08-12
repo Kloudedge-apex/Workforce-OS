@@ -2,13 +2,39 @@ import { Router, type NextFunction, type Request, type Response } from "express"
 import {
   ListLeadsQueryParams,
   GetLeadParams,
-  TriggerOutboundParams,
-  BulkSuppressLeadsBody,
 } from "@workspace/api-zod";
 import { apex, UpstreamError } from "../upstream/apex-client";
 import { gapResponse } from "../lib/unavailable";
 
 const router = Router();
+
+export const BULK_PERSON_SUPPRESSION_PATH = "/outreach/suppression/people/bulk";
+const MAX_BULK_PERSON_IDS = 200;
+const MAX_PERSON_ID_LENGTH = 256;
+
+/** Strict mirror of the upstream safety contract; Zod strips unknown keys. */
+export function parseBulkPersonSuppressionBody(
+  raw: unknown,
+): { personIds: string[] } | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const record = raw as Record<string, unknown>;
+  if (Object.keys(record).length !== 1 || !("personIds" in record)) return null;
+  if (
+    !Array.isArray(record.personIds) ||
+    record.personIds.length < 1 ||
+    record.personIds.length > MAX_BULK_PERSON_IDS
+  ) {
+    return null;
+  }
+  const personIds: string[] = [];
+  for (const value of record.personIds) {
+    if (typeof value !== "string") return null;
+    const personId = value.trim();
+    if (personId.length < 1 || personId.length > MAX_PERSON_ID_LENGTH) return null;
+    personIds.push(personId);
+  }
+  return { personIds };
+}
 
 // ─── OpenAPI response shapes (the FE contract we must satisfy) ──────────────
 
@@ -41,18 +67,18 @@ export interface Lead {
   domain: string | null;
   companyLogoUrl: string | null;
   avatarUrl: string | null;
-  score: number;
+  score: number | null;
   stage: string;
-  geo: string;
+  geo: string | null;
   country: string | null;
   industry: string | null;
   headcountEstimate: string | null;
-  cohort: "A" | "B";
-  emailStatus: "DELIVERABLE" | "HIGH_PROBABILITY" | "CATCH_ALL";
-  intentSignals: IntentSignal[];
+  cohort: "A" | "B" | null;
+  emailStatus: "DELIVERABLE" | "HIGH_PROBABILITY" | "CATCH_ALL" | null;
+  intentSignals: IntentSignal[] | null;
   lastContactedAt: string | null;
   sendPolicy: SendPolicy | null;
-  createdAt: string;
+  createdAt: string | null;
 }
 
 export interface PaginatedLeads {
@@ -78,8 +104,8 @@ export interface EvidenceEventSummary {
 
 export interface LeadDetail {
   lead: Lead;
-  researchBrief: string;
-  scoreBreakdown: ScoreBreakdown;
+  researchBrief: string | null;
+  scoreBreakdown: ScoreBreakdown | null;
   recentEvidenceEvents: EvidenceEventSummary[];
 }
 
@@ -96,7 +122,7 @@ export interface UpstreamUiLead {
   industry: string;
   companySize: string;
   techStack: string[];
-  score: number;
+  score: number | null;
   scoreBreakdown: Array<{ label: string; value: number }>;
   stage: string;
   source: string;
@@ -139,24 +165,19 @@ export interface UpstreamPersonDetail {
 
 // ─── Pure transforms (unit-tested; no req/res) ──────────────────────────────
 
-/**
- * Cohort is NOT modelled in apex-gtm-api. We synthesize it from score so the
- * FE's A/B grouping is stable and deterministic: score >= 70 → "A", else "B".
- */
-export function cohortFromScore(score: number): "A" | "B" {
-  return score >= 70 ? "A" : "B";
-}
-
-/**
- * apex-gtm-api emits lowercase send-state (`not_sent`/`sent`/...). The FE
- * contract is a deliverability enum it does NOT model. listLeadsForUi never
- * returns per-email verification, so we default to HIGH_PROBABILITY (the
- * honest "unverified but plausible" bucket). Synthesized — see audit.
- */
-export function emailStatusForLead(
-  _upstream: "not_sent" | "sent" | "opened" | "replied" | "bounced",
-): "DELIVERABLE" | "HIGH_PROBABILITY" | "CATCH_ALL" {
-  return "HIGH_PROBABILITY";
+/** Map only explicit persisted verification results; absence stays unknown. */
+export function verifiedEmailStatus(
+  email: UpstreamPersonDetail["emails"][number] | undefined,
+): Lead["emailStatus"] {
+  if (!email) return null;
+  const result = email.verificationResult?.trim().toLowerCase();
+  if (email.verified === true || result === "valid" || result === "deliverable") {
+    return "DELIVERABLE";
+  }
+  if (result === "catch_all" || result === "catch-all" || result === "accept_all") {
+    return "CATCH_ALL";
+  }
+  return null;
 }
 
 function emptyToNull(s: string | null | undefined): string | null {
@@ -177,18 +198,19 @@ export function shapeLead(u: UpstreamUiLead): Lead {
     // Not modelled upstream — synthesized as null (no logo/avatar source).
     companyLogoUrl: null,
     avatarUrl: null,
-    score: Math.trunc(u.score ?? 0),
+    score: u.score == null ? null : Math.trunc(u.score),
     stage: u.stage,
     // No geo source in listLeadsForUi.
-    geo: "",
+    geo: null,
     country: null,
     industry: emptyToNull(u.industry),
     // Company.employeeRange → headcountEstimate.
     headcountEstimate: emptyToNull(u.companySize),
-    cohort: cohortFromScore(u.score ?? 0),
-    emailStatus: emailStatusForLead(u.emailStatus),
-    // No intent-signal source upstream — default [].
-    intentSignals: [],
+    // No cohort, verification, or intent-evidence source exists on this list
+    // endpoint. Unknown is not a low-confidence business verdict.
+    cohort: null,
+    emailStatus: null,
+    intentSignals: null,
     // timeline is always [] upstream and sentAt is not surfaced.
     lastContactedAt: null,
     // No per-recipient send-policy source upstream (liveSendEnabled is the
@@ -221,23 +243,15 @@ export function shapeLeadsList(
  * have no source on release and are returned as a default brief + [].
  */
 export function shapePersonScoreBreakdown(
-  u: UpstreamPersonDetail,
-): ScoreBreakdown {
-  const total =
-    u.scoreBreakdown.find((b) => b.category.toLowerCase() === "total")?.points ??
-    u.score ??
-    0;
-  return {
-    fit: Math.trunc(total),
-    intent: 0,
-    engagement: 0,
-    timing: 0,
-  };
+  _u: UpstreamPersonDetail,
+): ScoreBreakdown | null {
+  // Upstream exposes only an aggregate total. Assigning that total to "fit"
+  // and zero to the other categories would invent a decomposition.
+  return null;
 }
 
 /** Map upstream person detail → the openapi Lead embedded in LeadDetail. */
 export function shapePersonAsLead(u: UpstreamPersonDetail): Lead {
-  const score = u.score ?? 0;
   return {
     id: u.id,
     name: `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim(),
@@ -247,34 +261,35 @@ export function shapePersonAsLead(u: UpstreamPersonDetail): Lead {
     domain: emptyToNull(u.companyDomain),
     companyLogoUrl: null,
     avatarUrl: null,
-    score: Math.trunc(score),
-    // getPersonDetail does not derive a stage; "qualified" iff qualifiedAt set.
-    stage: u.qualifiedAt ? "qualified" : "enriched",
-    geo: "",
+    score: u.score == null ? null : Math.trunc(u.score),
+    // Derive only from persisted qualification/email evidence.
+    stage: u.qualifiedAt ? "qualified" : u.bestEmail ? "enriched" : "sourced",
+    geo: null,
     country: null,
     // industry is not returned by getPersonDetail.
     industry: null,
     headcountEstimate: null,
-    cohort: cohortFromScore(score),
-    emailStatus: emailStatusForLead("not_sent"),
-    intentSignals: [],
+    cohort: null,
+    emailStatus: verifiedEmailStatus(
+      u.emails.find((email) => email.email === u.bestEmail) ?? u.emails[0],
+    ),
+    intentSignals: null,
     lastContactedAt: null,
     // Same honesty rule as shapeLead: no real policy source → null.
     sendPolicy: null,
-    // getPersonDetail does not return createdAt — default to empty ISO.
-    createdAt: "",
+    createdAt: null,
   };
 }
 
 /**
  * Compose the full LeadDetail. researchBrief + recentEvidenceEvents have no
  * source on release/go-live-2026-06-01 (getPersonDetail returns neither), so
- * they degrade honestly to a default brief and an empty event list.
+ * they remain unavailable rather than becoming empty or zero-valued claims.
  */
 export function shapeLeadDetail(u: UpstreamPersonDetail): LeadDetail {
   return {
     lead: shapePersonAsLead(u),
-    researchBrief: "",
+    researchBrief: null,
     scoreBreakdown: shapePersonScoreBreakdown(u),
     recentEvidenceEvents: [],
   };
@@ -290,7 +305,6 @@ router.get(
     const limit = parsed.success ? parsed.data.limit : 25;
     const minScore = parsed.success ? parsed.data.minScore : undefined;
     const q = parsed.success ? parsed.data.q : undefined;
-    const stage = parsed.success ? parsed.data.stage : undefined;
 
     // FE query → apex-gtm-api query: q→search, limit→per_page, minScore→min_score.
     // geo/cohort/industry/intentSignal/sort are NOT honored upstream (audit).
@@ -299,7 +313,6 @@ router.get(
     search.set("per_page", String(limit));
     if (q) search.set("search", q);
     if (minScore !== undefined) search.set("min_score", String(minScore));
-    if (stage) search.set("stage", stage);
 
     try {
       const upstream = (await apex.get(
@@ -353,7 +366,7 @@ router.get(
 router.post(
   "/leads/:id/trigger-outbound",
   (req: Request, res: Response): void => {
-    const parsed = TriggerOutboundParams.safeParse(req.params);
+    const parsed = GetLeadParams.safeParse(req.params);
     if (!parsed.success) {
       res.status(400).json({ error: "Invalid params" });
       return;
@@ -362,17 +375,30 @@ router.post(
   },
 );
 
-// GAP: no public bulk-suppress route on apex-gtm-api. OutreachSuppression +
-// SuppressionService.suppress() exist but key on email (not person id) and are
-// only reachable via the signed-token unsubscribe flow — no HTTP batch endpoint
-// and no id→email resolution is wired on release (audit). Surface as unavailable.
-router.post("/leads/bulk-suppress", (req: Request, res: Response): void => {
-  const parsed = BulkSuppressLeadsBody.safeParse(req.body);
-  if (!parsed.success) {
+// Resolve Person ids on the tenant-scoped backend. The browser never submits
+// recipient email or org identity, preventing a caller from suppressing an
+// arbitrary address/cross-tenant row through this BFF.
+router.post("/leads/bulk-suppress", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  const body = parseBulkPersonSuppressionBody(req.body);
+  if (!body) {
     res.status(400).json({ error: "Invalid request" });
     return;
   }
-  gapResponse(res, "lead-bulk-suppress");
+  try {
+    const result = await apex.post(
+      BULK_PERSON_SUPPRESSION_PATH,
+      { req },
+      body,
+    );
+    res.json(result);
+  } catch (err) {
+    if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
+    if (err instanceof UpstreamError && err.status === 400) {
+      res.status(400).json(err.body);
+      return;
+    }
+    next(err);
+  }
 });
 
 export default router;

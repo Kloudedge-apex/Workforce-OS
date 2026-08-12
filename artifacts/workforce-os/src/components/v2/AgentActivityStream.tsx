@@ -10,18 +10,20 @@ import { EmptyState } from "@/components/states/EmptyState";
 import { ErrorState } from "@/components/states/ErrorState";
 
 interface AgentActivityStreamProps {
-  filter?: "all" | "outbound" | "pipeline" | "conversations";
+  filter?: "all" | "outbound" | "pipeline";
   collapsed?: boolean;
 }
 
-const agentColorMap: Record<string, string> = {
-  sdr: "bg-rust-500",
-  content: "bg-ember-400",
-  ops: "bg-signal-info",
-  pipeline: "bg-ink-900",
-  reply: "bg-ink-600",
-  reporting: "bg-paper-400",
+const eventColorMap: Record<string, string> = {
+  delivery_unknown: "bg-ember-500",
+  draft_rejected: "bg-rust-500",
+  draft_sent: "bg-signal-positive",
+  meeting_confirmed: "bg-signal-positive",
 };
+
+function eventLabel(kind: string): string {
+  return kind.replace(/_/g, " ");
+}
 
 export function AgentActivityStream({ filter = "all", collapsed = false }: AgentActivityStreamProps) {
   const { data: stream, isLoading, isError, refetch } = useGetActivityStream(
@@ -78,8 +80,8 @@ export function AgentActivityStream({ filter = "all", collapsed = false }: Agent
     return (
       <EmptyState
         icon={Activity}
-        title="Agents are idle"
-        description="No activity right now. As your agents source, draft, and send, their work will stream here live."
+        title="No recorded activity"
+        description="Pipeline, review, delivery, and meeting events will appear here when the backend records them."
       />
     );
   }
@@ -89,12 +91,12 @@ export function AgentActivityStream({ filter = "all", collapsed = false }: Agent
       <div aria-live="polite" className="contents">
         {stream.map((event: ActivityEvent) => (
           <StaggerItem key={event.id} className="flex items-start gap-3">
-            <div className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", agentColorMap[event.agentType] || "bg-ink-400")} />
+            <div className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", eventColorMap[event.kind] || "bg-ink-400")} />
             {!collapsed && (
               <div className="flex flex-col gap-1 min-w-0">
                 <div className="flex items-baseline justify-between gap-2">
                   <span className="text-xs font-semibold text-ink-900 dark:text-paper-50 truncate">
-                    {event.agentName}
+                    {eventLabel(event.kind)}
                   </span>
                   <span className="text-[10px] text-ink-400 shrink-0 font-tabular">
                     {formatDistanceToNow(new Date(event.timestamp), { addSuffix: true })}
@@ -103,11 +105,6 @@ export function AgentActivityStream({ filter = "all", collapsed = false }: Agent
                 <p className="text-xs text-ink-700 dark:text-ink-300 leading-snug">
                   {event.action}
                 </p>
-                <div className="mt-1">
-                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-paper-200 text-ink-700 dark:text-ink-300">
-                    {event.stage}
-                  </span>
-                </div>
               </div>
             )}
           </StaggerItem>

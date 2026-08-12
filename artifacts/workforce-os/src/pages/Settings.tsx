@@ -11,6 +11,7 @@ import {
   useGetBilling,
   useListApiKeys, useCreateApiKey, useRevokeApiKey,
   useGetNotificationPrefs, useUpdateNotificationPrefs,
+  useGetWelcomeStatus,
   type CadenceStage, type NotificationPrefs, type OrgSettings,
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -37,21 +38,16 @@ import { CountUp } from "@/components/motion/CountUp";
 import { EmptyState } from "@/components/states/EmptyState";
 import { ErrorState } from "@/components/states/ErrorState";
 import { isUnavailable, UnavailableState } from "@/lib/unavailable";
-import { getSendReadiness } from "@/lib/sendReadiness";
+import { getSendReadiness, workspaceLiveState } from "@/lib/sendReadiness";
 import { fetchGmailAuthUrl } from "@/lib/oauthConnect";
 import { cn } from "@/lib/utils";
 
 // ─── Tab config ─────────────────────────────────────────────────────────────
 const TABS = [
+  { id: "setup",         label: "Guided Setup",   icon: CheckCircle2 },
   { id: "org",           label: "General",       icon: Building },
   { id: "icp",           label: "ICP",            icon: Map },
-  { id: "cadence",       label: "Cadence",        icon: Layers },
-  { id: "brand",         label: "Brand Voice",    icon: Mic },
   { id: "integrations",  label: "Integrations",   icon: LinkIcon },
-  { id: "team",          label: "Team",           icon: Users },
-  { id: "billing",       label: "Billing",        icon: CreditCard },
-  { id: "apikeys",       label: "API Keys",       icon: Key },
-  { id: "notifications", label: "Notifications",  icon: Bell },
 ] as const;
 
 type TabId = typeof TABS[number]["id"];
@@ -59,8 +55,8 @@ type TabId = typeof TABS[number]["id"];
 // ─── Root ─────────────────────────────────────────────────────────────────────
 export default function Settings() {
   const [location, navigate] = useLocation();
-  const sub = location.replace(/^\/settings\/?/, "") || "org";
-  const activeTab = (TABS.find(t => t.id === sub)?.id ?? "org") as TabId;
+  const sub = location.replace(/^\/settings\/?/, "") || "setup";
+  const activeTab = (TABS.find(t => t.id === sub)?.id ?? "setup") as TabId;
 
   const setTab = (id: TabId) => navigate(`/settings/${id}`);
 
@@ -162,6 +158,165 @@ function HealthDot({ label, ok }: { label: string; ok: boolean }) {
   );
 }
 
+// ─── Guided setup ────────────────────────────────────────────────────────────
+function SetupTab() {
+  const [, navigate] = useLocation();
+  const { data, isLoading, isError, refetch } = useGetWelcomeStatus({
+    query: { queryKey: ["getWelcomeStatus"], refetchOnMount: "always" },
+  });
+
+  if (isLoading) return <FormSkeleton rows={5} />;
+  if (isError || !data) {
+    return (
+      <ErrorState
+        title="Couldn't verify setup status"
+        description="Setup stays incomplete until the backend can verify every persisted step."
+        onRetry={() => refetch()}
+      />
+    );
+  }
+
+  const steps = [
+    {
+      key: "organization",
+      title: "Organization identity",
+      description: data.organization.complete
+        ? "Organization name and HTTPS website are stored."
+        : `Add ${[
+            !data.organization.nameSet ? "an organization name" : null,
+            !data.organization.websiteSet ? "an HTTPS website" : null,
+          ].filter(Boolean).join(" and ")}.`,
+      complete: data.organization.complete,
+      href: "/settings/org",
+      action: "Edit organization",
+    },
+    {
+      key: "sender_identity",
+      title: "Sender identity",
+      description: data.senderIdentity.complete
+        ? "Sender name, ISO country, and physical address are stored."
+        : "Add the sender name, ISO country, and physical address used in compliant email footers.",
+      complete: data.senderIdentity.complete,
+      href: "/settings/org",
+      action: "Set sender identity",
+    },
+    {
+      key: "icp",
+      title: "Ideal customer profile",
+      description: data.icp.complete
+        ? "A usable targeting profile is stored."
+        : "Define at least one target title, industry, geography, technology, intent signal, or seed domain.",
+      complete: data.icp.complete,
+      href: "/settings/icp",
+      action: "Define ICP",
+    },
+    {
+      key: "mailbox",
+      title: "Gmail mailbox",
+      description: data.mailbox.complete
+        ? "The backend confirms a connected mailbox."
+        : "Connect Gmail through Google OAuth; setup advances only after the backend reports CONNECTED.",
+      complete: data.mailbox.complete,
+      href: "/settings/integrations",
+      action: "Connect Gmail",
+    },
+  ] as const;
+
+  const readinessRows = [
+    ["Workspace allowlisted", data.sendReadiness.liveSendAllowed],
+    ["Mailbox connected", data.sendReadiness.mailboxConnected],
+    ["Sender name set", data.sendReadiness.senderNameSet],
+    ["Physical address set", data.sendReadiness.physicalAddressSet],
+    [
+      "Daily capacity available",
+      data.sendReadiness.dailyCapRemaining !== null && data.sendReadiness.dailyCapRemaining > 0,
+    ],
+  ] as const;
+
+  return (
+    <>
+      <SectionHeader
+        title="Guided Setup"
+        description="Complete each persisted step. There is no manual completion switch."
+      />
+
+      <SettingsCard className={cn("p-5 border-l-4", data.complete ? "border-l-signal-positive" : "border-l-ember-400")}>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="font-medium text-ink-900">
+              {data.complete ? "Customer setup complete" : "Setup still required"}
+            </p>
+            <p className="text-sm text-ink-500 mt-1">
+              {data.readyForLiveSend
+                ? "The backend confirms every setup and live-send gate."
+                : data.complete
+                  ? "Customer setup is complete, but server policy or send capacity still keeps live delivery off."
+                  : `Next required step: ${data.currentStep.replace(/_/g, " ")}.`}
+            </p>
+          </div>
+          <Badge
+            data-testid="setup-status"
+            className={cn(
+              "border",
+              data.readyForLiveSend
+                ? "bg-signal-positive/10 text-signal-positive border-signal-positive/30"
+                : "bg-paper-100 text-ink-600 border-paper-300",
+            )}
+          >
+            {data.readyForLiveSend ? "Ready for live send" : "Live send off"}
+          </Badge>
+        </div>
+      </SettingsCard>
+
+      <div className="space-y-3">
+        {steps.map((step, index) => (
+          <SettingsCard key={step.key} className="p-4 flex items-start gap-4">
+            <div
+              className={cn(
+                "h-8 w-8 rounded-full flex items-center justify-center shrink-0 text-sm font-semibold",
+                step.complete
+                  ? "bg-signal-positive/10 text-signal-positive"
+                  : "bg-paper-100 text-ink-500",
+              )}
+            >
+              {step.complete ? <CheckCircle2 className="h-4 w-4" /> : index + 1}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-ink-900">{step.title}</p>
+              <p className="text-sm text-ink-500 mt-0.5">{step.description}</p>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => navigate(step.href)}>
+              {step.action}
+              <ArrowUpRight className="h-3.5 w-3.5 ml-1.5" />
+            </Button>
+          </SettingsCard>
+        ))}
+      </div>
+
+      <SettingsCard className="p-5 space-y-3">
+        <div>
+          <p className="font-medium text-ink-900">Backend send readiness</p>
+          <p className="text-xs text-ink-500 mt-0.5">Read-only; approval never overrides these gates.</p>
+        </div>
+        {readinessRows.map(([label, ok]) => (
+          <div key={label} className="flex items-center gap-2 text-sm">
+            {ok
+              ? <CheckCircle2 className="h-4 w-4 text-signal-positive" />
+              : <X className="h-4 w-4 text-ember-500" />}
+            <span className="text-ink-700">{label}</span>
+          </div>
+        ))}
+        <div className="flex justify-between border-t border-paper-100 pt-3 text-sm">
+          <span className="text-ink-600">Daily send capacity remaining</span>
+          <span className="font-mono text-ink-900">
+            {data.sendReadiness.dailyCapRemaining ?? "not reported"}
+          </span>
+        </div>
+      </SettingsCard>
+    </>
+  );
+}
+
 // ─── Org Tab ──────────────────────────────────────────────────────────────────
 function OrgTab() {
   const { data, isLoading, isError, refetch } = useGetOrgSettings({ query: { queryKey: ["getOrgSettings"] } });
@@ -170,14 +325,14 @@ function OrgTab() {
   });
 
   const [form, setForm] = useState({
-    name: "", slug: "", timezone: "", unsubscribeUrl: "",
+    name: "", website: "",
   });
   const initialized = useRef(false);
   useEffect(() => {
     if (data && !initialized.current) {
       setForm({
-        name: data.orgName, slug: data.slug, timezone: data.timezone,
-        unsubscribeUrl: data.unsubscribeUrl ?? "",
+        name: data.orgName,
+        website: data.website ?? "",
       });
       initialized.current = true;
     }
@@ -185,22 +340,14 @@ function OrgTab() {
 
   return (
     <TabBoundary isLoading={isLoading} isError={isError} onRetry={() => refetch()} skeleton={<FormSkeleton rows={6} />}>
-      <SectionHeader title="Organization" description="Core workspace settings and compliance configuration." />
+      <SectionHeader title="Organization" description="Persisted workspace identity and sender compliance settings." />
       <SettingsCard className="p-5 space-y-4">
         <TwoCol>
           <Field label="Organization Name">
             <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
           </Field>
-          <Field label="Slug">
-            <Input value={form.slug} onChange={e => setForm(f => ({ ...f, slug: e.target.value }))} className="font-mono" />
-          </Field>
-        </TwoCol>
-        <TwoCol>
-          <Field label="Timezone">
-            <Input value={form.timezone} onChange={e => setForm(f => ({ ...f, timezone: e.target.value }))} placeholder="Asia/Kolkata" />
-          </Field>
-          <Field label="Unsubscribe URL">
-            <Input value={form.unsubscribeUrl} onChange={e => setForm(f => ({ ...f, unsubscribeUrl: e.target.value }))} placeholder="https://app.mynoted.ai/unsubscribe" />
+          <Field label="Company Website (HTTPS)">
+            <Input value={form.website} onChange={e => setForm(f => ({ ...f, website: e.target.value }))} placeholder="https://example.com" />
           </Field>
         </TwoCol>
       </SettingsCard>
@@ -213,7 +360,7 @@ function OrgTab() {
         <Button
           className="bg-rust-500 hover:bg-rust-600 text-white"
           disabled={isPending}
-          onClick={() => update({ data: { name: form.name, slug: form.slug, timezone: form.timezone } })}
+          onClick={() => update({ data: { name: form.name, website: form.website } })}
         >
           {isPending ? "Saving…" : "Save Changes"}
         </Button>
@@ -233,9 +380,10 @@ function OrgTab() {
  */
 function LiveStatusCard({ settings }: { settings: OrgSettings }) {
   const readiness = getSendReadiness(settings);
-  const live = readiness?.liveSendAllowed === true;
+  const live = workspaceLiveState(settings) === true;
 
   const rows: { label: string; ok: boolean | null }[] = [
+    { label: "Workspace allowlisted", ok: readiness ? readiness.liveSendAllowed : null },
     { label: "Mailbox connected", ok: readiness ? readiness.mailboxConnected : null },
     { label: "Sender name set", ok: readiness ? readiness.senderNameSet : null },
     { label: "Physical address set", ok: readiness ? readiness.physicalAddressSet : null },
@@ -248,8 +396,8 @@ function LiveStatusCard({ settings }: { settings: OrgSettings }) {
           <p className="font-medium text-ink-900 dark:text-paper-50">Live Status</p>
           <p className="text-sm text-ink-500 mt-0.5">
             {live
-              ? "Approved emails are dispatched to real recipients."
-              : "No real emails are dispatched — approvals run as simulations."}
+              ? "Every reported dispatch gate is open; approved emails can be sent by the worker."
+              : "At least one reported dispatch gate is closed; approval does not guarantee a real send."}
           </p>
         </div>
         <Badge
@@ -261,7 +409,7 @@ function LiveStatusCard({ settings }: { settings: OrgSettings }) {
               : "bg-paper-100 text-ink-600 border-paper-300",
           )}
         >
-          {live ? "LIVE for this workspace" : "Dry-run mode"}
+          {live ? "Ready for live send" : readiness ? "Live send blocked" : "Readiness unknown"}
         </Badge>
       </div>
 
@@ -358,26 +506,12 @@ function IcpTab() {
   const { data, isLoading, isError, refetch } = useGetIcpProfile({ query: { queryKey: ["getIcpProfile"] } });
   const { mutate: update, isPending } = useUpdateIcpProfile({
     mutation: {
-      onSuccess: (saved, vars) => {
-        // The BFF now forwards exclusionDomains upstream and echoes back what
-        // was actually PERSISTED. If we sent exclusions and none came back,
-        // the backend dropped them — say so instead of claiming success.
-        const sent = vars.data.exclusionDomains ?? [];
-        const persisted = Array.isArray(saved.exclusionDomains) ? saved.exclusionDomains : [];
-        if (sent.length > 0 && persisted.length === 0) {
-          toast.warning(
-            "ICP saved, but exclusion domains were NOT stored — the backend doesn't persist them yet.",
-          );
-          return;
-        }
-        toast.success("ICP saved");
-      },
-      // Surface the upstream validation message verbatim (e.g. a rejected
-      // exclusionDomains field) instead of a generic "Save failed".
+      onSuccess: () => toast.success("Current ICP saved"),
+      // Surface the upstream validation message verbatim.
       onError: (err) => toast.error(saveErrorMessage(err)),
     },
   });
-  const [profile, setProfile] = useState({ industries: [] as string[], titles: [] as string[], geos: [] as string[], sizeBand: "", intentSignals: [] as string[], seedDomains: [] as string[], exclusionDomains: [] as string[] });
+  const [profile, setProfile] = useState({ industries: [] as string[], titles: [] as string[], geos: [] as string[], sizeBand: "", techStackSignals: [] as string[], intentSignals: [] as string[], seedDomains: [] as string[], exclusionDomains: [] as string[] });
   const initialized = useRef(false);
 
   useEffect(() => {
@@ -394,10 +528,10 @@ function IcpTab() {
         <Field label="Company Size Band">
           <Input value={profile.sizeBand} onChange={e => setProfile(p => ({ ...p, sizeBand: e.target.value }))} placeholder="e.g. 50-500" />
         </Field>
+        <ChipField label="Technology Signals" chips={profile.techStackSignals} onChange={v => setProfile(p => ({ ...p, techStackSignals: v }))} placeholder="e.g. Salesforce, HubSpot" />
         <ChipField label="Intent Signals" chips={profile.intentSignals} onChange={v => setProfile(p => ({ ...p, intentSignals: v }))} placeholder="e.g. hiring engineers" />
         <Separator />
         <ChipField label="Seed Domains" chips={profile.seedDomains} onChange={v => setProfile(p => ({ ...p, seedDomains: v }))} placeholder="e.g. acme.com" />
-        <ChipField label="Exclusion Domains" chips={profile.exclusionDomains} onChange={v => setProfile(p => ({ ...p, exclusionDomains: v }))} placeholder="e.g. competitor.com" />
       </SettingsCard>
       <div className="flex justify-end">
         <Button className="bg-rust-500 hover:bg-rust-600 text-white" disabled={isPending} onClick={() => update({ data: profile })}>
@@ -579,7 +713,7 @@ function BrandTab() {
             onChange={e => setForm(f => ({ ...f, signatureHtml: e.target.value }))}
             rows={5}
             className="font-mono text-xs resize-none"
-            placeholder="<p>Best,<br>Nikhil Sood<br>Mynoted</p>"
+            placeholder="<p>Best,<br>Your name<br>Your company</p>"
           />
         </Field>
       </SettingsCard>
@@ -634,7 +768,8 @@ function IntegrationsTab() {
     mutation: { onSuccess: () => { toast.success("Disconnected"); refetch(); }, onError: () => toast.error("Disconnect failed") },
   });
 
-  const gmailRow = (data ?? []).find(i => i.provider === "gmail");
+  const visibleIntegrations = (data ?? []).filter((integration) => integration.provider === "gmail");
+  const gmailRow = visibleIntegrations.find(i => i.provider === "gmail");
   useEffect(() => {
     if (!gmailWaiting) return;
     if (gmailRow?.status === "connected") {
@@ -670,13 +805,13 @@ function IntegrationsTab() {
 
   if (isLoading) return <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-lg" />)}</div>;
   if (isError) return <ErrorState description="We couldn't load your integrations just now. Please try again." onRetry={() => refetch()} />;
-  if ((data ?? []).length === 0) return <EmptyState icon={Plug} title="No integrations available" description="Connect Gmail, a CRM, or an enrichment provider to power sourcing and outreach." />;
+  if (visibleIntegrations.length === 0) return <EmptyState icon={Plug} title="Gmail unavailable" description="This release supports Gmail only, and the backend did not expose the Gmail connector." />;
 
   return (
     <>
-      <SectionHeader title="Integrations" description="Connect external tools to power lead sourcing, CRM sync, and notifications." />
+      <SectionHeader title="Mailbox" description="Connect Gmail for reviewed outreach and durable reply ingestion." />
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {(data ?? []).map(int => {
+        {visibleIntegrations.map(int => {
           const meta = PROVIDER_META[int.provider] ?? { name: int.provider, description: "" };
           const isConnected = int.status === "connected";
           const isGmail = int.provider === "gmail";
@@ -1121,15 +1256,10 @@ function TabPanel({ tabId }: { tabId: TabId }) {
   const reduced = useReducedMotionSafe();
   const body = (
     <div className="max-w-3xl mx-auto space-y-6">
+      {tabId === "setup"         && <SetupTab />}
       {tabId === "org"           && <OrgTab />}
       {tabId === "icp"           && <IcpTab />}
-      {tabId === "cadence"       && <CadenceTab />}
-      {tabId === "brand"         && <BrandTab />}
       {tabId === "integrations"  && <IntegrationsTab />}
-      {tabId === "team"          && <TeamTab />}
-      {tabId === "billing"       && <BillingTab />}
-      {tabId === "apikeys"       && <ApiKeysTab />}
-      {tabId === "notifications" && <NotificationsTab />}
     </div>
   );
 

@@ -24,6 +24,7 @@ describe("shapeOrgSettings", () => {
     expect(out.orgId).toBe("org_cuid123");
     expect(out.orgName).toBe("Acme Corp");
     expect(out.slug).toBe("acme");
+    expect(out.website).toBe("https://acme.example");
     expect(out.country).toBe("US");
     expect(out.senderName).toBe("Jane Sender");
     expect(out.postalAddress).toBe("1 Market St, SF");
@@ -37,8 +38,13 @@ describe("shapeOrgSettings", () => {
     expect(out.unsubscribeUrl).toBeNull();
     expect(out.allowlistedDomains).toEqual([]);
     expect(out.creditsRemaining).toBe(0);
-    expect(out.welcomeComplete).toBe(true);
+    expect(out.welcomeComplete).toBe(false);
     expect(out.suppressionCount).toBe(0);
+  });
+
+  it("uses only the caller-supplied derived onboarding verdict", () => {
+    expect(shapeOrgSettings(upstream, 0, true).welcomeComplete).toBe(true);
+    expect(shapeOrgSettings(upstream, 0, false).welcomeComplete).toBe(false);
   });
 
   it("treats a missing sendReadiness as unknown → dry-run, never live", () => {
@@ -65,6 +71,21 @@ describe("shapeOrgSettings", () => {
     });
     expect(dry.liveSendEnabled).toBe(false);
     expect(dry.sendReadiness?.liveSendAllowed).toBe(false);
+
+    for (const blocked of [
+      { physicalAddressSet: false },
+      { senderNameSet: false },
+      { mailboxConnected: false },
+      { dailyCapRemaining: 0 },
+      { dailyCapRemaining: null },
+    ]) {
+      expect(
+        shapeOrgSettings({
+          ...upstream,
+          sendReadiness: { ...readiness, ...blocked },
+        }).liveSendEnabled,
+      ).toBe(false);
+    }
   });
 
   it("threads a caller-supplied suppression count through", () => {
@@ -114,16 +135,18 @@ describe("parseSendReadiness", () => {
 });
 
 describe("buildOrgPatchBody", () => {
-  it("forwards name, senderName, country, and physicalAddress to the upstream DTO", () => {
+  it("forwards name, website, senderName, country, and physicalAddress to the upstream DTO", () => {
     expect(
       buildOrgPatchBody({
         name: "Acme",
+        website: "https://acme.example",
         senderName: "Jane Sender",
         country: "US",
         physicalAddress: "1 Market St, SF",
       }),
     ).toEqual({
       name: "Acme",
+      website: "https://acme.example",
       senderName: "Jane Sender",
       country: "US",
       physicalAddress: "1 Market St, SF",

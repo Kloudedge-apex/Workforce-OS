@@ -1,11 +1,11 @@
-import React from "react";
+import React, { useState } from "react";
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
 import { useListRuns, useTriggerRun } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Play, ChevronRight, Loader2, Inbox } from "lucide-react";
+import { Play, ChevronLeft, ChevronRight, Loader2, Inbox } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -22,6 +22,7 @@ const STATUS_STYLES: Record<string, string> = {
   COMPLETED: "bg-green-100 text-green-800 border-green-200",
   RUNNING: "bg-amber-100 text-amber-800 border-amber-200 animate-pulse",
   FAILED: "bg-red-100 text-red-800 border-red-200",
+  CANCELLED: "bg-paper-100 text-ink-600 border-paper-200",
 };
 
 export interface RunStatusBadge {
@@ -126,10 +127,14 @@ function formatMs(ms: number): string {
 export default function Runs() {
   const [, navigate] = useLocation();
   const reduced = useReducedMotionSafe();
+  const [page, setPage] = useState(1);
+  const limit = 20;
   const { data, isLoading, isError, refetch } = useListRuns(
-    { page: 1, limit: 50 },
-    { query: { queryKey: ["listRuns"], refetchInterval: 10000 } }
+    { page, limit },
+    { query: { queryKey: ["listRuns", page, limit], refetchInterval: 10000 } }
   );
+  const total = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
 
   const { mutate: triggerRun, isPending: triggering } = useTriggerRun({
     mutation: {
@@ -167,7 +172,7 @@ export default function Runs() {
         <div>
           <h1 className="font-serif font-semibold text-ink-900 dark:text-paper-50 text-lg">Run History</h1>
           <p className="text-xs text-ink-400 mt-0.5">
-            <CountUp value={(data?.items ?? []).length} /> agent pipeline executions
+            <CountUp value={total} /> executions recorded
           </p>
         </div>
         <motion.div
@@ -237,12 +242,12 @@ export default function Runs() {
               <thead>
                 <tr className="border-b border-paper-200 text-left">
                   <th className="px-4 py-3 text-xs font-semibold text-ink-500 uppercase tracking-wide">Status</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-ink-500 uppercase tracking-wide">Agents</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-ink-500 uppercase tracking-wide">Leads</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-ink-500 uppercase tracking-wide">Drafts</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-ink-500 uppercase tracking-wide">Stages completed</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-ink-500 uppercase tracking-wide">Leads scored</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-ink-500 uppercase tracking-wide">Drafts recorded</th>
                   <th className="px-4 py-3 text-xs font-semibold text-ink-500 uppercase tracking-wide">Duration</th>
                   <th className="px-4 py-3 text-xs font-semibold text-ink-500 uppercase tracking-wide">Cost</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-ink-500 uppercase tracking-wide">Triggered by</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-ink-500 uppercase tracking-wide">Approved by</th>
                   <th className="px-4 py-3 text-xs font-semibold text-ink-500 uppercase tracking-wide">Date</th>
                   <th className="px-4 py-3 w-8" />
                 </tr>
@@ -271,13 +276,17 @@ export default function Runs() {
                       })()}
                     </td>
                     <td className="px-4 py-3 text-ink-700 dark:text-ink-300">
-                      {((run.agentsInvolved ?? []) as string[]).join(", ")}
+                      {((run.stagesCompleted ?? []) as string[]).join(", ") || "Not recorded"}
                     </td>
-                    <td className="px-4 py-3 font-mono text-ink-700 dark:text-ink-300">{run.leadsSourced}</td>
-                    <td className="px-4 py-3 font-mono text-ink-700 dark:text-ink-300">{run.artifactsGenerated}</td>
+                    <td className="px-4 py-3 font-mono text-ink-700 dark:text-ink-300">{run.leadsScored ?? "Not recorded"}</td>
+                    <td className="px-4 py-3 font-mono text-ink-700 dark:text-ink-300">{run.artifactsGenerated ?? "Not recorded"}</td>
                     <td className="px-4 py-3 font-mono text-ink-600">{formatMs(run.durationMs)}</td>
-                    <td className="px-4 py-3 font-mono text-ink-600">${run.costUsd.toFixed(3)}</td>
-                    <td className="px-4 py-3 text-ink-600 capitalize">{run.triggeredBy}</td>
+                    <td className="px-4 py-3 font-mono text-ink-600">
+                      {run.costUsd == null ? "Not recorded" : `$${run.costUsd.toFixed(3)}`}
+                    </td>
+                    <td className="px-4 py-3 text-ink-600">
+                      {run.approvedBy ?? "Not recorded"}
+                    </td>
                     <td className="px-4 py-3 text-ink-400 text-xs">
                       {new Date(run.startedAt).toLocaleDateString()}
                     </td>
@@ -288,6 +297,34 @@ export default function Runs() {
                 ))}
               </motion.tbody>
             </table>
+          </div>
+        )}
+        {total > 0 && (
+          <div className="mt-4 flex items-center justify-between border-t border-paper-200 pt-4">
+            <p className="text-xs text-ink-400">
+              Showing {Math.min((page - 1) * limit + 1, total)}–{Math.min(page * limit, total)} of {total}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page <= 1}
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+              >
+                <ChevronLeft className="mr-1 h-4 w-4" />
+                Previous
+              </Button>
+              <span className="text-xs text-ink-500">Page {page} of {totalPages}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page >= totalPages}
+                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+              >
+                Next
+                <ChevronRight className="ml-1 h-4 w-4" />
+              </Button>
+            </div>
           </div>
         )}
       </div>

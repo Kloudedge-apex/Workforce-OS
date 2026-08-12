@@ -1,8 +1,13 @@
-import React, { useMemo, useState } from "react";
-import { useListConversations, useGetConversation, ListConversationsSentiment } from "@workspace/api-client-react";
+import React, { useEffect, useState } from "react";
+import {
+  useListConversations,
+  useGetConversation,
+  ListConversationsSentiment,
+} from "@workspace/api-client-react";
 import { ConversationThread } from "@/components/v2/ConversationThread";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/states/EmptyState";
 import { ErrorState } from "@/components/states/ErrorState";
@@ -12,6 +17,7 @@ import { cardEnter, useReducedMotionSafe } from "@/lib/motion";
 import { Search, Inbox, SearchX, MessageSquareText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isUnavailable, UnavailableState } from "@/lib/unavailable";
+import { useLocation } from "wouter";
 
 const FILTERS = [
   { label: "All", value: "all" },
@@ -20,46 +26,84 @@ const FILTERS = [
   { label: "Objection", value: "objection" },
 ];
 
+const PAGE_SIZE = 20;
+
 export default function Conversations() {
   const [activeFilter, setActiveFilter] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(1);
   const reduced = useReducedMotionSafe();
+  const [, navigate] = useLocation();
 
-  const queryParams: any = { limit: 50 };
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSearch(search.trim());
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  const selectConversation = (id: string) => {
+    if (window.matchMedia("(max-width: 767px)").matches) {
+      navigate(`/conversations/${id}`);
+      return;
+    }
+    setSelectedId(id);
+  };
+
+  const queryParams: any = { page, limit: PAGE_SIZE };
   if (activeFilter === "needs_reply") queryParams.needsReply = true;
-  if (activeFilter === "positive") queryParams.sentiment = "positive" as ListConversationsSentiment;
-  if (activeFilter === "objection") queryParams.sentiment = "objection" as ListConversationsSentiment;
+  if (activeFilter === "positive")
+    queryParams.sentiment = "positive" as ListConversationsSentiment;
+  if (activeFilter === "objection")
+    queryParams.sentiment = "objection" as ListConversationsSentiment;
+  if (debouncedSearch) queryParams.search = debouncedSearch;
 
   const {
     data: listData,
     isLoading: listLoading,
+    isFetching: listFetching,
     isError: listError,
     refetch: refetchList,
-  } = useListConversations(
-    queryParams,
-    { query: { refetchInterval: 15000, queryKey: ["listConversations", activeFilter] } }
-  );
+  } = useListConversations(queryParams, {
+    query: {
+      refetchInterval: 15000,
+      queryKey: [
+        "listConversations",
+        activeFilter,
+        debouncedSearch,
+        page,
+        PAGE_SIZE,
+      ],
+    },
+  });
 
-  const allConversations = listData?.items || [];
+  const conversations = listData?.items || [];
+  const total = listData?.total ?? 0;
+  const responseLimit = listData?.limit ?? PAGE_SIZE;
+  const currentPage = listData?.page ?? page;
+  const totalPages = Math.max(1, Math.ceil(total / responseLimit));
+  const firstResult = total === 0 ? 0 : (currentPage - 1) * responseLimit + 1;
+  const lastResult = Math.min(currentPage * responseLimit, total);
 
-  const conversations = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return allConversations;
-    return allConversations.filter((c) =>
-      [c.leadName, c.subject, c.lastMessagePreview]
-        .filter(Boolean)
-        .some((field) => field!.toLowerCase().includes(q))
-    );
-  }, [allConversations, search]);
+  useEffect(() => {
+    if (!listLoading && listData && page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [listData, listLoading, page, totalPages]);
 
   const { data: detailData, isLoading: detailLoading } = useGetConversation(
     selectedId || "",
-    { query: { enabled: !!selectedId, queryKey: ["getConversation", selectedId] } }
+    {
+      query: {
+        enabled: !!selectedId,
+        queryKey: ["getConversation", selectedId],
+      },
+    },
   );
 
-  // Gap endpoint: the conversations backend isn't wired up yet, so the BFF
-  // returns `{ unavailable: true }`. Show the whole surface as coming soon.
+  // Retain compatibility with older BFF deployments during a staggered rollout.
   if (isUnavailable(listData)) {
     return <UnavailableState feature="conversations" />;
   }
@@ -71,18 +115,23 @@ export default function Conversations() {
       {/* Thread List (Left) */}
       <div className="w-full md:w-[40%] md:min-w-[320px] md:max-w-[420px] border-r border-paper-200 bg-paper-50 flex flex-col h-full shrink-0">
         <div className="p-4 border-b border-paper-200 space-y-4 shrink-0 bg-ink-0 shadow-sm z-10">
-          <h2 className="font-serif text-2xl font-semibold text-ink-900 dark:text-paper-50">Inbox</h2>
+          <h2 className="font-serif text-2xl font-semibold text-ink-900 dark:text-paper-50">
+            Inbox
+          </h2>
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-ink-400" />
             <Input
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
               placeholder="Search conversations..."
               className="pl-9 bg-paper-50 border-paper-200"
             />
           </div>
           <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-            {FILTERS.map(f => (
+            {FILTERS.map((f) => (
               <Badge
                 key={f.value}
                 variant="secondary"
@@ -90,9 +139,12 @@ export default function Conversations() {
                   "cursor-pointer whitespace-nowrap hover:bg-paper-200",
                   activeFilter === f.value
                     ? "bg-ink-900 text-white hover:bg-ink-800"
-                    : "bg-paper-100 text-ink-700"
+                    : "bg-paper-100 text-ink-700",
                 )}
-                onClick={() => setActiveFilter(f.value)}
+                onClick={() => {
+                  setActiveFilter(f.value);
+                  setPage(1);
+                }}
               >
                 {f.label}
               </Badge>
@@ -119,11 +171,11 @@ export default function Conversations() {
               onRetry={() => refetchList()}
             />
           ) : conversations.length === 0 ? (
-            search.trim() ? (
+            debouncedSearch ? (
               <EmptyState
                 icon={SearchX}
                 title="No matches"
-                description={`No conversations match "${search.trim()}". Try a different search.`}
+                description={`No conversations match "${debouncedSearch}". Try a different search.`}
               />
             ) : (
               <EmptyState
@@ -140,13 +192,47 @@ export default function Conversations() {
                     mode="preview"
                     conversation={conv}
                     selected={selectedId === conv.id}
-                    onSelect={setSelectedId}
+                    onSelect={selectConversation}
                   />
                 </StaggerItem>
               ))}
             </Stagger>
           )}
         </div>
+        {!listLoading && !listError && total > 0 ? (
+          <div className="shrink-0 border-t border-paper-200 bg-ink-0 px-3 py-2 flex items-center justify-between gap-2 text-xs text-ink-500">
+            <span className="whitespace-nowrap">
+              {firstResult}-{lastResult} of {total}
+            </span>
+            <div className="flex items-center gap-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 px-2"
+                disabled={currentPage <= 1 || listFetching}
+                onClick={() => setPage((value) => Math.max(1, value - 1))}
+              >
+                Previous
+              </Button>
+              <span className="min-w-12 text-center text-ink-600">
+                {currentPage}/{totalPages}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 px-2"
+                disabled={currentPage >= totalPages || listFetching}
+                onClick={() =>
+                  setPage((value) => Math.min(totalPages, value + 1))
+                }
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {/* Detail View (Right) */}

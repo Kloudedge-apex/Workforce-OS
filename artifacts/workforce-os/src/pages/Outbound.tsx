@@ -1,23 +1,21 @@
 import React, { useState } from "react";
 import { 
   useListArtifacts, 
-  useBulkApproveArtifacts, 
   useGetOrgSettings,
   OutreachArtifactStatus 
 } from "@workspace/api-client-react";
 import { ApprovalCard, ApprovalCardSkeleton } from "@/components/v2/ApprovalCard";
 import { AgentActivityStream } from "@/components/v2/AgentActivityStream";
 import { PolicyBadge } from "@/components/v2/PolicyBadge";
-import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
 import { CheckCircle2, ShieldAlert, Check, XCircle, Ban, History, Inbox, Send, ThumbsDown } from "lucide-react";
-import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { isUnavailable } from "@/lib/unavailable";
 import { artifactStatusBadge } from "@/lib/artifactStatus";
+import { workspaceLiveAuthorization } from "@/lib/sendReadiness";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { Stagger, StaggerItem } from "@/components/motion/Stagger";
@@ -27,24 +25,10 @@ import { fadeIn, springHover, useReducedMotionSafe } from "@/lib/motion";
 
 export default function Outbound() {
   const [activeTab, setActiveTab] = useState<OutreachArtifactStatus | "ALL">("PENDING_REVIEW");
-  const [, setLocation] = useLocation();
 
   const { data: orgSettings } = useGetOrgSettings({
     query: { queryKey: ["getOrgSettings"] }
   });
-
-  const bulkApproveMut = useBulkApproveArtifacts();
-
-  const handleBulkApprove = async () => {
-    toast("Running evaluators for bulk approval...");
-    try {
-      const res = await bulkApproveMut.mutateAsync();
-      if (isUnavailable(res)) { toast("Not available yet — coming soon"); return; }
-      toast.success(`Approved ${res.approved} drafts. Skipped ${res.skipped}.`);
-    } catch (e) {
-      toast.error("Bulk approval failed");
-    }
-  };
 
   return (
     <div className="flex h-full bg-paper-50">
@@ -53,28 +37,16 @@ export default function Outbound() {
         {/* Header Strip */}
         <div className="bg-white border-b border-paper-200 p-6 md:px-8 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
           <div>
-            <h1 className="font-serif text-3xl font-semibold text-ink-900">Outbound Campaigns</h1>
+            <h1 className="font-serif text-3xl font-semibold text-ink-900">Outbound Review</h1>
             <div className="flex items-center gap-3 mt-2">
               <span className="text-sm text-ink-700">Workspace Policy:</span>
-              <PolicyBadge 
-                policy={orgSettings ? {
-                  liveSendEnabled: orgSettings.liveSendEnabled,
-                  postalAddressSet: !!orgSettings.postalAddress,
-                  unsubscribeConfigured: !!orgSettings.unsubscribeUrl,
-                  recipientSuppressed: false
-                } : undefined} 
-              />
+              <PolicyBadge policy={null} workspaceAuthorization={workspaceLiveAuthorization(orgSettings)} />
             </div>
           </div>
           {activeTab === "PENDING_REVIEW" && (
-            <Button 
-              onClick={handleBulkApprove}
-              disabled={bulkApproveMut.isPending}
-              className="bg-rust-500 text-white hover:bg-rust-600 shadow-sm"
-            >
-              <CheckCircle2 className="w-4 h-4 mr-2" />
-              Approve High-Confidence
-            </Button>
+            <p className="text-xs text-ink-500 max-w-xs text-right">
+              Every recipient and message requires individual human review.
+            </p>
           )}
         </div>
 
@@ -87,6 +59,7 @@ export default function Outbound() {
                 <TabsTrigger value="PENDING_REVIEW" className="data-[state=active]:bg-white data-[state=active]:text-rust-500">Pending</TabsTrigger>
                 <TabsTrigger value="APPROVED" className="data-[state=active]:bg-white data-[state=active]:text-signal-positive">Approved</TabsTrigger>
                 <TabsTrigger value="SENT" className="data-[state=active]:bg-white data-[state=active]:text-signal-info">Sent</TabsTrigger>
+                <TabsTrigger value="DELIVERY_UNKNOWN" className="data-[state=active]:bg-white data-[state=active]:text-ember-500">Needs reconciliation</TabsTrigger>
                 <TabsTrigger value="REJECTED" className="data-[state=active]:bg-white data-[state=active]:text-rust-500">Rejected</TabsTrigger>
               </TabsList>
             </div>
@@ -112,7 +85,7 @@ export default function Outbound() {
       <div className="hidden lg:flex flex-col w-[320px] bg-paper-100 flex-shrink-0">
         <div className="p-4 border-b border-paper-200 bg-paper-50 sticky top-0 z-10 flex items-center gap-2">
           <History className="h-4 w-4 text-ink-400" />
-          <h3 className="text-xs font-bold text-ink-400 tracking-wider uppercase">Outbound Pulse</h3>
+          <h3 className="text-xs font-bold text-ink-400 tracking-wider uppercase">Outbound activity</h3>
         </div>
         <div className="flex-1 overflow-y-auto">
           <AgentActivityStream filter="outbound" />
@@ -125,12 +98,15 @@ export default function Outbound() {
 function ArtifactList({ status }: { status?: OutreachArtifactStatus }) {
   const [, setLocation] = useLocation();
   const reduced = useReducedMotionSafe();
+  const [page, setPage] = useState(1);
+  const limit = 20;
   const { data: draftsData, isLoading, isError, refetch } = useListArtifacts(
-    { status, limit: 20 },
-    { query: { refetchInterval: 8000, queryKey: ["listArtifacts", status] } }
+    { status, page, limit },
+    { query: { refetchInterval: 8000, queryKey: ["listArtifacts", status, page, limit] } }
   );
 
   const items = draftsData?.items || [];
+  const total = draftsData?.total ?? items.length;
 
   if (isLoading) {
     return (
@@ -168,6 +144,11 @@ function ArtifactList({ status }: { status?: OutreachArtifactStatus }) {
         title: "No sends yet",
         description: "Once approved drafts go out, they'll show up here with delivery status.",
       },
+      DELIVERY_UNKNOWN: {
+        icon: ShieldAlert,
+        title: "Nothing needs reconciliation",
+        description: "Provider-ambiguous deliveries are quarantined here and are never retried automatically.",
+      },
       REJECTED: {
         icon: ThumbsDown,
         title: "No rejections",
@@ -184,9 +165,10 @@ function ArtifactList({ status }: { status?: OutreachArtifactStatus }) {
 
   if (status === "SENT") {
     return (
-      <Card className="border border-paper-200 overflow-hidden bg-white shadow-sm max-w-5xl mx-auto">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left">
+      <div className="max-w-5xl mx-auto space-y-4">
+        <Card className="border border-paper-200 overflow-hidden bg-white shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left">
             <thead className="text-xs text-ink-400 uppercase bg-paper-50 border-b border-paper-200 font-mono">
               <tr>
                 <th className="px-6 py-4 font-semibold">Date</th>
@@ -226,28 +208,68 @@ function ArtifactList({ status }: { status?: OutreachArtifactStatus }) {
                 );
               })}
             </tbody>
-          </table>
-        </div>
-      </Card>
+            </table>
+          </div>
+        </Card>
+        <ArtifactPagination page={page} limit={limit} total={total} onPage={setPage} />
+      </div>
     );
   }
 
   return (
-    <Stagger className="max-w-3xl mx-auto space-y-6 pb-12">
-      {items.map((item) => (
-        <StaggerItem key={item.id}>
-          <motion.div
-            className="cursor-pointer"
-            variants={reduced ? undefined : springHover}
-            initial="rest"
-            whileHover="hover"
-            whileTap="tap"
-            onClick={() => setLocation(`/outbound/${item.id}`)}
-          >
-            <ApprovalCard artifact={item} />
-          </motion.div>
-        </StaggerItem>
-      ))}
-    </Stagger>
+    <div className="max-w-3xl mx-auto space-y-6 pb-12">
+      <Stagger className="space-y-6">
+        {items.map((item) => (
+          <StaggerItem key={item.id}>
+            <motion.div
+              className="cursor-pointer"
+              variants={reduced ? undefined : springHover}
+              initial="rest"
+              whileHover="hover"
+              whileTap="tap"
+              onClick={(event) => {
+                // ApprovalCard owns interactive review controls. Never turn a
+                // reject/expand/input click into accidental navigation.
+                const target = event.target as HTMLElement;
+                if (target.closest("button, input, textarea, a, [role='dialog']")) return;
+                setLocation(`/outbound/${item.id}`);
+              }}
+            >
+              <ApprovalCard artifact={item} />
+            </motion.div>
+          </StaggerItem>
+        ))}
+      </Stagger>
+      <ArtifactPagination page={page} limit={limit} total={total} onPage={setPage} />
+    </div>
+  );
+}
+
+function ArtifactPagination({
+  page,
+  limit,
+  total,
+  onPage,
+}: {
+  page: number;
+  limit: number;
+  total: number;
+  onPage: (page: number) => void;
+}) {
+  if (total <= limit) return null;
+  const first = (page - 1) * limit + 1;
+  const last = Math.min(page * limit, total);
+  return (
+    <div className="flex items-center justify-between gap-3 text-xs text-ink-500">
+      <span>Showing {first}-{last} of {total}</span>
+      <div className="flex gap-2">
+        <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => onPage(page - 1)}>
+          Previous
+        </Button>
+        <Button variant="outline" size="sm" disabled={last >= total} onClick={() => onPage(page + 1)}>
+          Next
+        </Button>
+      </div>
+    </div>
   );
 }

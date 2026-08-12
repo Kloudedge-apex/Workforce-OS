@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { NextFunction, Request, Response } from "express";
+import { ListRunsQueryParams } from "@workspace/api-zod";
 import { apex, UpstreamError } from "../upstream/apex-client";
-import { gapResponse } from "../lib/unavailable";
 
 const router = Router();
 
@@ -10,13 +10,13 @@ const router = Router();
 /** The openapi `GraphRun` shape (one item of PaginatedRuns). */
 export interface GraphRunShape {
   id: string;
-  status: "RUNNING" | "AWAITING_APPROVAL" | "COMPLETED" | "FAILED";
-  agentsInvolved: string[];
-  leadsSourced: number;
-  artifactsGenerated: number;
+  status: "RUNNING" | "AWAITING_APPROVAL" | "COMPLETED" | "FAILED" | "CANCELLED";
+  stagesCompleted: string[];
+  leadsScored: number | null;
+  artifactsGenerated: number | null;
   durationMs: number;
-  costUsd: number;
-  triggeredBy: string;
+  costUsd: number | null;
+  approvedBy: string | null;
   startedAt: string;
   completedAt: string | null;
 }
@@ -61,6 +61,15 @@ export interface UpstreamGraphRun {
   completedAt?: string | null;
 }
 
+/** Paginated response returned when the upstream receives page or limit. */
+export interface UpstreamGraphRunPage {
+  items: UpstreamGraphRun[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
 /** The body apex-gtm-api `POST /api/pipeline/run` returns (202). */
 export interface UpstreamTrigger {
   message: string;
@@ -89,30 +98,24 @@ export interface RunDetailShape {
 // ── pure transforms ──────────────────────────────────────────────────────────
 
 /**
- * Default agent roster a pipeline-supervisor graph drives. The GraphRun row
- * does not persist a discrete agentsInvolved list, so we derive it from the
- * stages the run has completed (state.stagesCompleted), falling back to the
- * full supervisor roster when no stage data is present.
+ * Return only the stage names explicitly persisted in the public run state.
  */
-const SUPERVISOR_AGENTS = ["supervisor", "sourcing", "enrichment", "scoring", "outreach"];
-
 function deriveAgents(state: UpstreamGraphRunState | null | undefined): string[] {
   const stages = state?.stagesCompleted;
   if (Array.isArray(stages) && stages.length > 0) return stages;
-  return SUPERVISOR_AGENTS;
+  return [];
 }
 
 /**
  * PURE: map ONE upstream GraphRun row → the openapi GraphRun schema.
  *
- * Synthesized/derived fields (NOT persisted per-run upstream):
- *  - agentsInvolved: derived from state.stagesCompleted (else supervisor roster)
- *  - leadsSourced:   state.counts.scored ?? counts.companies ?? 0
- *  - artifactsGenerated: state.counts.outreach ?? 0
+ * Derived fields:
+ *  - stagesCompleted: state.stagesCompleted (else empty)
+ *  - leadsScored: state.counts.scored, null when not recorded
+ *  - artifactsGenerated: state.counts.outreach, null when not recorded
  *  - durationMs:     completedAt ? (completedAt-startedAt) : (now-startedAt)
- *  - triggeredBy:    approvedBy ?? state.approvedBy ?? "system"
- *  - costUsd:        0 (no per-run cost column; only aggregated elsewhere)
- *  - status:         CANCELLED → FAILED (openapi enum omits CANCELLED)
+ *  - approvedBy:     persisted approval actor, not mislabelled as trigger actor
+ *  - costUsd:        null (no per-run cost column)
  */
 export function shapeRun(run: UpstreamGraphRun, now: number = Date.now()): GraphRunShape {
   const state = run.state ?? null;
@@ -122,39 +125,38 @@ export function shapeRun(run: UpstreamGraphRun, now: number = Date.now()): Graph
 
   return {
     id: run.id,
-    status: run.status === "CANCELLED" ? "FAILED" : run.status,
-    agentsInvolved: deriveAgents(state),
-    leadsSourced: counts.scored ?? counts.companies ?? 0,
-    artifactsGenerated: counts.outreach ?? 0,
+    status: run.status,
+    stagesCompleted: deriveAgents(state),
+    leadsScored: counts.scored ?? null,
+    artifactsGenerated: counts.outreach ?? null,
     durationMs: completedMs !== null ? completedMs - startedMs : now - startedMs,
-    costUsd: 0,
-    triggeredBy: run.approvedBy ?? state?.approvedBy ?? "system",
+    costUsd: null,
+    approvedBy: run.approvedBy ?? state?.approvedBy ?? null,
     startedAt: new Date(run.startedAt).toISOString(),
     completedAt: run.completedAt ? new Date(run.completedAt).toISOString() : null,
   };
 }
 
 /**
- * PURE: map the bare upstream `GraphRun[]` (listGraphRuns) → the openapi
- * PaginatedRuns envelope. The backend ignores page/limit/status and hard-caps
- * at 20 with no total count, so we honestly post-filter by status and report
- * total = the number of rows we actually have. (True server-side pagination is
- * a backend gap — see audit notes.)
+ * PURE: map either the paginated upstream response or the legacy bare array
+ * into the public PaginatedRuns envelope. New callers use the real upstream
+ * count; the array branch remains only for rolling-deploy compatibility.
  */
 export function shapeRunsList(
-  upstream: UpstreamGraphRun[],
+  upstream: UpstreamGraphRunPage | UpstreamGraphRun[],
   opts: { page: number; limit: number; status?: string; now?: number },
 ): PaginatedRunsShape {
   const now = opts.now ?? Date.now();
-  let items = upstream.map((r) => shapeRun(r, now));
+  const rows = Array.isArray(upstream) ? upstream : upstream.items;
+  let items = rows.map((r) => shapeRun(r, now));
   if (opts.status) {
     items = items.filter((i) => i.status === opts.status);
   }
   return {
     items,
-    total: items.length,
-    page: opts.page,
-    limit: opts.limit,
+    total: Array.isArray(upstream) ? items.length : upstream.total,
+    page: Array.isArray(upstream) ? opts.page : upstream.page,
+    limit: Array.isArray(upstream) ? opts.limit : upstream.limit,
   };
 }
 
@@ -192,9 +194,8 @@ export function upstreamMessage(body: unknown, fallback: string): string {
  * GraphRunDetail envelope. Returns null when the run is not in the window the
  * list exposes (the backend hard-caps the list at the 20 newest rows).
  *
- * INTERIM by design: there is no dedicated upstream run-detail endpoint this
- * BFF can consume for the full GraphRunDetail (the per-run timeline has no
- * controller), so we serve the REAL run header from the list window and keep
+ * The backend provides a dedicated tenant-scoped run read, while the per-run
+ * evidence timeline still has no controller. We therefore keep
  * `timeline` as the honest gap sentinel the FE already maps to its
  * "not available" half. Replace with a real per-run proxy once a dedicated
  * upstream endpoint (header + evidence timeline) ships.
@@ -215,12 +216,20 @@ export function shapeRunDetail(
 // ── routes ───────────────────────────────────────────────────────────────────
 
 router.get("/runs", async (req, res, next) => {
-  const page = parseInt((req.query.page as string) ?? "1", 10);
-  const limit = parseInt((req.query.limit as string) ?? "20", 10);
-  const status = req.query.status as string | undefined;
+  const parsed = ListRunsQueryParams.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid query" });
+    return;
+  }
+  const { page, limit, status } = parsed.data;
 
   try {
-    const upstream = (await apex.get("/graph/runs", { req })) as UpstreamGraphRun[];
+    const search = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (status) search.set("status", status);
+    const upstream = (await apex.get(
+      `/graph/runs?${search.toString()}`,
+      { req },
+    )) as UpstreamGraphRunPage | UpstreamGraphRun[];
     res.json(shapeRunsList(upstream, { page, limit, status }));
   } catch (err) {
     if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) {
@@ -253,27 +262,26 @@ router.post("/runs/trigger", async (req, res, next) => {
   }
 });
 
-// GET /runs/:id — run header REAL (interim), timeline still a gap.
-//
-// INTERIM until a dedicated upstream run-detail endpoint exists: we fetch the
-// upstream runs LIST (newest 20) and look the run up there, so RunDetail can
-// render the real status/counts/approval state instead of the unavailable
-// state for every run. The `timeline` half stays the honest gap sentinel —
+// GET /runs/:id — real tenant-scoped run header, timeline still a gap. The
+// `timeline` half stays the honest gap sentinel —
 // the EvidenceEvent rows that would populate it are exposed by no deployed
 // controller, and the BFF cannot reach the DB directly.
 router.get("/runs/:id", async (req, res, next) => {
   try {
-    const upstream = (await apex.get("/graph/runs", { req })) as UpstreamGraphRun[];
-    const detail = shapeRunDetail(upstream, req.params["id"]!);
-    if (!detail) {
-      // Not in the 20-row list window. The run may simply be older than the
-      // window (NOT necessarily deleted), so degrade to the gap sentinel the
-      // FE maps to "not available" rather than 404ing a run that may exist.
-      return gapResponse(res, "run-evidence-timeline");
-    }
+    const id = req.params["id"]!;
+    const upstream = (await apex.get(
+      `/graph/runs/${encodeURIComponent(id)}`,
+      { req },
+    )) as UpstreamGraphRun;
+    const detail = shapeRunDetail([upstream], id);
+    if (!detail) throw new Error("Run detail response id did not match the request");
     res.json(detail);
   } catch (err) {
     if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
+    if (err instanceof UpstreamError && err.status === 404) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
     next(err);
   }
 });

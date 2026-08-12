@@ -79,6 +79,7 @@ export interface ShapedRefusal {
 export interface ShapedArtifact {
   id: string;
   status: string;
+  channel: "EMAIL" | "LINKEDIN" | "HUBSPOT_NOTE" | "UNKNOWN";
   recipient: {
     id: string;
     name: string;
@@ -95,15 +96,25 @@ export interface ShapedArtifact {
   refusal: ShapedRefusal;
   langsmithRunId: string | null;
   createdAt: string;
+  updatedAt: string;
   approvedAt: string | null;
   sentAt: string | null;
   rejectionReason: string | null;
+  statusReason: string | null;
+  sendReceiptId: string | null;
   graphRunId: string | null;
   cohort: string | null;
 }
 
 export interface PaginatedArtifacts {
   items: ShapedArtifact[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface UpstreamArtifactPage {
+  items: UpstreamArtifact[];
   total: number;
   page: number;
   limit: number;
@@ -234,13 +245,20 @@ export function shapeEvaluatorScores(payload: unknown): ShapedEvaluatorScores | 
  *    partial object would paint fake red "No Postal Address" badges on every
  *    card, so the FE hides the badge until a real org-compliance endpoint
  *    ships. The SUPPRESSED signal still flows through `status`.
- * approvedAt/rejectionReason are derived from reviewedAt/reviewerNote gated on status.
+ * approvedAt preserves the original review timestamp after later delivery
+ * transitions. statusReason carries the persisted reviewer/worker note so an
+ * operator can inspect a DELIVERY_UNKNOWN quarantine without guessing.
  */
 export function shapeArtifact(a: UpstreamArtifact): ShapedArtifact {
   const recipientRef = a.recipientRef ?? "";
+  const channel =
+    a.channel === "EMAIL" || a.channel === "LINKEDIN" || a.channel === "HUBSPOT_NOTE"
+      ? a.channel
+      : "UNKNOWN";
   return {
     id: a.id,
     status: a.status,
+    channel,
     recipient: {
       id: recipientRef,
       name: payloadString(a.payload, "name") ?? recipientRef,
@@ -257,26 +275,38 @@ export function shapeArtifact(a: UpstreamArtifact): ShapedArtifact {
     refusal: shapeRefusal(a.payload),
     langsmithRunId: payloadString(a.payload, "langsmith_run_id") ?? null,
     createdAt: a.createdAt,
-    approvedAt: a.status === "APPROVED" ? (a.reviewedAt ?? null) : null,
+    updatedAt: a.updatedAt ?? a.createdAt,
+    approvedAt: a.reviewedAt ?? null,
     sentAt: a.sentAt ?? null,
     rejectionReason: a.status === "REJECTED" ? (a.reviewerNote ?? null) : null,
+    statusReason: a.reviewerNote ?? null,
+    sendReceiptId: a.sendReceiptId ?? null,
     graphRunId: a.graphRunId ?? null,
     cohort: payloadString(a.payload, "cohort") ?? null,
   };
 }
 
 /**
- * PURE: wrap a full upstream array into the FE PaginatedArtifacts envelope.
+ * PURE: map either the pagination-aware backend envelope or the legacy bare
+ * array into the FE PaginatedArtifacts envelope.
  *
- * The backend returns a bare array capped at 100 newest rows with NO server-side
- * count/offset, so pagination is BFF-side: slice by (page,limit). `total` is the
- * size of the returned array (accurate only up to the 100-row cap).
+ * The array branch is retained during a rolling deploy; its total remains
+ * bounded by that legacy backend's 100-row cap. New backends return a real
+ * tenant-scoped total and already-sliced items.
  */
 export function shapePaginatedArtifacts(
-  upstream: UpstreamArtifact[],
+  upstream: UpstreamArtifact[] | UpstreamArtifactPage,
   page: number,
   limit: number,
 ): PaginatedArtifacts {
+  if (!Array.isArray(upstream)) {
+    return {
+      items: upstream.items.map(shapeArtifact),
+      total: upstream.total,
+      page: upstream.page,
+      limit: upstream.limit,
+    };
+  }
   const total = upstream.length;
   const offset = (page - 1) * limit;
   const items = upstream.slice(offset, offset + limit).map(shapeArtifact);
@@ -288,15 +318,19 @@ function toInt(v: unknown, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+export function artifactSuppressionPath(id: string): string {
+  return `/outreach/suppression/artifacts/${encodeURIComponent(id)}`;
+}
+
 // GET /artifacts/pending — REAL via GET /api/outreach-artifacts?status=PENDING_REVIEW.
 router.get("/artifacts/pending", async (req, res, next) => {
   const page = toInt(req.query["page"], 1);
   const limit = toInt(req.query["limit"], 5);
   try {
     const upstream = (await apex.get(
-      "/outreach-artifacts?status=PENDING_REVIEW",
+      `/outreach-artifacts?status=PENDING_REVIEW&page=${page}&limit=${limit}`,
       { req },
-    )) as UpstreamArtifact[];
+    )) as UpstreamArtifact[] | UpstreamArtifactPage;
     res.json(shapePaginatedArtifacts(upstream, page, limit));
   } catch (err) {
     if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
@@ -309,11 +343,11 @@ router.get("/artifacts", async (req, res, next) => {
   const page = toInt(req.query["page"], 1);
   const limit = toInt(req.query["limit"], 20);
   const status = typeof req.query["status"] === "string" ? (req.query["status"] as string) : undefined;
-  const path = status
-    ? `/outreach-artifacts?status=${encodeURIComponent(status)}`
-    : "/outreach-artifacts";
+  const query = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (status) query.set("status", status);
+  const path = `/outreach-artifacts?${query.toString()}`;
   try {
-    const upstream = (await apex.get(path, { req })) as UpstreamArtifact[];
+    const upstream = (await apex.get(path, { req })) as UpstreamArtifact[] | UpstreamArtifactPage;
     res.json(shapePaginatedArtifacts(upstream, page, limit));
   } catch (err) {
     if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
@@ -381,11 +415,29 @@ router.post("/artifacts/:id/reject", async (req, res, next) => {
   }
 });
 
-// POST /artifacts/:id/suppress — GAP. No authenticated per-artifact suppress
-// endpoint exists on the release; SuppressionService is only reachable via the
-// public unsubscribe flow and nothing flips an artifact to SUPPRESSED on demand.
-router.post("/artifacts/:id/suppress", (_req, res) => {
-  return gapResponse(res, "artifact-suppress");
+// POST /artifacts/:id/suppress — server derives org, actor, and recipient from
+// the authenticated artifact. The upstream response intentionally separates
+// the durable suppression from the artifact CAS: an in-flight/already-sent
+// artifact can remain unchanged while every future send is blocked.
+router.post("/artifacts/:id/suppress", async (req, res, next) => {
+  try {
+    const result = await apex.post(
+      artifactSuppressionPath(req.params["id"]!),
+      { req },
+    );
+    res.json(result);
+  } catch (err) {
+    if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
+    if (err instanceof UpstreamError && err.status === 404) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    if (err instanceof UpstreamError && err.status === 400) {
+      res.status(400).json(err.body);
+      return;
+    }
+    next(err);
+  }
 });
 
 // POST /artifacts/bulk-approve — GAP. No bulk-approve controller/service method,

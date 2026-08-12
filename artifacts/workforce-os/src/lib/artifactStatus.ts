@@ -10,12 +10,12 @@ import type { OutreachArtifactStatus } from "@workspace/api-client-react";
  *                may render as "Sent".
  *  - SIMULATED → the backend force-mocked the send (dry-run). Distinct amber
  *                badge so pilots can't mistake it for a real delivery.
+ *  - DELIVERY_UNKNOWN → provider acceptance could not be reconciled. It is
+ *                terminal and must never be presented as retryable or sent.
  *
- * SENDING and SIMULATED are live server statuses that the generated
- * `OutreachArtifactStatus` union doesn't include yet (client regen pending),
- * so the UI union widens it here.
+ * The generated client is the source of the complete server enum.
  */
-export type ArtifactUiStatus = OutreachArtifactStatus | "SENDING" | "SIMULATED";
+export type ArtifactUiStatus = OutreachArtifactStatus;
 
 export interface ArtifactStatusBadge {
   label: string;
@@ -24,6 +24,10 @@ export interface ArtifactStatusBadge {
 }
 
 export const ARTIFACT_STATUS_BADGES: Record<ArtifactUiStatus, ArtifactStatusBadge> = {
+  DRAFT: {
+    label: "Draft",
+    className: "bg-paper-100 text-ink-600 border-paper-200",
+  },
   PENDING_REVIEW: {
     label: "Pending review",
     className: "bg-rust-100 text-rust-800 border-rust-200",
@@ -43,6 +47,10 @@ export const ARTIFACT_STATUS_BADGES: Record<ArtifactUiStatus, ArtifactStatusBadg
   SIMULATED: {
     label: "Simulated (dry-run)",
     className: "bg-ember-400/15 text-ember-500 border-ember-400/40",
+  },
+  DELIVERY_UNKNOWN: {
+    label: "Delivery unknown — reconcile before resend",
+    className: "bg-ember-400/15 text-ember-600 border-ember-400/40",
   },
   REJECTED: {
     label: "Rejected",

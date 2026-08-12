@@ -9,6 +9,8 @@ import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { PageTransition } from "@/components/motion/PageTransition";
 import { ErrorBoundary } from "@/components/states/ErrorBoundary";
 import { ApiAuthBridge } from "@/lib/api-auth";
+import { homePathForWelcome } from "@/lib/onboarding";
+import { useGetWelcomeStatus } from "@workspace/api-client-react";
 import SignInPage from "@/pages/SignIn";
 import Today from "@/pages/Today";
 import Pipeline from "@/pages/Pipeline";
@@ -19,7 +21,6 @@ import Conversations from "@/pages/Conversations";
 import ConversationThread from "@/pages/ConversationThread";
 import Runs from "@/pages/Runs";
 import RunDetail from "@/pages/RunDetail";
-import Agents from "@/pages/Agents";
 import Settings from "@/pages/Settings";
 import NotFound from "@/pages/not-found";
 
@@ -34,14 +35,26 @@ const queryClient = new QueryClient({
 
 function Router() {
   const [location] = useLocation();
+  const { data: welcomeStatus, isLoading } = useGetWelcomeStatus({
+    query: { queryKey: ["getWelcomeStatus"], retry: 1 },
+  });
+
+  if (isLoading) {
+    return <div className="h-full bg-paper-50 animate-pulse" aria-label="Checking workspace setup" />;
+  }
+
+  const signedInHome = homePathForWelcome(welcomeStatus);
+  const setupRoute = /^\/settings(?:\/(?:setup|org|icp|integrations))?\/?$/.test(location);
+  if (location === "/") return <Redirect to={signedInHome} />;
+  if (signedInHome === "/settings/setup" && !setupRoute) {
+    return <Redirect to="/settings/setup" />;
+  }
+
   return (
     <Shell>
       <AnimatePresence mode="wait" initial={false}>
         <PageTransition key={location} className="h-full">
           <Switch location={location}>
-            <Route path="/">
-              <Redirect to="/today" />
-            </Route>
             <Route path="/today" component={Today} />
             <Route path="/pipeline" component={Pipeline} />
             <Route path="/pipeline/:id" component={LeadDetail} />
@@ -51,7 +64,6 @@ function Router() {
             <Route path="/conversations/:id" component={ConversationThread} />
             <Route path="/runs" component={Runs} />
             <Route path="/runs/:id" component={RunDetail} />
-            <Route path="/agents" component={Agents} />
             <Route path="/settings" component={Settings} />
             <Route path="/settings/*" component={Settings} />
             <Route component={NotFound} />

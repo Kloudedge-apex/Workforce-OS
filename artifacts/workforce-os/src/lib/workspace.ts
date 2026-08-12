@@ -1,8 +1,8 @@
 // Single source of truth for workspace + current-user identity.
 //
-// Phase 1 (now):  workspace = live `GET /settings/org`; user = static Nikxius constant.
-// Phase 2 (later): swap the *source* to Clerk (`useOrganization` / `useUser`) WITHOUT
-//                  changing these return signatures or any consumer.
+// Workspace identity comes from the authenticated tenant read; user identity
+// comes from Clerk. Loading/error fallbacks are deliberately generic so one
+// customer never sees another customer's name or an invented role.
 import { useUser } from "@clerk/clerk-react";
 import { useGetOrgSettings } from "@workspace/api-client-react";
 
@@ -20,18 +20,17 @@ export interface CurrentUser {
 }
 
 /**
- * Static Nikxius app context. Used as the workspace fallback (loading/error) and
- * as the sole source for the current user until a `/me` endpoint or Clerk lands.
+ * Neutral loading/error context. These strings make no tenant or role claim.
  */
-const NIKXIUS_APP_CONTEXT = {
+const FALLBACK_APP_CONTEXT = {
   workspace: {
-    name: "Nikxius",
-    plan: "Growth",
+    name: "Workspace",
+    plan: "Plan unavailable",
   } satisfies Workspace,
   user: {
-    name: "Nikhil Sood",
-    role: "Owner",
-    initials: "NS",
+    name: "Signed-in user",
+    role: "Role not reported",
+    initials: "?",
   } satisfies CurrentUser,
 } as const;
 
@@ -45,47 +44,46 @@ function deriveInitials(name: string): string {
 
 /** Title-case a raw plan slug like "growth" -> "Growth". */
 function formatPlan(plan: string): string {
-  if (!plan) return NIKXIUS_APP_CONTEXT.workspace.plan;
+  if (!plan) return FALLBACK_APP_CONTEXT.workspace.plan;
   return plan.charAt(0).toUpperCase() + plan.slice(1);
 }
 
 /**
  * Active workspace identity. Sourced from `GET /settings/org`; falls back to the
- * static Nikxius context while loading or on error so the chrome never flashes
- * blank or a stale tenant name.
+ * neutral context while loading or on error so the chrome never flashes a
+ * stale tenant name.
  */
 export function useWorkspace(): Workspace {
   const { data } = useGetOrgSettings({
     query: { queryKey: ["getOrgSettings"] },
   });
 
-  if (!data) return NIKXIUS_APP_CONTEXT.workspace;
+  if (!data) return FALLBACK_APP_CONTEXT.workspace;
 
   return {
-    name: data.orgName || NIKXIUS_APP_CONTEXT.workspace.name,
+    name: data.orgName || FALLBACK_APP_CONTEXT.workspace.name,
     plan: formatPlan(data.plan ?? ""),
     logoUrl: data.logoUrl ?? undefined,
   };
 }
 
 /**
- * The signed-in user. Static Nikxius constant for now — no current-user endpoint
- * exists. Phase 2 swaps the body to Clerk's `useUser()` with no signature change.
+ * The signed-in Clerk user. Role is shown only when Clerk metadata supplies it.
  */
 export function useCurrentUser(): CurrentUser {
   const { user } = useUser();
   if (!user) {
-    const { name, role } = NIKXIUS_APP_CONTEXT.user;
+    const { name, role } = FALLBACK_APP_CONTEXT.user;
     return { name, role, initials: deriveInitials(name) };
   }
   const name =
     user.fullName ||
     user.primaryEmailAddress?.emailAddress ||
-    NIKXIUS_APP_CONTEXT.user.name;
+    FALLBACK_APP_CONTEXT.user.name;
   const role =
     typeof user.publicMetadata?.role === "string"
       ? user.publicMetadata.role
-      : NIKXIUS_APP_CONTEXT.user.role;
+      : FALLBACK_APP_CONTEXT.user.role;
   return {
     name,
     role,

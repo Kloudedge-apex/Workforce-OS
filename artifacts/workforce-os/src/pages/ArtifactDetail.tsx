@@ -5,6 +5,7 @@ import {
   useApproveArtifact,
   useRejectArtifact,
   useSuppressArtifact,
+  useGetOrgSettings,
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -12,19 +13,19 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, CheckCircle2, XCircle, ShieldOff, FileX2, ShieldAlert } from "lucide-react";
+import { ArrowLeft, CheckCircle2, XCircle, ShieldOff, FileX2, ShieldAlert, Send } from "lucide-react";
 import { EmptyState } from "@/components/states/EmptyState";
 import { ErrorState } from "@/components/states/ErrorState";
 import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { isUnavailable } from "@/lib/unavailable";
 import { motion } from "framer-motion";
 import { sanitizeHtml } from "@/lib/sanitize";
 import { springHover, useReducedMotionSafe } from "@/lib/motion";
 import { CountUp } from "@/components/motion/CountUp";
 import { artifactStatusBadge } from "@/lib/artifactStatus";
 import { getArtifactRefusal, uiCitations } from "@/lib/artifactContract";
+import { workspaceLiveAuthorization } from "@/lib/sendReadiness";
 
 /**
  * Quality score row. `null`/`undefined`/non-finite means the score is NOT
@@ -85,7 +86,10 @@ export default function ArtifactDetail() {
   const reduced = useReducedMotionSafe();
 
   const { data, isLoading, isError, refetch } = useGetArtifact(id, {
-    query: { queryKey: ["getArtifact", id], enabled: !!id },
+    query: { queryKey: ["getArtifact", id], enabled: !!id, refetchInterval: 5000 },
+  });
+  const { data: orgSettings } = useGetOrgSettings({
+    query: { queryKey: ["getOrgSettings"] },
   });
 
   const { mutate: approve } = useApproveArtifact({
@@ -94,14 +98,23 @@ export default function ArtifactDetail() {
   const { mutate: reject } = useRejectArtifact({
     mutation: { onSuccess: () => { toast.success("Rejected"); setRejectOpen(false); refetch(); } },
   });
-  const { mutate: suppress } = useSuppressArtifact({
-    mutation: {
-      onSuccess: (res) => {
-        if (isUnavailable(res)) { toast("Not available yet — coming soon"); return; }
-        toast.success("Suppressed"); refetch();
-      },
-    },
-  });
+  const { mutateAsync: suppress, isPending: isSuppressing } = useSuppressArtifact();
+
+  const handleSuppress = async () => {
+    try {
+      const result = await suppress({ id });
+      if (result.artifact.statusChanged) {
+        toast.success("Recipient suppressed; this draft will not send");
+      } else if (result.suppression.created || result.suppression.upgraded) {
+        toast.success(`Recipient suppressed for future sends; artifact remains ${result.artifact.status}`);
+      } else {
+        toast.success("Recipient was already suppressed");
+      }
+      await refetch();
+    } catch {
+      toast.error("Could not suppress this recipient");
+    }
+  };
 
   if (isLoading) return (
     <div className="p-6 space-y-4 max-w-4xl mx-auto">
@@ -147,6 +160,20 @@ export default function ArtifactDetail() {
   const refusal = getArtifactRefusal(data);
   const refused = refusal?.refused === true;
   const isPending = data.status === "PENDING_REVIEW";
+  const dispatchSupported = data.channel === "EMAIL" || data.channel === "LINKEDIN";
+  const workspaceAuthorization = workspaceLiveAuthorization(orgSettings);
+  const liveAuthorization = data.sendPolicy
+    ? data.sendPolicy.liveSendEnabled
+    : workspaceAuthorization;
+  const liveAuthorized = liveAuthorization === true;
+  const channelLabel = data.channel === "EMAIL"
+    ? "Email"
+    : data.channel === "LINKEDIN"
+      ? "LinkedIn"
+      : data.channel === "HUBSPOT_NOTE"
+        ? "HubSpot note"
+        : "Unknown channel";
+  const isDeliveryUnknown = data.status === "DELIVERY_UNKNOWN";
   const statusBadge = artifactStatusBadge(data.status);
   const citations = uiCitations(data.citations);
 
@@ -161,6 +188,7 @@ export default function ArtifactDetail() {
           {refused ? "Refused to draft" : data.subject}
         </span>
         <div className="ml-auto flex items-center gap-2">
+          <Badge variant="outline" className="text-xs uppercase">{channelLabel}</Badge>
           <Badge variant="outline" className={cn("text-xs border", statusBadge.className)}>
             {statusBadge.label}
           </Badge>
@@ -170,6 +198,38 @@ export default function ArtifactDetail() {
       <Stagger className="max-w-5xl mx-auto w-full p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Email preview — a refusal renders a banner, never an (empty) draft */}
         <StaggerItem className="lg:col-span-2 space-y-4">
+          {isDeliveryUnknown && (
+            <div
+              role="alert"
+              className="rounded-xl border border-ember-400/50 bg-ember-400/10 p-5 shadow-sm"
+            >
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="h-5 w-5 text-ember-500 shrink-0" />
+                <h2 className="font-serif text-lg text-ink-900">Delivery could not be confirmed</h2>
+              </div>
+              <p className="text-sm text-ink-700 mt-2">
+                Do not resend this artifact. Reconcile the provider Sent folder or message receipt before creating a separately reviewed replacement.
+              </p>
+              <dl className="mt-3 grid gap-1 text-xs text-ink-600">
+                <div>
+                  <dt className="inline font-semibold">Attempt updated: </dt>
+                  <dd className="inline">{new Date(data.updatedAt).toLocaleString()}</dd>
+                </div>
+                {data.statusReason && (
+                  <div>
+                    <dt className="inline font-semibold">Recorded reason: </dt>
+                    <dd className="inline break-words">{data.statusReason}</dd>
+                  </div>
+                )}
+                {data.sendReceiptId && (
+                  <div>
+                    <dt className="inline font-semibold">Provider receipt: </dt>
+                    <dd className="inline font-mono break-all">{data.sendReceiptId}</dd>
+                  </div>
+                )}
+              </dl>
+            </div>
+          )}
           {refused ? (
             <div
               role="alert"
@@ -182,7 +242,7 @@ export default function ArtifactDetail() {
               </div>
               <p className="text-sm text-ink-700 mt-2">
                 {refusal?.reason ??
-                  "The agent declined to write this email because it couldn't ground it in real, dated evidence."}
+                  "The agent declined to write this artifact because it couldn't ground it in real, dated evidence."}
               </p>
             </div>
           ) : (
@@ -242,14 +302,35 @@ export default function ArtifactDetail() {
           {/* Actions — no approve path for a refusal (there is no draft to send) */}
           {isPending && (
             <div className="bg-white border border-paper-200 rounded-xl p-4 space-y-2 shadow-sm">
+              {dispatchSupported && liveAuthorized && (
+                <div className="flex items-start gap-2 rounded-md border border-rust-500/30 bg-rust-500/10 p-3" role="alert">
+                  <Send className="h-4 w-4 text-rust-500 shrink-0 mt-0.5" />
+                  <p className="text-xs font-medium text-rust-600">
+                    Live delivery is authorized. Approval may deliver this {channelLabel.toLowerCase()} now or later after temporary policy gates clear.
+                  </p>
+                </div>
+              )}
+              {dispatchSupported && liveAuthorization === null && (
+                <div className="flex items-start gap-2 rounded-md border border-paper-300 bg-paper-100 p-3" role="alert">
+                  <ShieldAlert className="h-4 w-4 text-ink-500 shrink-0 mt-0.5" />
+                  <p className="text-xs font-medium text-ink-600">
+                    Approval is disabled until live-delivery authorization can be verified.
+                  </p>
+                </div>
+              )}
               {refused ? (
                 <p className="text-xs text-ink-500 px-1 py-2">
-                  Approval disabled — the agent refused to draft this email.
+                  Approval disabled — the agent refused to draft this artifact.
+                </p>
+              ) : !dispatchSupported ? (
+                <p className="text-xs text-ink-500 px-1 py-2">
+                  Approval unavailable — {channelLabel.toLowerCase()} dispatch is not supported in this release.
                 </p>
               ) : (
                 <Button
                   className="w-full bg-rust-500 hover:bg-rust-600 text-white shadow-sm active-elevate-2"
                   onClick={() => approve({ id })}
+                  disabled={liveAuthorization === null}
                 >
                   <CheckCircle2 className="h-4 w-4 mr-2" /> Approve
                 </Button>
@@ -261,12 +342,32 @@ export default function ArtifactDetail() {
               >
                 <XCircle className="h-4 w-4 mr-2" /> Reject
               </Button>
+              {data.channel === "EMAIL" && (
+                <Button
+                  variant="ghost"
+                  className="w-full text-ink-500 hover-elevate active-elevate-2"
+                  onClick={handleSuppress}
+                  disabled={isSuppressing}
+                >
+                  <ShieldOff className="h-4 w-4 mr-2" /> {isSuppressing ? "Suppressing…" : "Suppress"}
+                </Button>
+              )}
+            </div>
+          )}
+
+          {!isPending && data.channel === "EMAIL" && data.status !== "SUPPRESSED" && (
+            <div className="bg-white border border-paper-200 rounded-xl p-4 space-y-2 shadow-sm">
+              <p className="text-xs text-ink-500">
+                Block this recipient from all future outreach. This does not alter an in-flight or historical delivery record.
+              </p>
               <Button
-                variant="ghost"
-                className="w-full text-ink-500 hover-elevate active-elevate-2"
-                onClick={() => suppress({ id })}
+                variant="outline"
+                className="w-full border-paper-300"
+                onClick={handleSuppress}
+                disabled={isSuppressing}
               >
-                <ShieldOff className="h-4 w-4 mr-2" /> Suppress
+                <ShieldOff className="h-4 w-4 mr-2" />
+                {isSuppressing ? "Suppressing…" : "Suppress future sends"}
               </Button>
             </div>
           )}
@@ -302,7 +403,11 @@ export default function ArtifactDetail() {
               never render invented all-false rows (and never crash). */}
           <div className="bg-white border border-paper-200 rounded-xl p-4 shadow-sm">
             <h3 className="text-xs font-semibold text-ink-500 uppercase tracking-wide mb-3">Send Policy</h3>
-            {sendPolicy ? (
+            {data.channel !== "EMAIL" ? (
+              <Badge variant="outline" className="text-xs bg-paper-100 text-ink-400 border-paper-200">
+                Email send policy does not apply
+              </Badge>
+            ) : sendPolicy ? (
               ([
                 { key: "liveSendEnabled", label: "Live send enabled" },
                 { key: "postalAddressSet", label: "Postal address set" },

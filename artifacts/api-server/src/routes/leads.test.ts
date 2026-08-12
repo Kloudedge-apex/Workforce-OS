@@ -1,15 +1,36 @@
 import { describe, it, expect } from "vitest";
 import {
-  cohortFromScore,
-  emailStatusForLead,
+  verifiedEmailStatus,
   shapeLead,
   shapeLeadsList,
   shapePersonAsLead,
   shapePersonScoreBreakdown,
   shapeLeadDetail,
+  BULK_PERSON_SUPPRESSION_PATH,
+  parseBulkPersonSuppressionBody,
   type UpstreamUiLead,
   type UpstreamPersonDetail,
 } from "./leads";
+
+describe("manual suppression route contract", () => {
+  it("targets the server-side Person-id bulk suppression endpoint", () => {
+    expect(BULK_PERSON_SUPPRESSION_PATH).toBe("/outreach/suppression/people/bulk");
+  });
+
+  it("accepts only bounded Person ids and rejects the legacy ids/email shape", () => {
+    expect(parseBulkPersonSuppressionBody({ personIds: [" person_1 "] })).toEqual({
+      personIds: ["person_1"],
+    });
+    expect(parseBulkPersonSuppressionBody({ personIds: [] })).toBeNull();
+    expect(parseBulkPersonSuppressionBody({ ids: ["person_1"] })).toBeNull();
+    expect(
+      parseBulkPersonSuppressionBody({ personIds: ["person_1"], email: "victim@example.com" }),
+    ).toBeNull();
+    expect(parseBulkPersonSuppressionBody({ personIds: ["   "] })).toBeNull();
+    expect(parseBulkPersonSuppressionBody({ personIds: ["x".repeat(257)] })).toBeNull();
+    expect(parseBulkPersonSuppressionBody({ personIds: Array(201).fill("person_1") })).toBeNull();
+  });
+});
 
 // Sample upstream lead matching LeadsService.listLeadsForUi (release audit).
 const sampleUiLead: UpstreamUiLead = {
@@ -31,22 +52,24 @@ const sampleUiLead: UpstreamUiLead = {
   createdAt: "2026-06-01T12:00:00.000Z",
 };
 
-describe("cohortFromScore", () => {
-  it("maps score >= 70 to cohort A", () => {
-    expect(cohortFromScore(70)).toBe("A");
-    expect(cohortFromScore(99)).toBe("A");
-  });
-  it("maps score < 70 to cohort B", () => {
-    expect(cohortFromScore(69)).toBe("B");
-    expect(cohortFromScore(0)).toBe("B");
-  });
-});
-
-describe("emailStatusForLead", () => {
-  it("always returns the honest HIGH_PROBABILITY default (no verification source)", () => {
-    expect(emailStatusForLead("not_sent")).toBe("HIGH_PROBABILITY");
-    expect(emailStatusForLead("sent")).toBe("HIGH_PROBABILITY");
-    expect(emailStatusForLead("bounced")).toBe("HIGH_PROBABILITY");
+describe("verifiedEmailStatus", () => {
+  it("maps only explicit verification evidence", () => {
+    expect(verifiedEmailStatus(samplePerson.emails[0])).toBe("DELIVERABLE");
+    expect(
+      verifiedEmailStatus({
+        ...samplePerson.emails[0]!,
+        verified: false,
+        verificationResult: "catch_all",
+      }),
+    ).toBe("CATCH_ALL");
+    expect(
+      verifiedEmailStatus({
+        ...samplePerson.emails[0]!,
+        verified: null,
+        verificationResult: null,
+      }),
+    ).toBeNull();
+    expect(verifiedEmailStatus(undefined)).toBeNull();
   });
 });
 
@@ -63,13 +86,13 @@ describe("shapeLead", () => {
       avatarUrl: null,
       score: 82,
       stage: "qualified",
-      geo: "",
+      geo: null,
       country: null,
       industry: "Software",
       headcountEstimate: "51-200",
-      cohort: "A",
-      emailStatus: "HIGH_PROBABILITY",
-      intentSignals: [],
+      cohort: null,
+      emailStatus: null,
+      intentSignals: null,
       lastContactedAt: null,
       sendPolicy: null,
       createdAt: "2026-06-01T12:00:00.000Z",
@@ -97,6 +120,10 @@ describe("shapeLead", () => {
 
   it("truncates a fractional score to an integer", () => {
     expect(shapeLead({ ...sampleUiLead, score: 47.9 }).score).toBe(47);
+  });
+
+  it("preserves an unscored lead as unknown instead of inventing zero", () => {
+    expect(shapeLead({ ...sampleUiLead, score: null }).score).toBeNull();
   });
 });
 
@@ -161,10 +188,10 @@ describe("shapePersonAsLead", () => {
     expect(lead.domain).toBe("globex.io");
     expect(lead.score).toBe(91);
     expect(lead.stage).toBe("qualified"); // qualifiedAt set
-    expect(lead.cohort).toBe("A");
-    expect(lead.emailStatus).toBe("HIGH_PROBABILITY");
+    expect(lead.cohort).toBeNull();
+    expect(lead.emailStatus).toBe("DELIVERABLE");
     expect(lead.industry).toBeNull(); // not returned by getPersonDetail
-    expect(lead.createdAt).toBe(""); // not returned by getPersonDetail
+    expect(lead.createdAt).toBeNull(); // not returned by getPersonDetail
     expect(lead.sendPolicy).toBeNull(); // no policy source — never fabricated
   });
 
@@ -173,32 +200,26 @@ describe("shapePersonAsLead", () => {
       shapePersonAsLead({ ...samplePerson, qualifiedAt: null }).stage,
     ).toBe("enriched");
   });
+
+  it("keeps a person without qualification or email at sourced", () => {
+    expect(
+      shapePersonAsLead({
+        ...samplePerson,
+        qualifiedAt: null,
+        bestEmail: null,
+        emails: [],
+      }).stage,
+    ).toBe("sourced");
+  });
+
+  it("preserves a missing person score as unknown", () => {
+    expect(shapePersonAsLead({ ...samplePerson, score: null }).score).toBeNull();
+  });
 });
 
 describe("shapePersonScoreBreakdown", () => {
-  it("maps the single 'Total' row into fit and zeros the rest (lossy)", () => {
-    expect(shapePersonScoreBreakdown(samplePerson)).toEqual({
-      fit: 91,
-      intent: 0,
-      engagement: 0,
-      timing: 0,
-    });
-  });
-
-  it("falls back to score when no breakdown rows exist", () => {
-    expect(
-      shapePersonScoreBreakdown({ ...samplePerson, scoreBreakdown: [] }),
-    ).toEqual({ fit: 91, intent: 0, engagement: 0, timing: 0 });
-  });
-
-  it("defaults to 0 when neither breakdown nor score exist", () => {
-    expect(
-      shapePersonScoreBreakdown({
-        ...samplePerson,
-        scoreBreakdown: [],
-        score: null,
-      }),
-    ).toEqual({ fit: 0, intent: 0, engagement: 0, timing: 0 });
+  it("does not invent category values from an aggregate score", () => {
+    expect(shapePersonScoreBreakdown(samplePerson)).toBeNull();
   });
 });
 
@@ -207,16 +228,11 @@ describe("shapeLeadDetail", () => {
     const detail = shapeLeadDetail(samplePerson);
     expect(detail.lead.id).toBe("person_42");
     // researchBrief + recentEvidenceEvents have no source on release.
-    expect(detail.researchBrief).toBe("");
+    expect(detail.researchBrief).toBeNull();
     expect(detail.recentEvidenceEvents).toEqual([]);
     // sendPolicy has no upstream source on the detail path either — null,
     // never the old fabricated all-false policy.
     expect(detail.lead.sendPolicy).toBeNull();
-    expect(detail.scoreBreakdown).toEqual({
-      fit: 91,
-      intent: 0,
-      engagement: 0,
-      timing: 0,
-    });
+    expect(detail.scoreBreakdown).toBeNull();
   });
 });

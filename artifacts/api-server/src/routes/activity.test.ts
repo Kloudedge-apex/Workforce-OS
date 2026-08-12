@@ -30,25 +30,29 @@ const meeting: ActivityEventUpstream = {
   leadId: "person_42",
 };
 
+const deliveryUnknown: ActivityEventUpstream = {
+  id: "artifact:art_999:delivery_unknown",
+  kind: "delivery_unknown",
+  text: "Outreach delivery requires reconciliation",
+  at: "2026-06-09T12:30:00.000Z",
+  leadId: "",
+};
+
 describe("shapeActivityEvent", () => {
-  it("maps a draft event, deriving sdr identity and extracting artifactId from the id", () => {
+  it("maps a draft event without inventing agent attribution", () => {
     expect(shapeActivityEvent(draft)).toEqual({
       id: "artifact:art_123:created",
-      agentName: "SDR Agent",
-      agentType: "sdr",
+      kind: "draft_created",
       action: "Generated outreach draft (gmail.send)",
-      stage: "drafting",
       timestamp: "2026-06-09T10:00:00.000Z",
       artifactId: "art_123",
       leadId: null,
     });
   });
 
-  it("maps a run event to pipeline with a null artifactId and null leadId", () => {
+  it("preserves a run event kind with a null artifactId and null leadId", () => {
     const out = shapeActivityEvent(runNeedsApproval);
-    expect(out.agentType).toBe("pipeline");
-    expect(out.agentName).toBe("Pipeline Supervisor");
-    expect(out.stage).toBe("awaiting_approval");
+    expect(out.kind).toBe("run_needs_approval");
     expect(out.artifactId).toBeNull();
     expect(out.leadId).toBeNull();
     expect(out.timestamp).toBe("2026-06-09T11:00:00.000Z");
@@ -59,7 +63,14 @@ describe("shapeActivityEvent", () => {
     const out = shapeActivityEvent(meeting);
     expect(out.leadId).toBe("person_42");
     expect(out.artifactId).toBeNull();
-    expect(out.agentType).toBe("pipeline");
+    expect(out.kind).toBe("meeting_confirmed");
+  });
+
+  it("surfaces the recorded delivery-ambiguity kind", () => {
+    expect(shapeActivityEvent(deliveryUnknown)).toMatchObject({
+      kind: "delivery_unknown",
+      artifactId: "art_999",
+    });
   });
 });
 
@@ -76,12 +87,12 @@ describe("shapeActivity", () => {
     ]);
   });
 
-  it("filter=outbound keeps only sdr/content (draft) events", () => {
+  it("filter=outbound keeps only outbound event kinds", () => {
     const out = shapeActivity(upstream, "outbound");
-    expect(out.map((e) => e.agentType)).toEqual(["sdr"]);
+    expect(out.map((e) => e.kind)).toEqual(["draft_created"]);
   });
 
-  it("filter=pipeline keeps only pipeline/ops (run + meeting) events", () => {
+  it("filter=pipeline keeps run and meeting event kinds", () => {
     const out = shapeActivity(upstream, "pipeline");
     expect(out.map((e) => e.id)).toEqual([
       "meeting:mtg_9:confirmed",

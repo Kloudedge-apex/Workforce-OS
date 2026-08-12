@@ -1,10 +1,19 @@
 import React from "react";
 import { useRoute, useLocation } from "wouter";
-import { useGetConversation, useDraftReply, useArchiveConversation } from "@workspace/api-client-react";
+import {
+  useGetConversation,
+  useDraftReply,
+  useArchiveConversation,
+} from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Archive, Sparkles, MessageSquareDashed } from "lucide-react";
+import {
+  ArrowLeft,
+  Archive,
+  Sparkles,
+  MessageSquareDashed,
+} from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/states/EmptyState";
@@ -15,6 +24,7 @@ import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 import { CountUp } from "@/components/motion/CountUp";
 import { motion } from "framer-motion";
 import { cardEnter, springHover, useReducedMotionSafe } from "@/lib/motion";
+import { ConversationActions } from "@/components/v2/ConversationActions";
 
 const SENTIMENT_STYLES = {
   positive: "bg-green-100 text-green-800 border-green-200",
@@ -36,9 +46,12 @@ export default function ConversationThread() {
   const { mutate: draftReply, isPending: drafting } = useDraftReply({
     mutation: {
       onSuccess: (res) => {
-        if (isUnavailable(res)) { toast("Not available yet — coming soon"); return; }
-        toast.success("Reply draft queued");
-        refetch();
+        if (isUnavailable(res)) {
+          toast("Not available yet — coming soon");
+          return;
+        }
+        toast(res.message);
+        navigate(`/outbound/${res.runId}`);
       },
       onError: () => toast.error("Failed to queue draft"),
     },
@@ -47,62 +60,87 @@ export default function ConversationThread() {
   const { mutate: archive } = useArchiveConversation({
     mutation: {
       onSuccess: (res) => {
-        if (isUnavailable(res)) { toast("Not available yet — coming soon"); return; }
+        if (isUnavailable(res)) {
+          toast("Not available yet — coming soon");
+          return;
+        }
         toast.success("Archived");
         navigate("/conversations");
       },
     },
   });
 
-  if (isLoading) return (
-    <div className="flex flex-col h-full p-6 space-y-4">
-      <Skeleton className="h-8 w-40" />
-      <Skeleton className="h-32 w-full" />
-      <Skeleton className="h-32 w-full" />
-    </div>
-  );
+  if (isLoading)
+    return (
+      <div className="flex flex-col h-full p-6 space-y-4">
+        <Skeleton className="h-8 w-40" />
+        <Skeleton className="h-32 w-full" />
+        <Skeleton className="h-32 w-full" />
+      </div>
+    );
 
-  if (isError) return (
-    <div className="flex h-full items-center justify-center bg-paper-50">
-      <ErrorState
-        title="Couldn't load this conversation"
-        description="The conversation service didn't respond. Your data is safe — try again."
-        onRetry={() => refetch()}
-      />
-    </div>
-  );
+  if (isError)
+    return (
+      <div className="flex h-full items-center justify-center bg-paper-50">
+        <ErrorState
+          title="Couldn't load this conversation"
+          description="The conversation service didn't respond. Your data is safe — try again."
+          onRetry={() => refetch()}
+        />
+      </div>
+    );
 
-  if (isUnavailable(data)) return (
-    <div className="flex h-full items-center justify-center bg-paper-50">
-      <UnavailableState feature="conversation detail" />
-    </div>
-  );
+  if (isUnavailable(data))
+    return (
+      <div className="flex h-full items-center justify-center bg-paper-50">
+        <UnavailableState feature="conversation detail" />
+      </div>
+    );
 
-  if (!data) return (
-    <div className="flex h-full items-center justify-center bg-paper-50">
-      <EmptyState
-        icon={MessageSquareDashed}
-        title="Conversation not found"
-        description="This thread may have been archived or moved. Head back to your inbox to find it."
-      />
-    </div>
-  );
+  if (!data)
+    return (
+      <div className="flex h-full items-center justify-center bg-paper-50">
+        <EmptyState
+          icon={MessageSquareDashed}
+          title="Conversation not found"
+          description="This thread may have been archived or moved. Head back to your inbox to find it."
+        />
+      </div>
+    );
 
   const { conversation: conv, messages } = data;
   const ri = conv.replyIntelligence;
+  const analysisReady =
+    ri.analysisStatus === "READY" &&
+    ri.sentiment !== null &&
+    ri.sentimentConfidence !== null &&
+    ri.nextBestAction !== null &&
+    ri.nextBestActionType !== null;
 
   return (
     <div className="flex flex-col h-full bg-paper-50">
       {/* Header */}
       <div className="sticky top-0 z-10 bg-paper-100 border-b border-paper-200 px-4 py-3 flex items-center gap-3">
-        <Button variant="ghost" size="sm" onClick={() => navigate("/conversations")} className="text-ink-600 hover:text-ink-900">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => navigate("/conversations")}
+          className="text-ink-600 hover:text-ink-900"
+        >
           <ArrowLeft className="h-4 w-4 mr-1" /> Conversations
         </Button>
         <span className="text-ink-300">/</span>
-        <span className="text-sm font-medium text-ink-900 truncate flex-1">{conv.subject}</span>
+        <span className="text-sm font-medium text-ink-900 truncate flex-1">
+          {conv.subject}
+        </span>
         <div className="flex items-center gap-2">
           {!conv.archived && (
-            <Button variant="ghost" size="sm" onClick={() => archive({ id })} className="text-ink-500 hover:text-ink-900">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => archive({ id })}
+              className="text-ink-500 hover:text-ink-900"
+            >
               <Archive className="h-4 w-4" />
             </Button>
           )}
@@ -115,19 +153,31 @@ export default function ConversationThread() {
           {messages.map((msg) => {
             const isOut = msg.direction === "outbound";
             return (
-              <StaggerItem key={msg.id} className={cn("flex", isOut ? "justify-end" : "justify-start")}>
-                <div className={cn(
-                  "max-w-[80%] rounded-lg px-4 py-3 shadow-sm",
-                  isOut
-                    ? "bg-ink-900 text-paper-50"
-                    : "bg-ink-0 border border-paper-200 text-ink-900 dark:text-paper-50"
-                )}>
+              <StaggerItem
+                key={msg.id}
+                className={cn("flex", isOut ? "justify-end" : "justify-start")}
+              >
+                <div
+                  className={cn(
+                    "max-w-[80%] rounded-lg px-4 py-3 shadow-sm",
+                    isOut
+                      ? "bg-ink-900 text-paper-50"
+                      : "bg-ink-0 border border-paper-200 text-ink-900 dark:text-paper-50",
+                  )}
+                >
                   <div
                     className="text-sm leading-relaxed prose prose-sm max-w-none"
                     style={{ color: "inherit" }}
-                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(msg.bodyHtml) }}
+                    dangerouslySetInnerHTML={{
+                      __html: sanitizeHtml(msg.bodyHtml),
+                    }}
                   />
-                  <p className={cn("text-xs mt-2", isOut ? "text-paper-400" : "text-ink-400")}>
+                  <p
+                    className={cn(
+                      "text-xs mt-2",
+                      isOut ? "text-paper-400" : "text-ink-400",
+                    )}
+                  >
                     {msg.senderName} · {new Date(msg.sentAt).toLocaleString()}
                   </p>
                 </div>
@@ -146,18 +196,48 @@ export default function ConversationThread() {
           >
             <div className="p-4 space-y-4">
               <div>
-                <p className="text-xs font-semibold text-ink-500 uppercase tracking-wide mb-2">Reply Intelligence</p>
-                <Badge className={cn("text-xs border", SENTIMENT_STYLES[ri.sentiment])}>
-                  {ri.sentiment} · <CountUp value={ri.sentimentConfidence * 100} suffix="%" />
-                </Badge>
+                <p className="text-xs font-semibold text-ink-500 uppercase tracking-wide mb-2">
+                  Reply Intelligence
+                </p>
+                {analysisReady ? (
+                  <Badge
+                    className={cn(
+                      "text-xs border",
+                      SENTIMENT_STYLES[ri.sentiment!],
+                    )}
+                  >
+                    {ri.sentiment} ·{" "}
+                    <CountUp value={ri.sentimentConfidence! * 100} suffix="%" />
+                  </Badge>
+                ) : (
+                  <Badge
+                    variant="outline"
+                    className="text-xs border-paper-300 text-ink-600"
+                  >
+                    {ri.analysisStatus === "FAILED"
+                      ? "Analysis failed"
+                      : "Analysis pending"}
+                  </Badge>
+                )}
               </div>
 
               <div>
-                <p className="text-xs font-semibold text-ink-500 uppercase tracking-wide mb-2">Next Best Action</p>
-                <div className="bg-rust-50 border border-rust-200 rounded-lg p-3 shadow-sm">
-                  <p className="text-sm text-rust-900">{ri.nextBestAction}</p>
-                  <p className="text-xs text-rust-500 mt-1 capitalize">{ri.nextBestActionType?.replace(/_/g, " ")}</p>
-                </div>
+                <p className="text-xs font-semibold text-ink-500 uppercase tracking-wide mb-2">
+                  Next Best Action
+                </p>
+                {analysisReady ? (
+                  <div className="bg-rust-50 border border-rust-200 rounded-lg p-3 shadow-sm">
+                    <p className="text-sm text-rust-900">{ri.nextBestAction}</p>
+                    <p className="text-xs text-rust-500 mt-1 capitalize">
+                      {ri.nextBestActionType?.replace(/_/g, " ")}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-ink-500">
+                    Generate a draft to analyze this reply. Nothing will be sent
+                    without review.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -193,6 +273,11 @@ export default function ConversationThread() {
                   </Button>
                 </motion.div>
               </div>
+
+              <ConversationActions
+                detail={data}
+                className="border-t border-paper-200 pt-4"
+              />
             </div>
           </motion.div>
         )}

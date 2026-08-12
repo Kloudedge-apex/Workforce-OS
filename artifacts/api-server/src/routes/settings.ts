@@ -7,9 +7,11 @@ const router = Router();
 /**
  * The subset of the apex-gtm-api Org row (GET /api/orgs/me →
  * OrgsService.findByClerkUser) that the BFF reads. The deployed Org model has
- * NO logoUrl/timezone/unsubscribeUrl/allowlistedDomains/creditsRemaining/
- * welcomeComplete columns, so those FE fields are DEFAULTED (synthesized) —
- * see the audit's transform for endpoint 0. `sendReadiness` is the GL5
+ * NO logoUrl/timezone/unsubscribeUrl/allowlistedDomains/creditsRemaining
+ * columns, so those FE fields are DEFAULTED (synthesized) — see the audit's
+ * transform for endpoint 0. Onboarding completion is fetched from the
+ * backend's derived status endpoint, never from a mutable/synthetic flag.
+ * `sendReadiness` is the GL5
  * contract the backend now attaches to the org read; it is typed `unknown`
  * here because the BFF must runtime-guard it (older backends omit it).
  */
@@ -23,6 +25,10 @@ export interface ApexOrg {
   senderName?: string | null;
   plan?: string;
   sendReadiness?: unknown;
+}
+
+export interface ApexOnboardingStatus {
+  complete: boolean;
 }
 
 /**
@@ -72,6 +78,7 @@ export interface OrgSettings {
   orgId: string;
   orgName: string;
   slug: string;
+  website: string | null;
   logoUrl: string | null;
   country: string;
   timezone: string;
@@ -92,34 +99,46 @@ export interface OrgSettings {
  * Pure mapper: apex Org row → FE OrgSettings.
  *
  * REAL: `sendReadiness` is forwarded from the upstream org read (null when the
- * backend doesn't send it), and `liveSendEnabled` is derived from
- * `sendReadiness.liveSendAllowed` — true ONLY when the backend explicitly says
- * live sending is allowed; absent/malformed readiness means dry-run (false),
- * never a fabricated "live".
+ * backend doesn't send it), and `liveSendEnabled` is true only when the
+ * allowlist, mailbox, sender, address, and positive-capacity gates are all
+ * reported open; absent/malformed readiness fails closed.
  *
  * SYNTHESIZED (no backing Org column on the deployed backend, per audit):
  *   logoUrl=null, timezone='UTC', unsubscribeUrl=null, allowlistedDomains=[],
- *   creditsRemaining=0, welcomeComplete=true.
+ *   creditsRemaining=0.
  *   suppressionCount has no count endpoint upstream → 0 unless caller supplies one.
+ * `welcomeComplete` is never synthesized: the caller must supply the derived
+ * backend onboarding verdict, and a missing/malformed verdict fails closed.
  */
-export function shapeOrgSettings(org: ApexOrg, suppressionCount = 0): OrgSettings {
+export function shapeOrgSettings(
+  org: ApexOrg,
+  suppressionCount = 0,
+  welcomeComplete = false,
+): OrgSettings {
   const sendReadiness = parseSendReadiness(org.sendReadiness);
   return {
     orgId: org.id,
     orgName: org.name,
     slug: org.slug,
+    website: org.website ?? null,
     logoUrl: null,
     country: org.country ?? "",
     timezone: "UTC",
     senderName: org.senderName ?? null,
-    liveSendEnabled: sendReadiness?.liveSendAllowed === true,
+    liveSendEnabled:
+      sendReadiness?.liveSendAllowed === true &&
+      sendReadiness.physicalAddressSet &&
+      sendReadiness.senderNameSet &&
+      sendReadiness.mailboxConnected &&
+      sendReadiness.dailyCapRemaining !== null &&
+      sendReadiness.dailyCapRemaining > 0,
     postalAddress: org.physicalAddress ?? null,
     unsubscribeUrl: null,
     suppressionCount,
     allowlistedDomains: [],
     plan: org.plan ?? "TRIAL",
     creditsRemaining: 0,
-    welcomeComplete: true,
+    welcomeComplete,
     sendReadiness,
   };
 }
@@ -128,8 +147,16 @@ export function shapeOrgSettings(org: ApexOrg, suppressionCount = 0): OrgSetting
 
 router.get("/settings/org", async (req, res, next) => {
   try {
+    // The guarded status read is the clean-tenant bootstrap barrier. Only
+    // after it resolves do we call the legacy @SkipOrgGuard /orgs/me lookup,
+    // avoiding a race where /orgs/me returns null while provisioning is still
+    // in flight.
+    const onboarding = (await apex.get(
+      "/orgs/onboarding/status",
+      { req },
+    )) as ApexOnboardingStatus;
     const org = (await apex.get("/orgs/me", { req })) as ApexOrg;
-    res.json(shapeOrgSettings(org));
+    res.json(shapeOrgSettings(org, 0, onboarding?.complete === true));
   } catch (err) {
     if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
     next(err);
@@ -139,6 +166,7 @@ router.get("/settings/org", async (req, res, next) => {
 /** Upstream UpdateOrgDto fields the BFF forwards from the FE UpdateOrgInput. */
 export interface OrgPatchBody {
   name?: string;
+  website?: string;
   senderName?: string;
   country?: string;
   physicalAddress?: string;
@@ -147,8 +175,8 @@ export interface OrgPatchBody {
 /**
  * PURE: FE UpdateOrgInput → upstream UpdateOrgDto patch body.
  *
- * Forwards every field the upstream DTO accepts (name, senderName, country
- * ISO-2, physicalAddress). The FE spec names the address `postalAddress`
+ * Forwards every setup field the upstream DTO accepts (name, website,
+ * senderName, country ISO-2, physicalAddress). The FE spec names the address `postalAddress`
  * (OrgSettings read shape), the upstream column is `physicalAddress` — both
  * are accepted, `physicalAddress` winning when both are present. Fields the
  * upstream DTO does NOT accept (slug/timezone/logoUrl/liveSendEnabled/
@@ -158,6 +186,7 @@ export function buildOrgPatchBody(raw: unknown): OrgPatchBody {
   const body = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const patch: OrgPatchBody = {};
   if (typeof body["name"] === "string") patch.name = body["name"];
+  if (typeof body["website"] === "string") patch.website = body["website"];
   if (typeof body["senderName"] === "string") patch.senderName = body["senderName"];
   if (typeof body["country"] === "string") patch.country = body["country"];
   const address =
@@ -190,14 +219,20 @@ export function upstreamErrorMessage(body: unknown): string | null {
 
 router.put("/settings/org", async (req, res, next) => {
   try {
+    // Provision/resolve the internal tenant before the chicken-and-egg-safe
+    // /orgs/me endpoint is read directly by a fresh user.
+    await apex.get("/orgs/onboarding/status", { req });
     // PATCH /api/orgs/:id requires :id === caller's resolved orgId, so resolve
     // it via /orgs/me first. The upstream UpdateOrgDto now accepts the sender
     // identity / CAN-SPAM fields (senderName, country, physicalAddress) in
     // addition to name — buildOrgPatchBody forwards exactly those.
     const me = (await apex.get("/orgs/me", { req })) as ApexOrg;
     await apex.patch(`/orgs/${me.id}`, { req }, buildOrgPatchBody(req.body));
-    const updated = (await apex.get("/orgs/me", { req })) as ApexOrg;
-    res.json(shapeOrgSettings(updated));
+    const [updated, onboarding] = await Promise.all([
+      apex.get("/orgs/me", { req }) as Promise<ApexOrg>,
+      apex.get("/orgs/onboarding/status", { req }) as Promise<ApexOnboardingStatus>,
+    ]);
+    res.json(shapeOrgSettings(updated, 0, onboarding?.complete === true));
   } catch (err) {
     if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
     // Surface upstream validation failures honestly (e.g. country must be

@@ -3,7 +3,9 @@ import { ReplyIntelligenceSentiment } from "@workspace/api-client-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
-const sentimentColors: Record<ReplyIntelligenceSentiment, string> = {
+type VisibleSentiment = NonNullable<ReplyIntelligenceSentiment>;
+
+const sentimentColors: Record<VisibleSentiment, string> = {
   positive: "bg-signal-positive/10 text-signal-positive border-signal-positive/20",
   objection: "bg-ember-400/10 text-ember-400 border-ember-400/20",
   neutral: "bg-paper-200 text-ink-700 border-paper-200",
@@ -11,7 +13,7 @@ const sentimentColors: Record<ReplyIntelligenceSentiment, string> = {
 };
 
 interface SentimentBadgeProps {
-  sentiment: ReplyIntelligenceSentiment;
+  sentiment: VisibleSentiment;
   /** Compact preview variant used in the conversation list row. */
   dense?: boolean;
   className?: string;

@@ -7,7 +7,7 @@ interface LogoProps {
 }
 
 /**
- * Nikxius mark — a rust rounded-square app icon enclosing an "N" monogram stroke
+ * Workforce OS mark — a rust rounded-square app icon enclosing a "W" monogram stroke
  * drawn in paper white. Square, theme-stable, scales by `size`.
  */
 export function Logo({ size = 28, className }: LogoProps) {
@@ -18,7 +18,7 @@ export function Logo({ size = 28, className }: LogoProps) {
       viewBox="0 0 32 32"
       fill="none"
       role="img"
-      aria-label="Nikxius"
+      aria-label="Workforce OS"
       className={cn("shrink-0", className)}
       xmlns="http://www.w3.org/2000/svg"
     >
@@ -29,9 +29,9 @@ export function Logo({ size = 28, className }: LogoProps) {
         rx="8"
         className="fill-rust-500"
       />
-      {/* "N" monogram: up the left, diagonal down, up the right */}
+      {/* "W" monogram */}
       <path
-        d="M9 23 V9 L23 23 V9"
+        d="M7 9 L11 23 L16 13 L21 23 L25 9"
         className="stroke-ink-0"
         strokeWidth="3"
         strokeLinecap="round"
@@ -49,14 +49,14 @@ interface WordmarkProps {
 }
 
 /**
- * Nikxius wordmark — mark + "Nikxius" set in Lora (the app serif, `font-serif`).
+ * Workforce OS wordmark set in the app serif.
  */
 export function Wordmark({ size = 28, className }: WordmarkProps) {
   return (
     <div className={cn("flex items-center gap-2.5 min-w-0", className)}>
       <Logo size={size} />
       <span className="font-serif font-semibold tracking-tight text-ink-900 dark:text-paper-50 text-lg leading-none truncate">
-        Nikxius
+        Workforce OS
       </span>
     </div>
   );

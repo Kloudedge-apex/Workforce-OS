@@ -5,19 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Separator } from "@/components/ui/separator";
 import { Search, Filter, Ban, ChevronLeft, ChevronRight, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { isUnavailable } from "@/lib/unavailable";
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
-import { CohortBadge } from "@/components/v2/CohortBadge";
-import { EmailStatusBadge } from "@/components/v2/EmailStatusBadge";
 import { CountUp } from "@/components/motion/CountUp";
 import { EmptyState } from "@/components/states/EmptyState";
 import { ErrorState } from "@/components/states/ErrorState";
@@ -28,27 +23,23 @@ export default function Pipeline() {
   const reduced = useReducedMotionSafe();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
-  const [stage, setStage] = useState<string>("all");
   const [minScore, setMinScore] = useState<string>("0");
-  const [cohort, setCohort] = useState<string>("all");
   const [page, setPage] = useState(1);
   const limit = 20;
 
   const { data: leadsData, isLoading: listLoading, isError, refetch } = useListLeads(
     {
       q: search || undefined,
-      stage: stage === "all" ? undefined : stage,
       minScore: minScore === "0" ? undefined : Number(minScore),
-      cohort: cohort === "all" ? undefined : cohort,
       limit,
       page
     },
-    { query: { queryKey: ["listLeads", search, stage, minScore, cohort, page] } }
+    { query: { queryKey: ["listLeads", search, minScore, page] } }
   );
 
   const leads = leadsData?.items || [];
   const total = leadsData?.total || 0;
-  const totalPages = Math.ceil(total / limit);
+  const totalPages = Math.max(1, Math.ceil(total / limit));
 
   const suppressMut = useBulkSuppressLeads();
 
@@ -71,10 +62,29 @@ export default function Pipeline() {
     if (selectedIds.size === 0) return;
     toast(`Suppressing ${selectedIds.size} leads...`);
     try {
-      const res = await suppressMut.mutateAsync({ data: { ids: Array.from(selectedIds) } });
-      if (isUnavailable(res)) { toast("Not available yet — coming soon"); return; }
-      toast.success("Leads suppressed");
-      setSelectedIds(new Set());
+      const res = await suppressMut.mutateAsync({ data: { personIds: Array.from(selectedIds) } });
+      const baseSummary = [
+        `${res.affectedCount} newly suppressed`,
+        res.alreadySuppressedCount > 0 ? `${res.alreadySuppressedCount} already suppressed` : null,
+      ].filter(Boolean).join(" · ");
+      const skipped = res.results.filter((result) => result.status === "SKIPPED");
+      if (skipped.length > 0) {
+        const reasons = skipped.reduce<Record<string, number>>((counts, result) => {
+          counts[result.reason] = (counts[result.reason] ?? 0) + 1;
+          return counts;
+        }, {});
+        const reasonSummary = Object.entries(reasons)
+          .map(([reason, count]) => `${count} ${reason.toLowerCase().replace(/_/g, " ")}`)
+          .join(" · ");
+        const message = `${baseSummary} · ${skipped.length} skipped (${reasonSummary}). Skipped rows remain selected.`;
+        if (res.affectedCount === 0 && res.alreadySuppressedCount === 0) toast.error(message);
+        else toast.warning(message);
+        setSelectedIds(new Set(skipped.map((result) => result.personId)));
+      } else {
+        toast.success(baseSummary);
+        setSelectedIds(new Set());
+      }
+      await refetch();
     } catch (e) {
       toast.error("Failed to suppress leads");
     }
@@ -104,17 +114,6 @@ export default function Pipeline() {
                 }}
               />
             </div>
-            <Select value={stage} onValueChange={(v) => { setStage(v); setPage(1); }}>
-              <SelectTrigger className="w-[160px] bg-paper-50 border-paper-200">
-                <SelectValue placeholder="All Stages" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Stages</SelectItem>
-                <SelectItem value="new">New</SelectItem>
-                <SelectItem value="researching">Researching</SelectItem>
-                <SelectItem value="qualified">Qualified</SelectItem>
-              </SelectContent>
-            </Select>
             <Popover>
               <PopoverTrigger asChild>
                 <Button
@@ -123,7 +122,7 @@ export default function Pipeline() {
                   className="relative shrink-0 bg-paper-50 border-paper-200 transition-shadow duration-200 hover:shadow-sm active-elevate-2"
                 >
                   <Filter className="h-4 w-4 text-ink-700" />
-                  {(minScore !== "0" || cohort !== "all") && (
+                  {minScore !== "0" && (
                     <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-rust-500 ring-2 ring-white dark:ring-card" />
                   )}
                 </Button>
@@ -151,33 +150,11 @@ export default function Pipeline() {
                       ))}
                     </RadioGroup>
                   </div>
-                  <Separator className="bg-paper-200 dark:bg-border" />
-                  <div className="space-y-2">
-                    <Label className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">
-                      Cohort
-                    </Label>
-                    <RadioGroup
-                      value={cohort}
-                      onValueChange={(v) => { setCohort(v); setPage(1); }}
-                      className="grid grid-cols-3 gap-2"
-                    >
-                      {[["all", "All"], ["A", "A"], ["B", "B"]].map(([val, label]) => (
-                        <Label
-                          key={val}
-                          htmlFor={`cohort-${val}`}
-                          className="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-paper-200 px-3 py-2 text-sm text-ink-700 dark:text-ink-300 hover-elevate has-[:checked]:border-rust-500 has-[:checked]:text-rust-500"
-                        >
-                          <RadioGroupItem id={`cohort-${val}`} value={val} className="sr-only" />
-                          <span className="font-mono">{label}</span>
-                        </Label>
-                      ))}
-                    </RadioGroup>
-                  </div>
-                  {(minScore !== "0" || cohort !== "all") && (
+                  {minScore !== "0" && (
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => { setMinScore("0"); setCohort("all"); setPage(1); }}
+                      onClick={() => { setMinScore("0"); setPage(1); }}
                       className="w-full text-ink-400 hover:text-ink-900 dark:hover:text-paper-50"
                     >
                       Clear filters
@@ -219,9 +196,6 @@ export default function Pipeline() {
               <th className="px-4 py-3 font-semibold text-ink-400 uppercase text-[10px] tracking-wider">Lead</th>
               <th className="px-4 py-3 font-semibold text-ink-400 uppercase text-[10px] tracking-wider text-center">Score</th>
               <th className="px-4 py-3 font-semibold text-ink-400 uppercase text-[10px] tracking-wider">Stage</th>
-              <th className="px-4 py-3 font-semibold text-ink-400 uppercase text-[10px] tracking-wider">Cohort</th>
-              <th className="px-4 py-3 font-semibold text-ink-400 uppercase text-[10px] tracking-wider">Email</th>
-              <th className="px-4 py-3 font-semibold text-ink-400 uppercase text-[10px] tracking-wider">Intent Signals</th>
               <th className="px-4 py-3 font-semibold text-ink-400 uppercase text-[10px] tracking-wider text-right">Actions</th>
             </tr>
           </thead>
@@ -238,15 +212,12 @@ export default function Pipeline() {
                   <td className="p-4"><Skeleton className="h-10 w-48" /></td>
                   <td className="p-4"><Skeleton className="h-8 w-12 mx-auto" /></td>
                   <td className="p-4"><Skeleton className="h-6 w-20" /></td>
-                  <td className="p-4"><Skeleton className="h-6 w-16" /></td>
-                  <td className="p-4"><Skeleton className="h-6 w-24" /></td>
-                  <td className="p-4"><div className="flex gap-1"><Skeleton className="h-5 w-16" /><Skeleton className="h-5 w-16" /></div></td>
                   <td className="p-4"><Skeleton className="h-8 w-20 ml-auto" /></td>
                 </tr>
               ))
             ) : isError ? (
               <tr>
-                <td colSpan={8} className="p-0">
+                <td colSpan={5} className="p-0">
                   <ErrorState
                     title="Couldn't load the pipeline"
                     description="The leads service didn't respond. Your data is safe — try again."
@@ -256,7 +227,7 @@ export default function Pipeline() {
               </tr>
             ) : leads.length === 0 ? (
               <tr>
-                <td colSpan={8} className="p-0">
+                <td colSpan={5} className="p-0">
                   <EmptyState
                     icon={Search}
                     title="No leads found"
@@ -287,32 +258,18 @@ export default function Pipeline() {
                     </div>
                   </td>
                   <td className="px-4 py-3 text-center">
-                    <Badge className={cn("font-tabular font-bold h-8 w-10 justify-center shadow-xs", getScoreColor(lead.score))}>
-                      {lead.score}
-                    </Badge>
+                    {lead.score == null ? (
+                      <span className="text-xs text-ink-400">Not scored</span>
+                    ) : (
+                      <Badge className={cn("font-tabular font-bold h-8 w-10 justify-center shadow-xs", getScoreColor(lead.score))}>
+                        {lead.score}
+                      </Badge>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <Badge variant="secondary" className="bg-paper-100 text-ink-700 capitalize">
                       {lead.stage}
                     </Badge>
-                  </td>
-                  <td className="px-4 py-3">
-                    <CohortBadge cohort={lead.cohort} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <EmailStatusBadge status={lead.emailStatus} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-1">
-                      {lead.intentSignals.slice(0, 2).map((sig, idx) => (
-                        <span key={idx} className="px-1.5 py-0.5 bg-paper-100 text-ink-400 text-[10px] font-medium rounded border border-paper-200">
-                          {sig.label}
-                        </span>
-                      ))}
-                      {lead.intentSignals.length > 2 && (
-                        <span className="text-[10px] text-ink-400">+{lead.intentSignals.length - 2}</span>
-                      )}
-                    </div>
                   </td>
                   <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
                     <Button
@@ -335,7 +292,7 @@ export default function Pipeline() {
       {/* Pagination Bar */}
       <div className="p-4 border-t border-paper-200 bg-white flex items-center justify-between shrink-0">
         <p className="text-xs text-ink-400">
-          Showing <span className="font-tabular font-semibold text-ink-900">{(page - 1) * limit + 1}</span>-
+          Showing <span className="font-tabular font-semibold text-ink-900">{total === 0 ? 0 : (page - 1) * limit + 1}</span>-
           <span className="font-tabular font-semibold text-ink-900">{Math.min(page * limit, total)}</span> of 
           <span className="font-tabular font-semibold text-ink-900 ml-1"><CountUp value={total} /></span> leads
         </p>
@@ -371,7 +328,7 @@ export default function Pipeline() {
           <Button 
             variant="outline" 
             size="sm" 
-            disabled={page === totalPages} 
+            disabled={page >= totalPages}
             onClick={() => setPage(p => p + 1)}
             className="h-8 w-8 p-0 bg-paper-50 border-paper-200"
           >

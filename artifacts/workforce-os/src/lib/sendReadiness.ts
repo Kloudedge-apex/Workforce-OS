@@ -9,8 +9,9 @@
  *  - `sendReadiness` absent/malformed → null = live state UNKNOWN. The UI must
  *    treat unknown as dry-run and SAY it doesn't know — never fabricate a
  *    "live" or a confident per-precondition verdict.
- *  - `liveSendAllowed === true` is the ONLY value that means real emails go
- *    out for this workspace.
+ *  - `liveSendAllowed` is the operator allowlist gate, not sufficient by
+ *    itself. Actual readiness also requires mailbox, sender, address, and
+ *    positive daily capacity.
  *  - `dailyCapRemaining` is null when the backend reports no cap.
  */
 
@@ -61,10 +62,31 @@ export function getSendReadiness(settings: unknown): SendReadiness | null {
 }
 
 /**
- * Tri-state workspace live flag: true/false when the backend reported
- * readiness, null when unknown (treat as dry-run, but render "unknown").
+ * Tri-state effective live readiness: true only when every backend-reported
+ * dispatch gate is open; false when the envelope is valid but any gate is
+ * closed; null when readiness is unknown.
  */
 export function workspaceLiveState(settings: unknown): boolean | null {
+  const readiness = getSendReadiness(settings);
+  if (!readiness) return null;
+  return (
+    readiness.liveSendAllowed &&
+    readiness.physicalAddressSet &&
+    readiness.senderNameSet &&
+    readiness.mailboxConnected &&
+    readiness.dailyCapRemaining !== null &&
+    readiness.dailyCapRemaining > 0
+  );
+}
+
+/**
+ * Tri-state authorization for eventual live dispatch. Unlike
+ * `workspaceLiveState`, this intentionally ignores temporary blockers such as
+ * daily capacity or a disconnected mailbox: an APPROVED row can remain queued
+ * and send after those gates clear, so the review UI must warn whenever the
+ * durable operator allowlist is on.
+ */
+export function workspaceLiveAuthorization(settings: unknown): boolean | null {
   const readiness = getSendReadiness(settings);
   return readiness ? readiness.liveSendAllowed : null;
 }

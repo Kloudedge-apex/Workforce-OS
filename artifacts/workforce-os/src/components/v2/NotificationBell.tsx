@@ -41,10 +41,12 @@ export function NotificationBell() {
     },
   });
 
-  // Gap endpoint: when the notifications backend isn't wired up the BFF returns
-  // `{ unavailable: true }`. Treat that as an empty inbox rather than a broken list.
+  // Unsupported notification delivery is hidden rather than presented as a
+  // real-but-empty inbox.
   const items = isUnavailable(notifications) ? [] : notifications?.items ?? [];
   const unreadCount = items.filter((n) => !n.read).length;
+
+  if (!notifications || isUnavailable(notifications)) return null;
 
   const handleRowClick = (link?: string | null) => {
     if (!link) return;

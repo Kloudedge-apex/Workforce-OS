@@ -2,9 +2,7 @@ import type { FactCitation } from "@workspace/api-client-react";
 
 /**
  * Runtime-tolerant accessors for OutreachArtifact fields the BFF now sends
- * but the generated `@workspace/api-client-react` types don't include yet
- * (client regen pending — same situation as `ArtifactUiStatus` widening in
- * `artifactStatus.ts`).
+ * and runtime-guards for older or malformed responses.
  *
  * HONESTY CONTRACT (mirrors api-server/src/routes/artifacts.ts):
  *  - `refusal`  → `{ refused, reason }`. When `refused` is true the drafter
@@ -25,11 +23,8 @@ export interface ArtifactRefusal {
   reason: string | null;
 }
 
-/** Citation row as the BFF actually sends it. */
-export interface UiFactCitation extends FactCitation {
-  cited?: boolean;
-  date?: string;
-}
+/** Citation row as the BFF sends it; retained as a semantic UI alias. */
+export type UiFactCitation = FactCitation;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -56,11 +51,10 @@ export function isRefusedArtifact(artifact: unknown): boolean {
 }
 
 /**
- * Widen generated citations to the wire shape. Pure cast helper — the extra
- * fields are optional, so old payloads without them remain valid.
+ * Normalize nullable citation arrays while preserving the generated wire type.
  */
 export function uiCitations(citations: FactCitation[] | null | undefined): UiFactCitation[] {
-  return (citations ?? []) as UiFactCitation[];
+  return citations ?? [];
 }
 
 /** Count of citations the drafter actually declared in its self-check. */
