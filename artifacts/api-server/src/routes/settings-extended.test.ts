@@ -154,30 +154,30 @@ describe("shapeIntegration", () => {
 describe("shapeIntegrations", () => {
   const catalog: ApexCatalogEntry[] = [
     { provider: "gmail", name: "Gmail", category: "email", authType: "oauth", status: "available" },
-    { provider: "apollo", name: "Apollo", category: "enrichment", authType: "api_key", status: "available" },
+    { provider: "apollo", name: "Apollo", category: "enrichment", authType: "api_key", status: "coming_soon" },
   ];
 
-  it("left-joins catalog so unconnected providers appear as available", () => {
+  it("left-joins only providers explicitly available in this release", () => {
     const rows: ApexIntegration[] = [{ id: "int_g", provider: "gmail", status: "CONNECTED" }];
     const out = shapeIntegrations(rows, catalog);
-    expect(out).toHaveLength(2);
+    expect(out).toHaveLength(1);
     const gmail = out.find((i) => i.provider === "gmail")!;
-    const apollo = out.find((i) => i.provider === "apollo")!;
     expect(gmail.status).toBe("connected");
     expect(gmail.id).toBe("int_g");
-    expect(apollo.status).toBe("available");
-    expect(apollo.id).toBe("cat_apollo");
+    expect(out.find((i) => i.provider === "apollo")).toBeUndefined();
   });
 
-  it("surfaces connected rows whose provider is not in the catalog", () => {
+  it("does not surface a legacy row for an unsupported provider", () => {
     const rows: ApexIntegration[] = [{ id: "int_z", provider: "zoho", status: "CONNECTED" }];
     const out = shapeIntegrations(rows, catalog);
-    expect(out.find((i) => i.provider === "zoho")?.id).toBe("int_z");
-    expect(out).toHaveLength(3);
+    expect(out.find((i) => i.provider === "zoho")).toBeUndefined();
+    expect(out).toHaveLength(1);
   });
 
-  it("returns only catalog entries when there are no connected rows", () => {
+  it("filters coming-soon catalog entries when there are no connected rows", () => {
     const out = shapeIntegrations([], catalog);
+    expect(out).toHaveLength(1);
+    expect(out[0]?.provider).toBe("gmail");
     expect(out.every((i) => i.status === "available")).toBe(true);
   });
 });
@@ -228,22 +228,23 @@ describe("shapeTeamMembers", () => {
 });
 
 describe("shapeBilling", () => {
-  it("maps real plan and synthesizes limits from the plan table", () => {
+  it("maps the real plan and seat count without fabricating accounting data", () => {
     const out = shapeBilling({ plan: "GROWTH" }, 4);
     expect(out.plan).toBe("GROWTH");
-    expect(out.creditsTotal).toBe(5000);
-    expect(out.creditsRemaining).toBe(5000);
-    expect(out.sendsLimit).toBe(5000);
-    expect(out.seatsLimit).toBe(20);
     expect(out.seats).toBe(4);
-    expect(out.sendsThisMonth).toBe(0);
-    expect(out.invoices).toEqual([]);
+    expect(out.creditsTotal).toBeNull();
+    expect(out.creditsRemaining).toBeNull();
+    expect(out.sendsLimit).toBeNull();
+    expect(out.seatsLimit).toBeNull();
+    expect(out.sendsThisMonth).toBeNull();
+    expect(out.invoices).toBeNull();
   });
 
-  it("defaults unknown/absent plan to TRIAL limits", () => {
-    const out = shapeBilling({}, 1);
-    expect(out.plan).toBe("TRIAL");
-    expect(out.seatsLimit).toBe(3);
-    expect(shapeBilling({ plan: "MYSTERY" }, 0).seatsLimit).toBe(3);
+  it("preserves an upstream plan value exactly and refuses synthesized sources", () => {
+    expect(shapeBilling({ plan: "MYSTERY" }, 0).plan).toBe("MYSTERY");
+    expect(() => shapeBilling({} as { plan: string }, 1)).toThrow(
+      "Billing plan is missing",
+    );
+    expect(() => shapeBilling({ plan: "GROWTH" }, -1)).toThrow("Seat count is invalid");
   });
 });

@@ -22,6 +22,7 @@ const status = {
     liveSendAllowed: false,
     physicalAddressSet: true,
     senderNameSet: true,
+    countrySet: true,
     mailboxConnected: true,
     dailyCapRemaining: 20,
   },
@@ -95,5 +96,12 @@ describe("welcome router", () => {
     expect(response.status).toBe(502);
     expect(response.body).toMatchObject({ error: "upstream" });
     expect(isWelcomeStatusPayload({ complete: true })).toBe(false);
+  });
+
+  it("rejects readiness without the required country gate", () => {
+    const { countrySet: _omitted, ...withoutCountry } = status.sendReadiness;
+    expect(
+      isWelcomeStatusPayload({ ...status, sendReadiness: withoutCountry }),
+    ).toBe(false);
   });
 });

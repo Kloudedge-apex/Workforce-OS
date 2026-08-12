@@ -1,11 +1,13 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   buildOrgPatchBody,
+  fetchReviewCapability,
   parseSendReadiness,
   shapeOrgSettings,
   upstreamErrorMessage,
   type ApexOrg,
 } from "./settings";
+import { UpstreamError } from "../upstream/apex-client";
 
 describe("shapeOrgSettings", () => {
   const upstream: ApexOrg = {
@@ -37,8 +39,9 @@ describe("shapeOrgSettings", () => {
     expect(out.timezone).toBe("UTC");
     expect(out.unsubscribeUrl).toBeNull();
     expect(out.allowlistedDomains).toEqual([]);
-    expect(out.creditsRemaining).toBe(0);
+    expect(out.creditsRemaining).toBeNull();
     expect(out.welcomeComplete).toBe(false);
+    expect(out.canReviewArtifacts).toBeNull();
     expect(out.suppressionCount).toBe(0);
   });
 
@@ -58,6 +61,7 @@ describe("shapeOrgSettings", () => {
       liveSendAllowed: true,
       physicalAddressSet: true,
       senderNameSet: true,
+      countrySet: true,
       mailboxConnected: true,
       dailyCapRemaining: 37,
     };
@@ -75,6 +79,7 @@ describe("shapeOrgSettings", () => {
     for (const blocked of [
       { physicalAddressSet: false },
       { senderNameSet: false },
+      { countrySet: false },
       { mailboxConnected: false },
       { dailyCapRemaining: 0 },
       { dailyCapRemaining: null },
@@ -92,13 +97,19 @@ describe("shapeOrgSettings", () => {
     expect(shapeOrgSettings(upstream, 7).suppressionCount).toBe(7);
   });
 
+  it("threads only the caller-supplied review capability through", () => {
+    expect(shapeOrgSettings(upstream, 0, false, true).canReviewArtifacts).toBe(true);
+    expect(shapeOrgSettings(upstream, 0, false, false).canReviewArtifacts).toBe(false);
+    expect(shapeOrgSettings(upstream, 0, false, null).canReviewArtifacts).toBeNull();
+  });
+
   it("defaults nullable/absent columns safely", () => {
     const bare: ApexOrg = { id: "o1", name: "Bare", slug: "bare" };
     const out = shapeOrgSettings(bare);
     expect(out.country).toBe("");
     expect(out.senderName).toBeNull();
     expect(out.postalAddress).toBeNull();
-    expect(out.plan).toBe("TRIAL");
+    expect(out.plan).toBeNull();
   });
 });
 
@@ -107,6 +118,7 @@ describe("parseSendReadiness", () => {
     liveSendAllowed: true,
     physicalAddressSet: true,
     senderNameSet: false,
+    countrySet: true,
     mailboxConnected: true,
     dailyCapRemaining: 12,
   };
@@ -129,8 +141,59 @@ describe("parseSendReadiness", () => {
     expect(parseSendReadiness("live")).toBeNull();
     expect(parseSendReadiness([])).toBeNull();
     expect(parseSendReadiness({})).toBeNull();
+    const { countrySet: _countryOmitted, ...withoutCountry } = full;
+    expect(parseSendReadiness(withoutCountry)).toBeNull();
     expect(parseSendReadiness({ ...full, liveSendAllowed: "true" })).toBeNull();
     expect(parseSendReadiness({ ...full, mailboxConnected: undefined })).toBeNull();
+  });
+});
+
+describe("fetchReviewCapability", () => {
+  const req = {} as Parameters<typeof fetchReviewCapability>[0];
+
+  it("returns true only for the exact successful capability response", async () => {
+    const get = vi.fn(async () => ({ canReviewArtifacts: true }));
+    await expect(
+      fetchReviewCapability(req, { get }),
+    ).resolves.toBe(true);
+    expect(get).toHaveBeenCalledWith(
+      "/outreach-artifacts/review-capability",
+      { req },
+    );
+
+    for (const malformed of [
+      { canReviewArtifacts: false },
+      { canReviewArtifacts: "true" },
+      {},
+      null,
+    ]) {
+      await expect(
+        fetchReviewCapability(req, { get: async () => malformed }),
+      ).resolves.toBeNull();
+    }
+  });
+
+  it("maps a backend guard denial to a known read-only capability", async () => {
+    await expect(
+      fetchReviewCapability(req, {
+        get: async () => {
+          throw new UpstreamError(403, { message: "Forbidden" });
+        },
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it("propagates 401 but degrades 404, other statuses, and transport errors to unknown", async () => {
+    const unauthorized = new UpstreamError(401, { message: "Unauthorized" });
+    await expect(
+      fetchReviewCapability(req, { get: async () => Promise.reject(unauthorized) }),
+    ).rejects.toBe(unauthorized);
+
+    for (const err of [new UpstreamError(404, {}), new UpstreamError(503, {}), new Error("down")]) {
+      await expect(
+        fetchReviewCapability(req, { get: async () => Promise.reject(err) }),
+      ).resolves.toBeNull();
+    }
   });
 });
 

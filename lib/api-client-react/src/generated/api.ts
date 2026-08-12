@@ -24,6 +24,7 @@ import type {
   Agent,
   ApiKey,
   ApiKeyCreated,
+  ArtifactApprovalFailure,
   ArtifactSuppressionResult,
   BillingInfo,
   BulkActionResult,
@@ -429,7 +430,7 @@ export const approveArtifact = async (id: string, options?: RequestInit): Promis
 
 
 
-export const getApproveArtifactMutationOptions = <TError = ErrorType<void>,
+export const getApproveArtifactMutationOptions = <TError = ErrorType<void | ArtifactApprovalFailure>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveArtifact>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof approveArtifact>>, TError,{id: string}, TContext> => {
 
@@ -458,12 +459,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type ApproveArtifactMutationResult = NonNullable<Awaited<ReturnType<typeof approveArtifact>>>
 
-    export type ApproveArtifactMutationError = ErrorType<void>
+    export type ApproveArtifactMutationError = ErrorType<void | ArtifactApprovalFailure>
 
     /**
  * @summary Approve an outreach artifact
  */
-export const useApproveArtifact = <TError = ErrorType<void>,
+export const useApproveArtifact = <TError = ErrorType<void | ArtifactApprovalFailure>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveArtifact>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof approveArtifact>>,

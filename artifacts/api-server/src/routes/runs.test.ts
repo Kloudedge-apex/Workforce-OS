@@ -1,13 +1,110 @@
-import { describe, it, expect } from "vitest";
+import { once } from "node:events";
+import type { AddressInfo } from "node:net";
+import express, { type Router } from "express";
+import { describe, it, expect, vi } from "vitest";
 import {
+  createRunDecisionRouter,
   shapeRun,
   shapeRunsList,
   shapeRunDetail,
   shapeTrigger,
   upstreamMessage,
+  type RunDecisionUpstreamClient,
   type UpstreamGraphRun,
   type UpstreamTrigger,
 } from "./runs";
+
+async function requestDecision(
+  router: Router,
+  path: string,
+  actor?: string,
+): Promise<{ status: number; body: unknown }> {
+  const app = express();
+  app.use(express.json());
+  if (actor !== undefined) {
+    app.use((req, _res, next) => {
+      req.clerkUserId = actor;
+      next();
+    });
+  }
+  app.use(router);
+  app.use(
+    (
+      _error: unknown,
+      _req: express.Request,
+      res: express.Response,
+      _next: express.NextFunction,
+    ) => {
+      res.status(500).json({ error: "test-unhandled" });
+    },
+  );
+
+  const server = app.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${address.port}${path}`, {
+      method: "POST",
+    });
+    const text = await response.text();
+    return {
+      status: response.status,
+      body: text === "" ? null : JSON.parse(text),
+    };
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+}
+
+describe("run decision routes", () => {
+  it.each(["approve", "reject"] as const)(
+    "rejects %s without an authenticated reviewer before calling upstream",
+    async (decision) => {
+      const post = vi.fn(
+        async (..._args: Parameters<RunDecisionUpstreamClient["post"]>) => ({
+          status: "resuming",
+        }),
+      );
+      const client = { post } as RunDecisionUpstreamClient;
+
+      const result = await requestDecision(
+        createRunDecisionRouter(client),
+        `/runs/run_1/${decision}`,
+      );
+
+      expect(result).toEqual({
+        status: 401,
+        body: { error: "authenticated reviewer identity required" },
+      });
+      expect(post).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["approve", "reject"] as const)(
+    "forwards the authenticated reviewer for run %s",
+    async (decision) => {
+      const post = vi.fn(
+        async (..._args: Parameters<RunDecisionUpstreamClient["post"]>) => ({
+          status: "resuming",
+        }),
+      );
+      const client = { post } as RunDecisionUpstreamClient;
+
+      const result = await requestDecision(
+        createRunDecisionRouter(client),
+        `/runs/run_1/${decision}`,
+        "user_reviewer",
+      );
+
+      expect(result).toEqual({ status: 200, body: { status: "resuming" } });
+      expect(post).toHaveBeenCalledOnce();
+      expect(post.mock.calls[0]?.[2]).toEqual({ approvedBy: "user_reviewer" });
+    },
+  );
+});
 
 // A GraphRun row shaped exactly like apex-gtm-api GET /api/graph/runs returns
 // (GraphService.listGraphRuns → GraphRun[] with the snapshotPublicState `state`).

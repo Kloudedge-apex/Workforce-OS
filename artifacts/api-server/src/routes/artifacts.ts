@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { apex } from "../upstream/apex-client";
 import { UpstreamError } from "../upstream/apex-client";
+import { requireAuthenticatedReviewer } from "../lib/authenticated-reviewer";
 import { gapResponse } from "../lib/unavailable";
 
 const router = Router();
@@ -17,6 +18,7 @@ export interface UpstreamArtifact {
   id: string;
   orgId?: string;
   graphRunId?: string | null;
+  purpose?: string;
   toolName?: string;
   channel?: string;
   recipientRef?: string | null;
@@ -70,6 +72,13 @@ export interface ShapedRefusal {
   reason: string | null;
 }
 
+export type ShapedArtifactPurpose = "OUTBOUND" | "REPLY" | "FOLLOW_UP";
+
+export interface ShapedArtifactApprovalEligibility {
+  eligible: boolean;
+  reason: string | null;
+}
+
 /**
  * FE OutreachArtifact shape (lib/api-spec/openapi.yaml #/components/schemas/OutreachArtifact).
  * HONESTY contract: evaluatorScores/sendPolicy are `null` whenever the backend
@@ -79,6 +88,7 @@ export interface ShapedRefusal {
 export interface ShapedArtifact {
   id: string;
   status: string;
+  purpose: ShapedArtifactPurpose;
   channel: "EMAIL" | "LINKEDIN" | "HUBSPOT_NOTE" | "UNKNOWN";
   recipient: {
     id: string;
@@ -89,11 +99,13 @@ export interface ShapedArtifact {
     avatarUrl: string | null;
   };
   subject: string;
-  bodyHtml: string;
+  bodyText: string;
+  bodyHtml: string | null;
   citations: ShapedCitation[];
   evaluatorScores: ShapedEvaluatorScores | null;
   sendPolicy: ShapedSendPolicy | null;
   refusal: ShapedRefusal;
+  approvalEligibility: ShapedArtifactApprovalEligibility;
   langsmithRunId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -120,6 +132,8 @@ export interface UpstreamArtifactPage {
   limit: number;
 }
 
+export type ArtifactDecisionUpstreamClient = Pick<typeof apex, "post">;
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -134,7 +148,189 @@ function payloadString(payload: unknown, key: string): string | undefined {
 }
 
 function stringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+  return Array.isArray(value)
+    ? value.filter((v): v is string => typeof v === "string")
+    : [];
+}
+
+function nonBlankString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function strictStringArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const result: string[] = [];
+  for (const candidate of value) {
+    if (typeof candidate !== "string" || candidate.trim().length === 0)
+      return null;
+    result.push(candidate);
+  }
+  return result;
+}
+
+type ReviewerFactCategory = "firmographic" | "person" | "signal" | "icp_fit";
+
+const REVIEWER_FACT_CATEGORIES = new Set<ReviewerFactCategory>([
+  "firmographic",
+  "person",
+  "signal",
+  "icp_fit",
+]);
+
+function parseReviewerFacts(
+  value: unknown,
+): Map<string, { id: string; category: ReviewerFactCategory }> | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const facts = new Map<
+    string,
+    { id: string; category: ReviewerFactCategory }
+  >();
+  for (const rawFact of value) {
+    const fact = asRecord(rawFact);
+    const id = nonBlankString(fact?.["id"]);
+    const category = nonBlankString(fact?.["category"]);
+    const source = nonBlankString(fact?.["source"]);
+    const claim = nonBlankString(fact?.["text"]);
+    if (
+      !fact ||
+      !id ||
+      !category ||
+      !REVIEWER_FACT_CATEGORIES.has(category as ReviewerFactCategory) ||
+      !source ||
+      !claim ||
+      facts.has(id)
+    ) {
+      return null;
+    }
+    facts.set(id, { id, category: category as ReviewerFactCategory });
+  }
+  return facts;
+}
+
+function shapeArtifactPurpose(value: unknown): ShapedArtifactPurpose {
+  return value === "REPLY" || value === "FOLLOW_UP" ? value : "OUTBOUND";
+}
+
+function approvalUnavailable(
+  reason: string,
+): ShapedArtifactApprovalEligibility {
+  return { eligible: false, reason };
+}
+
+/**
+ * Mirror the upstream dispatch validator over the raw artifact row. The BFF is
+ * the last layer that can compare reviewer-visible columns with the verbatim
+ * payload, including purpose-specific grounding rules, before the generated
+ * client loses that raw payload context.
+ */
+export function shapeArtifactApprovalEligibility(
+  artifact: UpstreamArtifact,
+): ShapedArtifactApprovalEligibility {
+  if (artifact.status !== "PENDING_REVIEW") {
+    return approvalUnavailable(
+      `Artifact ${artifact.id} is ${artifact.status}; only PENDING_REVIEW can be approved`,
+    );
+  }
+
+  if (artifact.channel === "HUBSPOT_NOTE") {
+    return approvalUnavailable(
+      "HubSpot note approval is unavailable because dispatch is not implemented",
+    );
+  }
+  if (artifact.channel !== "EMAIL") {
+    return approvalUnavailable(
+      `${artifact.channel ?? "UNKNOWN"} approval is unavailable because only email dispatch is supported in this release`,
+    );
+  }
+
+  const payload = asRecord(artifact.payload);
+  if (!payload) {
+    return approvalUnavailable(
+      "Artifact cannot be approved because its send payload is invalid",
+    );
+  }
+
+  const to = nonBlankString(payload["to"]);
+  const subject = nonBlankString(payload["subject"]);
+  const body = nonBlankString(payload["body"]);
+  if (!to || !subject || !body) {
+    return approvalUnavailable(
+      "Artifact cannot be approved without a recipient, subject, and body",
+    );
+  }
+  if (
+    to !== artifact.recipientRef ||
+    subject !== artifact.subject ||
+    body !== artifact.bodyText
+  ) {
+    return approvalUnavailable(
+      "Artifact cannot be approved because the reviewed content does not match the send payload",
+    );
+  }
+
+  if (shapeArtifactPurpose(artifact.purpose) !== "OUTBOUND") {
+    return { eligible: true, reason: null };
+  }
+
+  if (payload["refusal"] !== undefined && payload["refusal"] !== null) {
+    const refusal = asRecord(payload["refusal"]);
+    const missing = strictStringArray(refusal?.["missing"]);
+    if (!refusal || !nonBlankString(refusal["reason"]) || missing === null) {
+      return approvalUnavailable(
+        "Artifact cannot be approved because its refusal metadata is invalid",
+      );
+    }
+    return approvalUnavailable(
+      "Artifact cannot be approved because the agent refused to produce a grounded draft",
+    );
+  }
+
+  const qaIssues = strictStringArray(payload["qaIssues"]);
+  if (qaIssues === null) {
+    return approvalUnavailable(
+      "Artifact cannot be approved because its draft quality metadata is invalid",
+    );
+  }
+  if (qaIssues.length > 0) {
+    return approvalUnavailable(
+      "Artifact cannot be approved until all draft quality checks pass",
+    );
+  }
+
+  const selfCheck = asRecord(payload["groundedness_self_check"]);
+  const citedFactIds = strictStringArray(
+    selfCheck?.["citedFactIds"] ?? selfCheck?.["cited_fact_ids"],
+  );
+  const unsupportedClaims = strictStringArray(
+    selfCheck?.["unsupportedClaims"] ?? selfCheck?.["unsupported_claims"],
+  );
+  const briefFacts = parseReviewerFacts(payload["brief_facts"]);
+
+  if (
+    !selfCheck ||
+    citedFactIds === null ||
+    citedFactIds.length === 0 ||
+    unsupportedClaims === null ||
+    unsupportedClaims.length > 0 ||
+    !briefFacts ||
+    !citedFactIds.every((factId) => briefFacts.has(factId))
+  ) {
+    return approvalUnavailable(
+      "Artifact cannot be approved without a clean, reviewer-visible grounding check",
+    );
+  }
+
+  if (
+    !citedFactIds.some(
+      (factId) => briefFacts.get(factId)?.category === "signal",
+    )
+  ) {
+    return approvalUnavailable(
+      "Artifact cannot be approved without citing a fresh, non-mock signal",
+    );
+  }
+
+  return { eligible: true, reason: null };
 }
 
 /**
@@ -166,7 +362,8 @@ export function shapeCitations(payload: unknown): ShapedCitation[] {
     const factId = fact["id"];
     const claim = fact["text"];
     if (typeof factId !== "string" || typeof claim !== "string") continue;
-    const source = typeof fact["source"] === "string" ? (fact["source"] as string) : "";
+    const source =
+      typeof fact["source"] === "string" ? (fact["source"] as string) : "";
     const date = fact["date"];
     citations.push({
       factId,
@@ -193,9 +390,10 @@ export function shapeRefusal(payload: unknown): ShapedRefusal {
     return { refused: false, reason: null };
   }
   const missing = stringArray(refusal["missing"]);
-  const reason = missing.length > 0
-    ? `${refusal["reason"] as string} (missing: ${missing.join(", ")})`
-    : (refusal["reason"] as string);
+  const reason =
+    missing.length > 0
+      ? `${refusal["reason"] as string} (missing: ${missing.join(", ")})`
+      : (refusal["reason"] as string);
   return { refused: true, reason };
 }
 
@@ -208,7 +406,9 @@ export function shapeRefusal(payload: unknown): ShapedRefusal {
  * citationCoverage, toxicity }` into the payload, the real numbers flow
  * through. We NEVER fabricate zeros — a 0 PII score is a claim, not a gap.
  */
-export function shapeEvaluatorScores(payload: unknown): ShapedEvaluatorScores | null {
+export function shapeEvaluatorScores(
+  payload: unknown,
+): ShapedEvaluatorScores | null {
   const scores = asRecord(asRecord(payload)?.["evaluator_scores"]);
   if (!scores) return null;
   const pii = scores["pii"];
@@ -251,13 +451,17 @@ export function shapeEvaluatorScores(payload: unknown): ShapedEvaluatorScores | 
  */
 export function shapeArtifact(a: UpstreamArtifact): ShapedArtifact {
   const recipientRef = a.recipientRef ?? "";
+  const purpose = shapeArtifactPurpose(a.purpose);
   const channel =
-    a.channel === "EMAIL" || a.channel === "LINKEDIN" || a.channel === "HUBSPOT_NOTE"
+    a.channel === "EMAIL" ||
+    a.channel === "LINKEDIN" ||
+    a.channel === "HUBSPOT_NOTE"
       ? a.channel
       : "UNKNOWN";
   return {
     id: a.id,
     status: a.status,
+    purpose,
     channel,
     recipient: {
       id: recipientRef,
@@ -268,11 +472,13 @@ export function shapeArtifact(a: UpstreamArtifact): ShapedArtifact {
       avatarUrl: null,
     },
     subject: a.subject ?? "",
-    bodyHtml: a.bodyHtml ?? a.bodyText ?? "",
+    bodyText: a.bodyText ?? "",
+    bodyHtml: a.bodyHtml ?? null,
     citations: shapeCitations(a.payload),
     evaluatorScores: shapeEvaluatorScores(a.payload),
     sendPolicy: null,
     refusal: shapeRefusal(a.payload),
+    approvalEligibility: shapeArtifactApprovalEligibility(a),
     langsmithRunId: payloadString(a.payload, "langsmith_run_id") ?? null,
     createdAt: a.createdAt,
     updatedAt: a.updatedAt ?? a.createdAt,
@@ -333,7 +539,11 @@ router.get("/artifacts/pending", async (req, res, next) => {
     )) as UpstreamArtifact[] | UpstreamArtifactPage;
     res.json(shapePaginatedArtifacts(upstream, page, limit));
   } catch (err) {
-    if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
+    if (
+      err instanceof UpstreamError &&
+      (err.status === 401 || err.status === 403)
+    )
+      throw err;
     next(err);
   }
 });
@@ -342,15 +552,27 @@ router.get("/artifacts/pending", async (req, res, next) => {
 router.get("/artifacts", async (req, res, next) => {
   const page = toInt(req.query["page"], 1);
   const limit = toInt(req.query["limit"], 20);
-  const status = typeof req.query["status"] === "string" ? (req.query["status"] as string) : undefined;
-  const query = new URLSearchParams({ page: String(page), limit: String(limit) });
+  const status =
+    typeof req.query["status"] === "string"
+      ? (req.query["status"] as string)
+      : undefined;
+  const query = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+  });
   if (status) query.set("status", status);
   const path = `/outreach-artifacts?${query.toString()}`;
   try {
-    const upstream = (await apex.get(path, { req })) as UpstreamArtifact[] | UpstreamArtifactPage;
+    const upstream = (await apex.get(path, { req })) as
+      | UpstreamArtifact[]
+      | UpstreamArtifactPage;
     res.json(shapePaginatedArtifacts(upstream, page, limit));
   } catch (err) {
-    if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
+    if (
+      err instanceof UpstreamError &&
+      (err.status === 401 || err.status === 403)
+    )
+      throw err;
     next(err);
   }
 });
@@ -364,7 +586,11 @@ router.get("/artifacts/:id", async (req, res, next) => {
     )) as UpstreamArtifact;
     res.json(shapeArtifact(upstream));
   } catch (err) {
-    if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
+    if (
+      err instanceof UpstreamError &&
+      (err.status === 401 || err.status === 403)
+    )
+      throw err;
     if (err instanceof UpstreamError && err.status === 404) {
       res.status(404).json({ error: "Not found" });
       return;
@@ -373,47 +599,139 @@ router.get("/artifacts/:id", async (req, res, next) => {
   }
 });
 
-// POST /artifacts/:id/approve — REAL via POST /api/outreach-artifacts/:id/approve.
-// Backend REQUIRES { reviewedBy } (400 without it); FE schema omits it, so the
-// BFF injects reviewedBy from the authenticated Clerk user.
-router.post("/artifacts/:id/approve", async (req, res, next) => {
-  try {
-    const upstream = (await apex.post(
-      `/outreach-artifacts/${encodeURIComponent(req.params["id"]!)}/approve`,
-      { req },
-      { reviewedBy: req.clerkUserId ?? "bff" },
-    )) as UpstreamArtifact;
-    res.json(shapeArtifact(upstream));
-  } catch (err) {
-    if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
-    if (err instanceof UpstreamError && err.status === 404) {
-      res.status(404).json({ error: "Not found" });
-      return;
-    }
-    next(err);
+function artifactDecisionMessage(body: unknown, fallback: string): string {
+  if (typeof body === "string" && body.trim() !== "") return body;
+  if (body && typeof body === "object" && "message" in body) {
+    const message = (body as { message: unknown }).message;
+    if (typeof message === "string" && message.trim() !== "") return message;
   }
-});
+  return fallback;
+}
 
-// POST /artifacts/:id/reject — REAL via POST /api/outreach-artifacts/:id/reject.
-// FE sends { reason }; backend wants { reviewedBy (REQUIRED), reviewerNote }.
-router.post("/artifacts/:id/reject", async (req, res, next) => {
-  const reason = typeof req.body?.reason === "string" ? (req.body.reason as string) : undefined;
-  try {
-    const upstream = (await apex.post(
-      `/outreach-artifacts/${encodeURIComponent(req.params["id"]!)}/reject`,
-      { req },
-      { reviewedBy: req.clerkUserId ?? "bff", reviewerNote: reason },
-    )) as UpstreamArtifact;
-    res.json(shapeArtifact(upstream));
-  } catch (err) {
-    if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
-    if (err instanceof UpstreamError && err.status === 404) {
-      res.status(404).json({ error: "Not found" });
-      return;
+function approvalWasSaved(body: unknown): boolean {
+  const record = asRecord(body);
+  if (record?.["approvalSaved"] === true) return true;
+  if (record?.["approvalSaved"] === false) return false;
+
+  // Rolling-deploy compatibility with the immediately preceding backend,
+  // whose 503 message stated the durable outcome before the boolean shipped.
+  const message = artifactDecisionMessage(body, "").toLowerCase();
+  return (
+    message.includes("was approved but could not be queued") &&
+    message.includes("approval is saved")
+  );
+}
+
+/**
+ * Decision routes are injectable so their actor and conflict boundaries can be
+ * exercised without a live upstream. The production router still uses `apex`.
+ */
+export function createArtifactDecisionRouter(
+  upstreamClient: ArtifactDecisionUpstreamClient = apex,
+) {
+  const decisionRouter = Router();
+
+  // Backend REQUIRES { reviewedBy }; derive it only from authenticated request
+  // state and fail closed before making any upstream call when it is absent.
+  decisionRouter.post("/artifacts/:id/approve", async (req, res, next) => {
+    const reviewerId = requireAuthenticatedReviewer(req, res);
+    if (reviewerId === null) return;
+    const artifactId = req.params["id"]!;
+
+    try {
+      const upstream = (await upstreamClient.post(
+        `/outreach-artifacts/${encodeURIComponent(artifactId)}/approve`,
+        { req },
+        { reviewedBy: reviewerId },
+      )) as UpstreamArtifact;
+      res.json(shapeArtifact(upstream));
+    } catch (err) {
+      if (
+        err instanceof UpstreamError &&
+        (err.status === 401 || err.status === 403)
+      )
+        throw err;
+      if (err instanceof UpstreamError && err.status === 404) {
+        res.status(404).json({ error: "Not found" });
+        return;
+      }
+      if (
+        err instanceof UpstreamError &&
+        (err.status === 400 || err.status === 409)
+      ) {
+        res.status(err.status).json({
+          message: artifactDecisionMessage(
+            err.body,
+            "Artifact is no longer awaiting approval",
+          ),
+        });
+        return;
+      }
+      if (err instanceof UpstreamError && err.status === 503) {
+        const upstreamBody = asRecord(err.body);
+        const approvalSaved = approvalWasSaved(err.body);
+        res.status(503).json({
+          ...(upstreamBody ?? {}),
+          message: artifactDecisionMessage(
+            err.body,
+            "Artifact approval could not be confirmed",
+          ),
+          approvalSaved,
+          artifactId,
+          ...(approvalSaved ? { status: "APPROVED" } : {}),
+        });
+        return;
+      }
+      next(err);
     }
-    next(err);
-  }
-});
+  });
+
+  // FE sends { reason }; backend wants { reviewedBy, reviewerNote }.
+  decisionRouter.post("/artifacts/:id/reject", async (req, res, next) => {
+    const reviewerId = requireAuthenticatedReviewer(req, res);
+    if (reviewerId === null) return;
+    const reason =
+      typeof req.body?.reason === "string"
+        ? (req.body.reason as string)
+        : undefined;
+
+    try {
+      const upstream = (await upstreamClient.post(
+        `/outreach-artifacts/${encodeURIComponent(req.params["id"]!)}/reject`,
+        { req },
+        { reviewedBy: reviewerId, reviewerNote: reason },
+      )) as UpstreamArtifact;
+      res.json(shapeArtifact(upstream));
+    } catch (err) {
+      if (
+        err instanceof UpstreamError &&
+        (err.status === 401 || err.status === 403)
+      )
+        throw err;
+      if (err instanceof UpstreamError && err.status === 404) {
+        res.status(404).json({ error: "Not found" });
+        return;
+      }
+      if (
+        err instanceof UpstreamError &&
+        (err.status === 400 || err.status === 409)
+      ) {
+        res.status(err.status).json({
+          message: artifactDecisionMessage(
+            err.body,
+            "Artifact is no longer awaiting review",
+          ),
+        });
+        return;
+      }
+      next(err);
+    }
+  });
+
+  return decisionRouter;
+}
+
+router.use(createArtifactDecisionRouter());
 
 // POST /artifacts/:id/suppress — server derives org, actor, and recipient from
 // the authenticated artifact. The upstream response intentionally separates
@@ -421,13 +739,16 @@ router.post("/artifacts/:id/reject", async (req, res, next) => {
 // artifact can remain unchanged while every future send is blocked.
 router.post("/artifacts/:id/suppress", async (req, res, next) => {
   try {
-    const result = await apex.post(
-      artifactSuppressionPath(req.params["id"]!),
-      { req },
-    );
+    const result = await apex.post(artifactSuppressionPath(req.params["id"]!), {
+      req,
+    });
     res.json(result);
   } catch (err) {
-    if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
+    if (
+      err instanceof UpstreamError &&
+      (err.status === 401 || err.status === 403)
+    )
+      throw err;
     if (err instanceof UpstreamError && err.status === 404) {
       res.status(404).json({ error: "Not found" });
       return;

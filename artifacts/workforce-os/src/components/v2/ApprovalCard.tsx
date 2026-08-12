@@ -1,7 +1,12 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useQueryClient } from "@tanstack/react-query";
 import { OutreachArtifact } from "@workspace/api-client-react";
-import { useApproveArtifact, useRejectArtifact, useGetOrgSettings } from "@workspace/api-client-react";
+import {
+  useApproveArtifact,
+  useRejectArtifact,
+  useGetOrgSettings,
+} from "@workspace/api-client-react";
 import { workspaceLiveAuthorization } from "@/lib/sendReadiness";
 import { cardEnter, useReducedMotionSafe } from "@/lib/motion";
 import { Card } from "@/components/ui/card";
@@ -9,14 +14,39 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PolicyBadge } from "./PolicyBadge";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ChevronDown, Check, X, Quote, Send, FlaskConical, Ban, Loader2, ShieldAlert } from "lucide-react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
+  ChevronDown,
+  Check,
+  X,
+  Quote,
+  Send,
+  FlaskConical,
+  Ban,
+  Loader2,
+  ShieldAlert,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
-import { sanitizeHtml } from "@/lib/sanitize";
 import { toast } from "sonner";
 import { isUnavailable } from "@/lib/unavailable";
 import { ArtifactUiStatus, artifactStatusBadge } from "@/lib/artifactStatus";
-import { getArtifactRefusal, uiCitations, citedCount } from "@/lib/artifactContract";
+import {
+  getArtifactRefusal,
+  uiCitations,
+  citedCount,
+} from "@/lib/artifactContract";
+import {
+  artifactApprovalEligibility,
+  artifactReviewAccess,
+} from "@/lib/artifactApproval";
+import {
+  approvalSavedFromError,
+  decisionErrorMessage,
+} from "@/lib/decisionError";
 import { EvidenceTimeline } from "./EvidenceTimeline";
 import { Skeleton } from "../ui/skeleton";
 
@@ -43,7 +73,8 @@ const RESOLVED_CARDS: Partial<Record<ArtifactUiStatus, ResolvedCardConfig>> = {
     cardClass: "bg-signal-info/5 border-signal-info/20",
     iconWrapClass: "bg-signal-info",
     title: (name) => `Approved for processing for ${name}`,
-    detail: "Nothing has been sent. The worker will evaluate live-send readiness before any provider attempt.",
+    detail:
+      "Nothing has been sent. The worker will evaluate live-send readiness before any provider attempt.",
   },
   SENDING: {
     icon: <Loader2 className="h-5 w-5 text-white animate-spin" />,
@@ -64,7 +95,8 @@ const RESOLVED_CARDS: Partial<Record<ArtifactUiStatus, ResolvedCardConfig>> = {
     cardClass: "bg-ember-400/10 border-ember-400/30",
     iconWrapClass: "bg-ember-500",
     title: (name) => `Simulated send for ${name}`,
-    detail: "Dry-run only — no real email was sent. Enable live sending to deliver.",
+    detail:
+      "Dry-run only — no real email was sent. Enable live sending to deliver.",
   },
   DELIVERY_UNKNOWN: {
     icon: <ShieldAlert className="h-5 w-5 text-white" />,
@@ -106,12 +138,17 @@ function ScorePill({
 }) {
   if (value == null || !Number.isFinite(value)) {
     return (
-      <Badge variant="outline" className="text-xs font-tabular bg-paper-100 text-ink-400 border-paper-200">
+      <Badge
+        variant="outline"
+        className="text-xs font-tabular bg-paper-100 text-ink-400 border-paper-200"
+      >
         {label}: not available
       </Badge>
     );
   }
-  const cls = classForValue ? classForValue(value) : "bg-paper-200 text-ink-900 border-paper-200";
+  const cls = classForValue
+    ? classForValue(value)
+    : "bg-paper-200 text-ink-900 border-paper-200";
   return (
     <Badge variant="outline" className={cn("text-xs font-tabular", cls)}>
       {label}: {value.toFixed(2)}
@@ -120,8 +157,11 @@ function ScorePill({
 }
 
 export function ApprovalCard({ artifact }: ApprovalCardProps) {
+  const queryClient = useQueryClient();
   const reduced = useReducedMotionSafe();
-  const [localStatus, setLocalStatus] = useState<ArtifactUiStatus>(artifact.status);
+  const [localStatus, setLocalStatus] = useState<ArtifactUiStatus>(
+    artifact.status,
+  );
   const [rejectMode, setRejectMode] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [bodyExpanded, setBodyExpanded] = useState(false);
@@ -134,30 +174,47 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
     setLocalStatus(artifact.status);
   }, [artifact.status]);
 
-  const approveMut = useApproveArtifact();
-  const rejectMut = useRejectArtifact();
+  const approveMut = useApproveArtifact({ mutation: { retry: false } });
+  const rejectMut = useRejectArtifact({ mutation: { retry: false } });
 
   // GL5 live-state indicator: per-artifact sendPolicy is null from the BFF
   // today, so workspace readiness (OrgSettings.sendReadiness, runtime-guarded)
   // is the honest signal. Query is shared/deduped via the same key Settings
   // and Outbound use. Live = the artifact's own policy says so, OR the
   // workspace is explicitly live; unknown readiness stays dry-run.
-  const { data: orgSettings } = useGetOrgSettings({ query: { queryKey: ["getOrgSettings"] } });
+  const { data: orgSettings } = useGetOrgSettings({
+    query: { queryKey: ["getOrgSettings"] },
+  });
   const workspaceAuthorization = workspaceLiveAuthorization(orgSettings);
+  const reviewAccess = artifactReviewAccess(
+    orgSettings?.canReviewArtifacts,
+  );
   const liveAuthorization = artifact.sendPolicy
     ? artifact.sendPolicy.liveSendEnabled
     : workspaceAuthorization;
   const isLiveAuthorized = liveAuthorization === true;
-  const dispatchSupported = artifact.channel === "EMAIL" || artifact.channel === "LINKEDIN";
-  const channelLabel = artifact.channel === "EMAIL"
-    ? "Email"
-    : artifact.channel === "LINKEDIN"
-      ? "LinkedIn"
-      : artifact.channel === "HUBSPOT_NOTE"
-        ? "HubSpot note"
-        : "Unknown channel";
+  const approvalEligibility = artifactApprovalEligibility({
+    ...artifact,
+    status: localStatus,
+  });
+  const channelLabel =
+    artifact.channel === "EMAIL"
+      ? "Email"
+      : artifact.channel === "LINKEDIN"
+        ? "LinkedIn"
+        : artifact.channel === "HUBSPOT_NOTE"
+          ? "HubSpot note"
+          : "Unknown channel";
 
   const handleApprove = async () => {
+    if (!reviewAccess.allowed) {
+      toast.error(reviewAccess.reason);
+      return;
+    }
+    if (!approvalEligibility.eligible) {
+      toast.error(approvalEligibility.reason);
+      return;
+    }
     try {
       const updated = await approveMut.mutateAsync({ id: artifact.id });
       if (isUnavailable(updated)) {
@@ -167,16 +224,37 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
       // Follow whatever status the server actually assigned — approving
       // queues the email, it does NOT send it.
       setLocalStatus(updated.status as ArtifactUiStatus);
+      void queryClient.invalidateQueries({
+        queryKey: ["listPendingArtifacts"],
+      });
       toast.success("Approved — queued for policy evaluation");
     } catch (err) {
-      toast.error("Failed to approve.");
+      if (approvalSavedFromError(err)) {
+        setLocalStatus("APPROVED");
+        void Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["listPendingArtifacts"] }),
+          queryClient.invalidateQueries({
+            queryKey: ["getArtifact", artifact.id],
+          }),
+        ]);
+        toast.warning(decisionErrorMessage(err));
+        return;
+      }
+      toast.error(decisionErrorMessage(err));
     }
   };
 
   const handleRejectSubmit = async () => {
+    if (!reviewAccess.allowed) {
+      toast.error(reviewAccess.reason);
+      return;
+    }
     if (!rejectReason.trim()) return;
     try {
-      const updated = await rejectMut.mutateAsync({ id: artifact.id, data: { reason: rejectReason } });
+      const updated = await rejectMut.mutateAsync({
+        id: artifact.id,
+        data: { reason: rejectReason },
+      });
       if (isUnavailable(updated)) {
         toast("Rejection isn't available yet — coming soon");
         return;
@@ -184,7 +262,7 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
       setLocalStatus(updated.status as ArtifactUiStatus);
       toast("Draft rejected");
     } catch (err) {
-      toast.error("Failed to reject.");
+      toast.error(decisionErrorMessage(err));
     }
   };
 
@@ -203,13 +281,28 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
     return (
       <AnimatePresence mode="wait">
         <motion.div key={localStatus} {...motionProps}>
-          <Card className={cn("p-4 shadow-sm flex flex-col justify-center items-center text-center", resolved.cardClass)}>
-            <div className={cn("h-10 w-10 rounded-full flex items-center justify-center mb-3", resolved.iconWrapClass)}>
+          <Card
+            className={cn(
+              "p-4 shadow-sm flex flex-col justify-center items-center text-center",
+              resolved.cardClass,
+            )}
+          >
+            <div
+              className={cn(
+                "h-10 w-10 rounded-full flex items-center justify-center mb-3",
+                resolved.iconWrapClass,
+              )}
+            >
               {resolved.icon}
             </div>
-            <h4 className="font-serif text-lg text-ink-900">{resolved.title(artifact.recipient.name)}</h4>
+            <h4 className="font-serif text-lg text-ink-900">
+              {resolved.title(artifact.recipient.name)}
+            </h4>
             <p className="text-sm text-ink-700 mt-1">{resolved.detail}</p>
-            <Badge variant="outline" className={cn("text-xs mt-3 border", badge.className)}>
+            <Badge
+              variant="outline"
+              className={cn("text-xs mt-3 border", badge.className)}
+            >
               {badge.label}
             </Badge>
           </Card>
@@ -244,14 +337,25 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
               </AvatarFallback>
             </Avatar>
             <div>
-              <h3 className="text-sm font-semibold text-ink-900">{artifact.recipient.name}</h3>
-              <p className="text-xs text-ink-700">{artifact.recipient.title} • {artifact.recipient.company}</p>
+              <h3 className="text-sm font-semibold text-ink-900">
+                {artifact.recipient.name}
+              </h3>
+              <p className="text-xs text-ink-700">
+                {artifact.recipient.title} • {artifact.recipient.company}
+              </p>
               <p className="text-xs text-ink-400">{artifact.recipient.email}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Badge variant="outline" className="text-[10px] uppercase">{channelLabel}</Badge>
-            {artifact.channel === "EMAIL" && <PolicyBadge policy={artifact.sendPolicy} workspaceAuthorization={workspaceAuthorization} />}
+            <Badge variant="outline" className="text-[10px] uppercase">
+              {channelLabel}
+            </Badge>
+            {artifact.channel === "EMAIL" && (
+              <PolicyBadge
+                policy={artifact.sendPolicy}
+                workspaceAuthorization={workspaceAuthorization}
+              />
+            )}
           </div>
         </div>
 
@@ -264,33 +368,29 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
           >
             <div className="flex items-center gap-2">
               <ShieldAlert className="h-5 w-5 text-rust-500 shrink-0" />
-              <h4 className="font-serif text-lg text-ink-900">Refused to draft — no grounded evidence</h4>
+              <h4 className="font-serif text-lg text-ink-900">
+                Refused to draft — no grounded evidence
+              </h4>
             </div>
             <p className="text-sm text-ink-700 mt-2">
               {refusal?.reason ??
                 "The agent declined to write this artifact because it couldn't ground it in real, dated evidence."}
             </p>
           </div>
-        ) : !dispatchSupported ? (
-          <div className="flex items-center gap-2">
-            <p className="flex-1 text-xs text-ink-500">
-              Approval unavailable — {channelLabel.toLowerCase()} dispatch is not supported in this release.
-            </p>
-            <Button variant="ghost" className="text-ink-400 hover:text-rust-500" onClick={() => setRejectMode(true)}>
-              Reject
-            </Button>
-          </div>
         ) : (
           <div className="mb-4">
-            <h4 className="font-serif text-lg text-ink-900 mb-2">{artifact.subject}</h4>
+            <h4 className="font-serif text-lg text-ink-900 mb-2">
+              {artifact.subject}
+            </h4>
             <div className="relative">
               <div
                 className={cn(
-                  "prose prose-sm prose-ink max-w-none text-ink-700",
-                  !bodyExpanded && "max-h-[160px] overflow-hidden"
+                  "prose prose-sm prose-ink max-w-none whitespace-pre-wrap text-ink-700",
+                  !bodyExpanded && "max-h-[160px] overflow-hidden",
                 )}
-                dangerouslySetInnerHTML={{ __html: sanitizeHtml(artifact.bodyHtml) }}
-              />
+              >
+                {artifact.bodyText}
+              </div>
               {!bodyExpanded && (
                 <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-paper-50 to-transparent flex items-end justify-center pb-1">
                   <button
@@ -323,10 +423,12 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
                     "text-[11px] p-2 rounded border",
                     cite.cited
                       ? "bg-signal-positive/5 border-signal-positive/30"
-                      : "bg-paper-50 border-paper-200"
+                      : "bg-paper-50 border-paper-200",
                   )}
                 >
-                  <span className="font-medium text-ink-900 block mb-1">"{cite.claim}"</span>
+                  <span className="font-medium text-ink-900 block mb-1">
+                    "{cite.claim}"
+                  </span>
                   <span className="text-ink-400 font-mono">
                     Source: {cite.source}
                     {cite.date ? ` · ${cite.date}` : ""}
@@ -368,7 +470,10 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
               <ScorePill label="Citation Cov" value={scores.citationCoverage} />
             </>
           ) : (
-            <Badge variant="outline" className="text-xs bg-paper-100 text-ink-400 border-paper-200">
+            <Badge
+              variant="outline"
+              className="text-xs bg-paper-100 text-ink-400 border-paper-200"
+            >
               Evaluator scores not available
             </Badge>
           )}
@@ -383,7 +488,14 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
         </div>
 
         {/* Action Bar */}
-        {rejectMode ? (
+        {!reviewAccess.allowed ? (
+          <p
+            className="text-xs text-ink-500 rounded-md border border-paper-200 bg-paper-100 px-3 py-2"
+            data-testid="artifact-review-read-only"
+          >
+            {reviewAccess.reason}
+          </p>
+        ) : rejectMode ? (
           <div className="flex flex-col gap-2 animate-in slide-in-from-bottom-2">
             <input
               type="text"
@@ -395,28 +507,36 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
               autoFocus
             />
             <div className="flex gap-2 justify-end">
-              <Button variant="ghost" size="sm" onClick={() => setRejectMode(false)}>Cancel</Button>
-              <Button variant="destructive" size="sm" onClick={handleRejectSubmit} disabled={!rejectReason.trim() || rejectMut.isPending}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setRejectMode(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleRejectSubmit}
+                disabled={!rejectReason.trim() || rejectMut.isPending}
+              >
                 {rejectMut.isPending ? "Rejecting…" : "Confirm Reject"}
               </Button>
             </div>
           </div>
-        ) : refused ? (
-          // No approve path for a refusal — there is no draft to send.
+        ) : !approvalEligibility.eligible ? (
           <div className="flex items-center gap-2">
-            <p className="flex-1 text-xs text-ink-500">
-              Approval disabled — the agent refused to draft this artifact.
+            <p
+              className="flex-1 text-xs text-ink-500"
+              data-testid="approval-unavailable-reason"
+            >
+              {approvalEligibility.reason}
             </p>
-            <Button variant="ghost" className="text-ink-400 hover:text-rust-500" onClick={() => setRejectMode(true)}>
-              Reject
-            </Button>
-          </div>
-        ) : !dispatchSupported ? (
-          <div className="flex items-center gap-2">
-            <p className="flex-1 text-xs text-ink-500">
-              Approval unavailable — {channelLabel.toLowerCase()} dispatch is not supported in this release.
-            </p>
-            <Button variant="ghost" className="text-ink-400 hover:text-rust-500" onClick={() => setRejectMode(true)}>
+            <Button
+              variant="ghost"
+              className="text-ink-400 hover:text-rust-500"
+              onClick={() => setRejectMode(true)}
+            >
               Reject
             </Button>
           </div>
@@ -431,41 +551,56 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
               >
                 <Send className="h-3.5 w-3.5 text-rust-500 shrink-0" />
                 <p className="text-xs font-medium text-rust-600">
-                  Live delivery is authorized — approval may deliver this {channelLabel.toLowerCase()} now or later after temporary policy gates clear.
+                  Live delivery is authorized — approval may deliver this{" "}
+                  {channelLabel.toLowerCase()} now or later after temporary
+                  policy gates clear.
                 </p>
               </div>
             )}
             {liveAuthorization === null && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-paper-100 border border-paper-300" role="alert">
+              <div
+                className="flex items-center gap-2 px-3 py-2 rounded-md bg-paper-100 border border-paper-300"
+                role="alert"
+              >
                 <ShieldAlert className="h-3.5 w-3.5 text-ink-500 shrink-0" />
                 <p className="text-xs font-medium text-ink-600">
-                  Approval is disabled until live-delivery authorization can be verified.
+                  Approval is disabled until live-delivery authorization can be
+                  verified.
                 </p>
               </div>
             )}
             <div className="flex items-center gap-2">
-              <Button onClick={handleApprove} disabled={approveMut.isPending || liveAuthorization === null} className="flex-1 bg-rust-500 hover:bg-rust-500/90 text-white">
+              <Button
+                onClick={handleApprove}
+                disabled={approveMut.isPending || liveAuthorization === null}
+                className="flex-1 bg-rust-500 hover:bg-rust-500/90 text-white"
+              >
                 {approveMut.isPending ? (
                   <>
-                    <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> Approving…
+                    <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />{" "}
+                    Approving…
                   </>
                 ) : (
                   "Approve"
                 )}
               </Button>
-              <Button variant="ghost" className="text-ink-400 hover:text-rust-500" onClick={() => setRejectMode(true)}>
+              <Button
+                variant="ghost"
+                className="text-ink-400 hover:text-rust-500"
+                onClick={() => setRejectMode(true)}
+              >
                 Reject
               </Button>
             </div>
           </div>
         )}
       </Card>
-      
+
       {artifact.graphRunId && (
-        <EvidenceTimeline 
-          runId={artifact.graphRunId} 
-          open={timelineOpen} 
-          onOpenChange={setTimelineOpen} 
+        <EvidenceTimeline
+          runId={artifact.graphRunId}
+          open={timelineOpen}
+          onOpenChange={setTimelineOpen}
         />
       )}
     </>

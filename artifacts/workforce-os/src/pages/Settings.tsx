@@ -6,7 +6,7 @@ import {
   useGetIcpProfile, useUpdateIcpProfile,
   useGetCadence, useUpdateCadence,
   useGetStyleConfig, useUpdateStyleConfig,
-  useListIntegrations, useConnectIntegration, useDisconnectIntegration,
+  useListIntegrations, useDisconnectIntegration,
   useListTeamMembers, useInviteTeamMember, useRemoveTeamMember,
   useGetBilling,
   useListApiKeys, useCreateApiKey, useRevokeApiKey,
@@ -34,7 +34,7 @@ import {
 import { toast } from "sonner";
 import { IntegrationLogo } from "@/components/brand/IntegrationLogo";
 import { fadeSlideUp, useReducedMotionSafe } from "@/lib/motion";
-import { CountUp } from "@/components/motion/CountUp";
+import { BillingUsageSummary } from "@/components/settings/BillingUsageSummary";
 import { EmptyState } from "@/components/states/EmptyState";
 import { ErrorState } from "@/components/states/ErrorState";
 import { isUnavailable, UnavailableState } from "@/lib/unavailable";
@@ -226,12 +226,16 @@ function SetupTab() {
     ["Workspace allowlisted", data.sendReadiness.liveSendAllowed],
     ["Mailbox connected", data.sendReadiness.mailboxConnected],
     ["Sender name set", data.sendReadiness.senderNameSet],
+    ["Country set", data.sendReadiness.countrySet],
     ["Physical address set", data.sendReadiness.physicalAddressSet],
     [
       "Daily capacity available",
       data.sendReadiness.dailyCapRemaining !== null && data.sendReadiness.dailyCapRemaining > 0,
     ],
   ] as const;
+  const readyForLiveSend =
+    data.readyForLiveSend &&
+    workspaceLiveState({ sendReadiness: data.sendReadiness }) === true;
 
   return (
     <>
@@ -247,7 +251,7 @@ function SetupTab() {
               {data.complete ? "Customer setup complete" : "Setup still required"}
             </p>
             <p className="text-sm text-ink-500 mt-1">
-              {data.readyForLiveSend
+              {readyForLiveSend
                 ? "The backend confirms every setup and live-send gate."
                 : data.complete
                   ? "Customer setup is complete, but server policy or send capacity still keeps live delivery off."
@@ -258,12 +262,12 @@ function SetupTab() {
             data-testid="setup-status"
             className={cn(
               "border",
-              data.readyForLiveSend
+              readyForLiveSend
                 ? "bg-signal-positive/10 text-signal-positive border-signal-positive/30"
                 : "bg-paper-100 text-ink-600 border-paper-300",
             )}
           >
-            {data.readyForLiveSend ? "Ready for live send" : "Live send off"}
+            {readyForLiveSend ? "Ready for live send" : "Live send off"}
           </Badge>
         </div>
       </SettingsCard>
@@ -386,6 +390,7 @@ function LiveStatusCard({ settings }: { settings: OrgSettings }) {
     { label: "Workspace allowlisted", ok: readiness ? readiness.liveSendAllowed : null },
     { label: "Mailbox connected", ok: readiness ? readiness.mailboxConnected : null },
     { label: "Sender name set", ok: readiness ? readiness.senderNameSet : null },
+    { label: "Country set", ok: readiness ? readiness.countrySet : null },
     { label: "Physical address set", ok: readiness ? readiness.physicalAddressSet : null },
   ];
 
@@ -761,9 +766,6 @@ function IntegrationsTab() {
       refetchInterval: gmailWaiting ? GMAIL_POLL_INTERVAL_MS : false,
     },
   });
-  const { mutate: connect, isPending: connecting } = useConnectIntegration({
-    mutation: { onSuccess: () => { toast.success("Connected"); refetch(); }, onError: () => toast.error("Connection failed") },
-  });
   const { mutate: disconnect, isPending: disconnecting } = useDisconnectIntegration({
     mutation: { onSuccess: () => { toast.success("Disconnected"); refetch(); }, onError: () => toast.error("Disconnect failed") },
   });
@@ -839,13 +841,11 @@ function IntegrationsTab() {
                   size="sm"
                   variant={isConnected ? "outline" : "default"}
                   className={cn("h-7 text-xs", isConnected ? "border-paper-300 text-ink-600" : "bg-rust-500 hover:bg-rust-600 text-white")}
-                  disabled={connecting || disconnecting || gmailBusy}
+                  disabled={disconnecting || gmailBusy}
                   onClick={() =>
                     isConnected
                       ? disconnect({ provider: int.provider })
-                      : isGmail
-                        ? handleConnectGmail()
-                        : connect({ provider: int.provider })
+                      : handleConnectGmail()
                   }
                 >
                   {isConnected
@@ -974,15 +974,12 @@ function BillingTab() {
       onRetry={() => refetch()}
       skeleton={<FormSkeleton rows={5} />}
     >
-      <SectionHeader title="Billing & Usage" description="Plan, credits, and invoice history." />
+      <SectionHeader title="Billing & Usage" description="Plan and backend-recorded billing details." />
       <SettingsCard className="p-5 space-y-5">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs text-ink-400 uppercase tracking-wide">Current Plan</p>
             <p className="text-2xl font-serif font-semibold text-ink-900 dark:text-paper-50 mt-0.5">{billing.plan}</p>
-            <p className="text-xs text-ink-400 mt-1">
-              <CountUp value={billing.creditsRemaining} /> credits remaining
-            </p>
           </div>
           <Button
             size="sm"
@@ -993,17 +990,15 @@ function BillingTab() {
           </Button>
         </div>
         <Separator />
-        <UsageBar label="Credits" used={billing.creditsTotal - billing.creditsRemaining} total={billing.creditsTotal} unit="" />
-        <UsageBar label="Sends this month" used={billing.sendsThisMonth} total={billing.sendsLimit} unit="" />
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-ink-600">Seats</span>
-          <span className="font-mono text-ink-900 dark:text-paper-50">
-            <CountUp value={billing.seats} /> / <CountUp value={billing.seatsLimit} />
-          </span>
-        </div>
+        <BillingUsageSummary billing={billing} />
       </SettingsCard>
 
-      {billing.invoices.length > 0 && (
+      {billing.invoices === null ? (
+        <SettingsCard className="p-4 flex items-center justify-between text-sm">
+          <span className="text-ink-600">Invoice history</span>
+          <span className="font-mono text-ink-900 dark:text-paper-50">Not recorded</span>
+        </SettingsCard>
+      ) : billing.invoices.length > 0 ? (
         <SettingsCard className="overflow-hidden">
           <div className="px-4 py-3 border-b border-paper-200 bg-paper-50">
             <span className="text-xs font-semibold text-ink-500 uppercase tracking-wide">Invoices</span>
@@ -1020,6 +1015,11 @@ function BillingTab() {
               </div>
             ))}
           </div>
+        </SettingsCard>
+      ) : (
+        <SettingsCard className="p-4 flex items-center justify-between text-sm">
+          <span className="text-ink-600">Invoice history</span>
+          <span className="font-mono text-ink-900 dark:text-paper-50">No invoices recorded</span>
         </SettingsCard>
       )}
 
@@ -1047,23 +1047,6 @@ function BillingTab() {
         </DialogContent>
       </Dialog>
     </TabBoundary>
-  );
-}
-
-function UsageBar({ label, used, total, unit }: { label: string; used: number; total: number; unit: string }) {
-  const pct = total > 0 ? Math.round((used / total) * 100) : 0;
-  const color = pct >= 90 ? "bg-rust-500" : pct >= 70 ? "bg-amber-400" : "bg-ink-700";
-  return (
-    <div>
-      <div className="flex justify-between text-sm mb-1.5">
-        <span className="text-ink-600">{label}</span>
-        <span className="font-mono text-ink-900 dark:text-paper-50">{used.toLocaleString()}{unit} / {total.toLocaleString()}{unit}</span>
-      </div>
-      <div className="h-2 bg-paper-200 rounded-full overflow-hidden">
-        <div className={cn("h-full rounded-full transition-all", color)} style={{ width: `${pct}%` }} />
-      </div>
-      <p className="text-[10px] text-ink-400 mt-1 text-right">{pct}% used</p>
-    </div>
   );
 }
 

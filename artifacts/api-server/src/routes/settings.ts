@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
 import { apex, UpstreamError } from "../upstream/apex-client";
 import { gapResponse } from "../lib/unavailable";
 
@@ -8,7 +8,7 @@ const router = Router();
  * The subset of the apex-gtm-api Org row (GET /api/orgs/me →
  * OrgsService.findByClerkUser) that the BFF reads. The deployed Org model has
  * NO logoUrl/timezone/unsubscribeUrl/allowlistedDomains/creditsRemaining
- * columns, so those FE fields are DEFAULTED (synthesized) — see the audit's
+ * columns, so unsupported FE fields are defaulted and accounting stays null — see the audit's
  * transform for endpoint 0. Onboarding completion is fetched from the
  * backend's derived status endpoint, never from a mutable/synthetic flag.
  * `sendReadiness` is the GL5
@@ -23,7 +23,7 @@ export interface ApexOrg {
   physicalAddress?: string | null;
   country?: string | null;
   senderName?: string | null;
-  plan?: string;
+  plan?: string | null;
   sendReadiness?: unknown;
 }
 
@@ -40,6 +40,7 @@ export interface SendReadiness {
   liveSendAllowed: boolean;
   physicalAddressSet: boolean;
   senderNameSet: boolean;
+  countrySet: boolean;
   mailboxConnected: boolean;
   dailyCapRemaining: number | null;
 }
@@ -60,6 +61,7 @@ export function parseSendReadiness(raw: unknown): SendReadiness | null {
     typeof r["liveSendAllowed"] !== "boolean" ||
     typeof r["physicalAddressSet"] !== "boolean" ||
     typeof r["senderNameSet"] !== "boolean" ||
+    typeof r["countrySet"] !== "boolean" ||
     typeof r["mailboxConnected"] !== "boolean"
   ) {
     return null;
@@ -69,6 +71,7 @@ export function parseSendReadiness(raw: unknown): SendReadiness | null {
     liveSendAllowed: r["liveSendAllowed"],
     physicalAddressSet: r["physicalAddressSet"],
     senderNameSet: r["senderNameSet"],
+    countrySet: r["countrySet"],
     mailboxConnected: r["mailboxConnected"],
     dailyCapRemaining: typeof cap === "number" && Number.isFinite(cap) ? cap : null,
   };
@@ -88,9 +91,11 @@ export interface OrgSettings {
   unsubscribeUrl: string | null;
   suppressionCount: number;
   allowlistedDomains: string[];
-  plan: string;
-  creditsRemaining: number;
+  plan: string | null;
+  creditsRemaining: number | null;
   welcomeComplete: boolean;
+  /** true = reviewer guard confirmed; false = guard denied; null = unavailable/unknown. */
+  canReviewArtifacts: boolean | null;
   /** GL5: forwarded verbatim from upstream; null = backend didn't report it. */
   sendReadiness: SendReadiness | null;
 }
@@ -100,12 +105,12 @@ export interface OrgSettings {
  *
  * REAL: `sendReadiness` is forwarded from the upstream org read (null when the
  * backend doesn't send it), and `liveSendEnabled` is true only when the
- * allowlist, mailbox, sender, address, and positive-capacity gates are all
+ * allowlist, mailbox, sender, country, address, and positive-capacity gates are all
  * reported open; absent/malformed readiness fails closed.
  *
  * SYNTHESIZED (no backing Org column on the deployed backend, per audit):
  *   logoUrl=null, timezone='UTC', unsubscribeUrl=null, allowlistedDomains=[],
- *   creditsRemaining=0.
+ *   creditsRemaining=null (the backend does not expose credit accounting).
  *   suppressionCount has no count endpoint upstream → 0 unless caller supplies one.
  * `welcomeComplete` is never synthesized: the caller must supply the derived
  * backend onboarding verdict, and a missing/malformed verdict fails closed.
@@ -114,6 +119,7 @@ export function shapeOrgSettings(
   org: ApexOrg,
   suppressionCount = 0,
   welcomeComplete = false,
+  canReviewArtifacts: boolean | null = null,
 ): OrgSettings {
   const sendReadiness = parseSendReadiness(org.sendReadiness);
   return {
@@ -129,6 +135,7 @@ export function shapeOrgSettings(
       sendReadiness?.liveSendAllowed === true &&
       sendReadiness.physicalAddressSet &&
       sendReadiness.senderNameSet &&
+      sendReadiness.countrySet &&
       sendReadiness.mailboxConnected &&
       sendReadiness.dailyCapRemaining !== null &&
       sendReadiness.dailyCapRemaining > 0,
@@ -136,11 +143,35 @@ export function shapeOrgSettings(
     unsubscribeUrl: null,
     suppressionCount,
     allowlistedDomains: [],
-    plan: org.plan ?? "TRIAL",
-    creditsRemaining: 0,
+    plan:
+      typeof org.plan === "string" && org.plan.trim() !== ""
+        ? org.plan
+        : null,
+    creditsRemaining: null,
     welcomeComplete,
+    canReviewArtifacts,
     sendReadiness,
   };
+}
+
+/**
+ * Resolve the backend's guarded artifact-review capability without guessing.
+ * A guard denial is a known read-only state; any missing/malformed/failed
+ * capability lookup is unknown and therefore also fails closed in the UI.
+ */
+export async function fetchReviewCapability(
+  req: Request,
+  client: Pick<typeof apex, "get"> = apex,
+): Promise<boolean | null> {
+  try {
+    const raw = await client.get("/outreach-artifacts/review-capability", { req });
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    return (raw as Record<string, unknown>)["canReviewArtifacts"] === true ? true : null;
+  } catch (err) {
+    if (err instanceof UpstreamError && err.status === 401) throw err;
+    if (err instanceof UpstreamError && err.status === 403) return false;
+    return null;
+  }
 }
 
 // ─── Org settings ──────────────────────────────────────────────────────────
@@ -155,8 +186,11 @@ router.get("/settings/org", async (req, res, next) => {
       "/orgs/onboarding/status",
       { req },
     )) as ApexOnboardingStatus;
-    const org = (await apex.get("/orgs/me", { req })) as ApexOrg;
-    res.json(shapeOrgSettings(org, 0, onboarding?.complete === true));
+    const [org, canReviewArtifacts] = await Promise.all([
+      apex.get("/orgs/me", { req }) as Promise<ApexOrg>,
+      fetchReviewCapability(req),
+    ]);
+    res.json(shapeOrgSettings(org, 0, onboarding?.complete === true, canReviewArtifacts));
   } catch (err) {
     if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
     next(err);
@@ -228,11 +262,12 @@ router.put("/settings/org", async (req, res, next) => {
     // addition to name — buildOrgPatchBody forwards exactly those.
     const me = (await apex.get("/orgs/me", { req })) as ApexOrg;
     await apex.patch(`/orgs/${me.id}`, { req }, buildOrgPatchBody(req.body));
-    const [updated, onboarding] = await Promise.all([
+    const [updated, onboarding, canReviewArtifacts] = await Promise.all([
       apex.get("/orgs/me", { req }) as Promise<ApexOrg>,
       apex.get("/orgs/onboarding/status", { req }) as Promise<ApexOnboardingStatus>,
+      fetchReviewCapability(req),
     ]);
-    res.json(shapeOrgSettings(updated, 0, onboarding?.complete === true));
+    res.json(shapeOrgSettings(updated, 0, onboarding?.complete === true, canReviewArtifacts));
   } catch (err) {
     if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
     // Surface upstream validation failures honestly (e.g. country must be

@@ -56,6 +56,15 @@ export const OutreachArtifactStatus = {
   DELIVERY_UNKNOWN: 'DELIVERY_UNKNOWN',
 } as const;
 
+export type OutreachArtifactPurpose = typeof OutreachArtifactPurpose[keyof typeof OutreachArtifactPurpose];
+
+
+export const OutreachArtifactPurpose = {
+  OUTBOUND: 'OUTBOUND',
+  REPLY: 'REPLY',
+  FOLLOW_UP: 'FOLLOW_UP',
+} as const;
+
 export type OutreachArtifactChannel = typeof OutreachArtifactChannel[keyof typeof OutreachArtifactChannel];
 
 
@@ -72,17 +81,27 @@ export interface ArtifactRefusal {
   reason: string | null;
 }
 
+export interface ArtifactApprovalEligibility {
+  eligible: boolean;
+  /** @nullable */
+  reason: string | null;
+}
+
 export interface OutreachArtifact {
   id: string;
   status: OutreachArtifactStatus;
+  purpose: OutreachArtifactPurpose;
   channel: OutreachArtifactChannel;
   recipient: Recipient;
   subject: string;
-  bodyHtml: string;
+  bodyText: string;
+  /** @nullable */
+  bodyHtml: string | null;
   citations: FactCitation[];
   evaluatorScores: EvaluatorScores | null;
   sendPolicy: SendPolicy | null;
   refusal: ArtifactRefusal;
+  approvalEligibility: ArtifactApprovalEligibility;
   /** @nullable */
   langsmithRunId: string | null;
   createdAt: string;
@@ -101,6 +120,20 @@ export interface OutreachArtifact {
   graphRunId: string | null;
   /** @nullable */
   cohort: string | null;
+}
+
+export type ArtifactApprovalFailureStatus = typeof ArtifactApprovalFailureStatus[keyof typeof ArtifactApprovalFailureStatus];
+
+
+export const ArtifactApprovalFailureStatus = {
+  APPROVED: 'APPROVED',
+} as const;
+
+export interface ArtifactApprovalFailure {
+  message: string;
+  approvalSaved: boolean;
+  artifactId: string;
+  status?: ArtifactApprovalFailureStatus;
 }
 
 export interface PaginatedArtifacts {
@@ -553,6 +586,7 @@ export interface SendReadiness {
   liveSendAllowed: boolean;
   physicalAddressSet: boolean;
   senderNameSet: boolean;
+  countrySet: boolean;
   mailboxConnected: boolean;
   /** @nullable */
   dailyCapRemaining: number | null;
@@ -577,9 +611,13 @@ export interface OrgSettings {
   unsubscribeUrl?: string | null;
   suppressionCount: number;
   allowlistedDomains: string[];
-  plan?: string;
-  creditsRemaining: number;
+  /** @nullable */
+  plan: string | null;
+  /** @nullable */
+  creditsRemaining: number | null;
   welcomeComplete: boolean;
+  /** @nullable */
+  canReviewArtifacts: boolean | null;
   sendReadiness: SendReadiness | null;
 }
 
@@ -694,13 +732,19 @@ export interface Invoice {
 
 export interface BillingInfo {
   plan: string;
-  creditsRemaining: number;
-  creditsTotal: number;
-  sendsThisMonth: number;
-  sendsLimit: number;
+  /** @nullable */
+  creditsRemaining: number | null;
+  /** @nullable */
+  creditsTotal: number | null;
+  /** @nullable */
+  sendsThisMonth: number | null;
+  /** @nullable */
+  sendsLimit: number | null;
   seats: number;
-  seatsLimit: number;
-  invoices: Invoice[];
+  /** @nullable */
+  seatsLimit: number | null;
+  /** @nullable */
+  invoices: Invoice[] | null;
 }
 
 export interface ApiKey {

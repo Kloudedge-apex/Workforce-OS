@@ -15,6 +15,7 @@ import { cardEnter, springHover, useReducedMotionSafe } from "@/lib/motion";
 import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 import { CountUp } from "@/components/motion/CountUp";
 import { isUnavailable, UnavailableState } from "@/lib/unavailable";
+import { decisionErrorMessage } from "@/lib/decisionError";
 
 const STATUS_STYLES: Record<string, string> = {
   COMPLETED: "bg-signal-positive/10 text-signal-positive border-signal-positive/20",
@@ -42,31 +43,6 @@ const NODE_DOT_COLORS: Record<string, string> = {
 };
 
 // ── Run-level HITL (approve / reject) ────────────────────────────────────────
-
-/**
- * PURE: turn a failed run-decision call into the message we toast. customFetch
- * throws an ApiError carrying the parsed BFF body in `.data`; we surface the
- * BFF/upstream `message` VERBATIM when one exists (e.g. the 409 "Graph run is
- * COMPLETED, not AWAITING_APPROVAL" when someone else already decided), then
- * the `error` marker the BFF uses ("Not found" / "upstream" / "internal"),
- * then the error's own message. Never hides the real reason behind a generic
- * line.
- */
-export function decisionErrorMessage(err: unknown): string {
-  if (err && typeof err === "object" && "data" in err) {
-    const data = (err as { data?: unknown }).data;
-    if (data && typeof data === "object") {
-      const rec = data as Record<string, unknown>;
-      if (typeof rec.message === "string" && rec.message.trim() !== "") return rec.message;
-      if (typeof rec.error === "string" && rec.error.trim() !== "") {
-        const status = (err as { status?: unknown }).status;
-        return typeof status === "number" ? `${rec.error} (HTTP ${status})` : rec.error;
-      }
-    }
-  }
-  if (err instanceof Error && err.message) return err.message;
-  return "Request failed — please try again.";
-}
 
 /**
  * POST the reviewer's decision to the BFF run-HITL proxy

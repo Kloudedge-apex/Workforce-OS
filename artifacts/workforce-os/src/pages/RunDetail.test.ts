@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { decisionErrorMessage } from "./RunDetail";
+import {
+  approvalSavedFromError,
+  decisionErrorMessage,
+} from "@/lib/decisionError";
 
 // Matches the shape customFetch throws: an ApiError carrying the parsed BFF
 // body in `.data` plus the HTTP `.status`.
@@ -12,7 +15,9 @@ describe("decisionErrorMessage", () => {
   it("surfaces the BFF/upstream `message` verbatim (409 resume conflict)", () => {
     expect(
       decisionErrorMessage(
-        apiError(409, { message: "Graph run is COMPLETED, not AWAITING_APPROVAL" }),
+        apiError(409, {
+          message: "Graph run is COMPLETED, not AWAITING_APPROVAL",
+        }),
       ),
     ).toBe("Graph run is COMPLETED, not AWAITING_APPROVAL");
   });
@@ -21,23 +26,51 @@ describe("decisionErrorMessage", () => {
     expect(decisionErrorMessage(apiError(404, { error: "Not found" }))).toBe(
       "Not found (HTTP 404)",
     );
-    expect(decisionErrorMessage(apiError(502, { error: "upstream", status: 500 }))).toBe(
-      "upstream (HTTP 502)",
-    );
+    expect(
+      decisionErrorMessage(apiError(502, { error: "upstream", status: 500 })),
+    ).toBe("upstream (HTTP 502)");
   });
 
   it("ignores blank/non-string body fields and uses the error's own message", () => {
-    expect(decisionErrorMessage(apiError(500, { message: "   " }))).toBe("HTTP 500");
-    expect(decisionErrorMessage(apiError(500, { unrelated: true }))).toBe("HTTP 500");
+    expect(decisionErrorMessage(apiError(500, { message: "   " }))).toBe(
+      "HTTP 500",
+    );
+    expect(decisionErrorMessage(apiError(500, { unrelated: true }))).toBe(
+      "HTTP 500",
+    );
     expect(decisionErrorMessage(apiError(500, null))).toBe("HTTP 500");
   });
 
   it("uses a plain Error's message (network failure, no response body)", () => {
-    expect(decisionErrorMessage(new Error("Failed to fetch"))).toBe("Failed to fetch");
+    expect(decisionErrorMessage(new Error("Failed to fetch"))).toBe(
+      "Failed to fetch",
+    );
   });
 
   it("falls back to a generic line for unknown shapes", () => {
-    expect(decisionErrorMessage(undefined)).toBe("Request failed — please try again.");
+    expect(decisionErrorMessage(undefined)).toBe(
+      "Request failed — please try again.",
+    );
     expect(decisionErrorMessage({})).toBe("Request failed — please try again.");
+  });
+});
+
+describe("approvalSavedFromError", () => {
+  it("accepts only the explicit boolean partial-success signal", () => {
+    expect(approvalSavedFromError(apiError(503, { approvalSaved: true }))).toBe(
+      true,
+    );
+    expect(
+      approvalSavedFromError(apiError(503, { approvalSaved: false })),
+    ).toBe(false);
+    expect(
+      approvalSavedFromError(
+        apiError(503, {
+          message: "The approval is saved",
+          approvalSaved: "true",
+        }),
+      ),
+    ).toBe(false);
+    expect(approvalSavedFromError(new Error("network failure"))).toBe(false);
   });
 });

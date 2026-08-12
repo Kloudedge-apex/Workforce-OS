@@ -26,8 +26,12 @@ export interface OrgSettings {
   unsubscribeUrl?: string | null;
   suppressionCount: number;
   allowlistedDomains: string[];
-  plan?: string;
-  creditsRemaining: number;
+  /** @nullable */
+  plan: string | null;
+  /** @nullable */
+  creditsRemaining: number | null;
   welcomeComplete: boolean;
+  /** @nullable */
+  canReviewArtifacts: boolean | null;
   sendReadiness: SendReadiness | null;
 }
