@@ -1,0 +1,4 @@
+# SHA-256 of the exact production VITE_CLERK_PUBLISHABLE_KEY bytes.
+# The key is public, but it changes the browser bundle and Clerk instance.
+# Replace UNCONFIGURED only through a reviewed source change.
+UNCONFIGURED

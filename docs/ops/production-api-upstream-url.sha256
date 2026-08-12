@@ -1,0 +1,4 @@
+# SHA-256 of the exact production API_UPSTREAM_URL bytes.
+# This binds the bearer-token forwarding destination to reviewed source.
+# Replace UNCONFIGURED only through a reviewed source change.
+UNCONFIGURED
