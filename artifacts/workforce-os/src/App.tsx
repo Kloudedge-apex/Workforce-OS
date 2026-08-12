@@ -1,7 +1,17 @@
-import { Switch, Route, Router as WouterRouter, Redirect, useLocation } from "wouter";
+import {
+  Switch,
+  Route,
+  Router as WouterRouter,
+  Redirect,
+  useLocation,
+} from "wouter";
 import { AnimatePresence } from "framer-motion";
 import { ClerkProvider, SignedIn, SignedOut } from "@clerk/clerk-react";
-import { QueryClient, QueryClientProvider, QueryErrorResetBoundary } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  QueryErrorResetBoundary,
+} from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Shell } from "@/components/layout/Shell";
@@ -9,6 +19,7 @@ import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { PageTransition } from "@/components/motion/PageTransition";
 import { ErrorBoundary } from "@/components/states/ErrorBoundary";
 import { ApiAuthBridge } from "@/lib/api-auth";
+import { requireClerkPublishableKey } from "@/lib/clerkConfig";
 import { homePathForWelcome } from "@/lib/onboarding";
 import { useGetWelcomeStatus } from "@workspace/api-client-react";
 import SignInPage from "@/pages/SignIn";
@@ -40,11 +51,17 @@ function Router() {
   });
 
   if (isLoading) {
-    return <div className="h-full bg-paper-50 animate-pulse" aria-label="Checking workspace setup" />;
+    return (
+      <div
+        className="h-full bg-paper-50 animate-pulse"
+        aria-label="Checking workspace setup"
+      />
+    );
   }
 
   const signedInHome = homePathForWelcome(welcomeStatus);
-  const setupRoute = /^\/settings(?:\/(?:setup|org|icp|integrations))?\/?$/.test(location);
+  const setupRoute =
+    /^\/settings(?:\/(?:setup|org|icp|integrations))?\/?$/.test(location);
   if (location === "/") return <Redirect to={signedInHome} />;
   if (signedInHome === "/settings/setup" && !setupRoute) {
     return <Redirect to="/settings/setup" />;
@@ -74,9 +91,9 @@ function Router() {
   );
 }
 
-const PUBLISHABLE_KEY =
-  import.meta.env.VITE_CLERK_PUBLISHABLE_KEY ||
-  "pk_live_Y2xlcmsud29ya2ZvcmNlb3MueHl6JA";
+const PUBLISHABLE_KEY = requireClerkPublishableKey(
+  import.meta.env.VITE_CLERK_PUBLISHABLE_KEY,
+);
 
 function App() {
   return (
@@ -99,7 +116,10 @@ function App() {
                 <SignInPage />
               </SignedOut>
             </WouterRouter>
-            <Toaster position="bottom-right" className="bg-ink-900 text-paper-50 border-none font-sans font-medium" />
+            <Toaster
+              position="bottom-right"
+              className="bg-ink-900 text-paper-50 border-none font-sans font-medium"
+            />
           </TooltipProvider>
         </QueryClientProvider>
       </ThemeProvider>

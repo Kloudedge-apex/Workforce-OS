@@ -30,7 +30,7 @@ Browser ──Clerk session (pk_live_…workforceos.xyz)──▶ [ container: a
 
 ## 2. Auth (Clerk) — sub-project A
 
-- Add `@clerk/clerk-react` to `artifacts/workforce-os`; `<ClerkProvider publishableKey={import.meta.env.VITE_CLERK_PUBLISHABLE_KEY}>` at the app root (inside/around the existing `ThemeProvider`). Reuse the **existing** live instance: `VITE_CLERK_PUBLISHABLE_KEY=pk_live_Y2xlcmsud29ya2ZvcmNlb3MueHl6JA` (clerk.workforceos.xyz). Add `.env.example` placeholder.
+- Add `@clerk/clerk-react` to `artifacts/workforce-os`; `<ClerkProvider publishableKey={import.meta.env.VITE_CLERK_PUBLISHABLE_KEY}>` at the app root (inside/around the existing `ThemeProvider`). Supply the environment-specific publishable key through deployment configuration, fail closed when it is absent, and keep only a non-working placeholder in `.env.example`.
 - Sign-in/up + route guards (Wouter): unauthenticated → `<SignIn>`/`<SignUp>`; gate the Shell routes behind `<SignedIn>`. Mirror the workhorse-os flow (canonical reference: `/Users/nikhil/Desktop/workhorse-os`).
 - Wire the session token into the FE's existing hook: `custom-fetch.ts` already exposes `setAuthTokenGetter(getter)` and `setBaseUrl(url)`. On mount, `setAuthTokenGetter(() => clerk.session?.getToken())` and `setBaseUrl(VITE_API_URL)` (or leave relative `/api` since the BFF is same-origin). Every request then carries `Authorization: Bearer <jwt>`.
 - `useCurrentUser()` (identity hook from B1) swaps its body to Clerk's `useUser()` — **signature unchanged, zero consumer edits**. `useWorkspace()` reads the real `/settings/org`.

@@ -15,7 +15,7 @@
 - Auth recipe + prod URL: the audit JSON `access` block; canonical FE reference `/Users/nikhil/Desktop/workhorse-os`.
 
 **Canonical constants:**
-- Clerk publishable key (reuse live instance): `VITE_CLERK_PUBLISHABLE_KEY=pk_live_Y2xlcmsud29ya2ZvcmNlb3MueHl6JA`
+- Clerk publishable key: supply the environment-specific value through deployment configuration; never commit a live key or use a runtime fallback.
 - apex-gtm-api prod base: `https://apex-gtm-api.ashysmoke-fd2f7a7f.eastus.azurecontainerapps.io` (global `/api` prefix)
 - Backend auth: global `OrgScopeGuard` requires `Authorization: Bearer <Clerk RS256 JWT>` **and** `x-org-id` where `jwt.org_id === orgId`.
 
@@ -41,7 +41,7 @@ This phase makes the app a real authenticated production product for the GTM cor
 - [ ] **Step 1:** Add the dep: `cd /Users/nikhil/Downloads/Workforce-OS && pnpm --filter @workspace/workforce-os add @clerk/clerk-react@^5`
 - [ ] **Step 2:** Create `.env.example` with:
 ```
-VITE_CLERK_PUBLISHABLE_KEY=pk_live_Y2xlcmsud29ya2ZvcmNlb3MueHl6JA
+VITE_CLERK_PUBLISHABLE_KEY=pk_test_REPLACE_WITH_YOUR_CLERK_PUBLISHABLE_KEY
 # BFF is same-origin in prod; leave VITE_API_URL unset to use relative /api, or set to the apex-gtm-api URL for direct mode.
 VITE_API_URL=
 ```

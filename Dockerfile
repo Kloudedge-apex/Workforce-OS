@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Single-container Nikxius FE + BFF for Azure Container Apps (RG Ledgr-prod / ACR ledgracr).
+# Single-container Workforce OS FE + BFF for Azure Container Apps (RG Ledgr-prod / ACR ledgracr).
 # The api-server (BFF) serves the built Vite FE (FE_DIST) and /api.
 
 FROM node:24-slim AS build
@@ -11,8 +11,10 @@ COPY . .
 # Lockfile deps install fine under the 1-day minimumReleaseAge gate (it only blocks new versions).
 RUN pnpm install --frozen-lockfile
 # FE build needs PORT + BASE_PATH at vite config-eval; BFF builds via esbuild.
-# VITE_CLERK_PUBLISHABLE_KEY is inlined at build (App.tsx falls back to the prod live key).
+# VITE_CLERK_PUBLISHABLE_KEY is inlined at build and must be supplied explicitly.
 ARG VITE_CLERK_PUBLISHABLE_KEY
+RUN test -n "${VITE_CLERK_PUBLISHABLE_KEY}" \
+ || (echo "VITE_CLERK_PUBLISHABLE_KEY build arg is required" >&2; exit 1)
 RUN PORT=8080 BASE_PATH=/ VITE_CLERK_PUBLISHABLE_KEY=${VITE_CLERK_PUBLISHABLE_KEY} \
       pnpm --filter @workspace/workforce-os run build \
  && pnpm --filter @workspace/api-server run build
