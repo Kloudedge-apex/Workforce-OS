@@ -15,7 +15,7 @@ if [[ ! "${EXPECTED_IMAGE}" =~ ^ledgracr\.azurecr\.io/workforceos-fe@sha256:[0-9
   echo "Usage: $0 <ledgracr.azurecr.io/workforceos-fe@sha256:digest> <full-lowercase-git-sha>" >&2
   exit 2
 fi
-for REQUIRED_COMMAND in az git jq openssl; do
+for REQUIRED_COMMAND in az git jq openssl realpath; do
   if ! command -v "${REQUIRED_COMMAND}" >/dev/null 2>&1; then
     echo "ERROR: required command is unavailable: ${REQUIRED_COMMAND}" >&2
     exit 1
@@ -25,10 +25,23 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 UPSTREAM_PIN_PATH="docs/ops/production-api-upstream-url.sha256"
-if ! UPSTREAM_PIN_SOURCE="$(GIT_NO_REPLACE_OBJECTS=1 git -C "${REPO_ROOT}" show \
-  "${EXPECTED_COMMIT}:${UPSTREAM_PIN_PATH}")"; then
-  echo "ERROR: reviewed production API upstream pin is missing from ${EXPECTED_COMMIT}" >&2
-  exit 1
+if [[ -n "${CONSOLE_RELEASE_SNAPSHOT_ROOT:-}" ]]; then
+  if [[ "${EXPECTED_COMMIT}" != "${CONSOLE_RELEASE_COMMIT:-}" ||
+    "${REPO_ROOT}" != "${CONSOLE_RELEASE_SNAPSHOT_ROOT}" ||
+    "$(basename "${REPO_ROOT}")" != workforce-os-console-release.* ||
+    ! -f "${REPO_ROOT}/${UPSTREAM_PIN_PATH}" ||
+    -L "${REPO_ROOT}/${UPSTREAM_PIN_PATH}" ||
+    "$(realpath "${REPO_ROOT}/${UPSTREAM_PIN_PATH}" 2>/dev/null || true)" != "${REPO_ROOT}/${UPSTREAM_PIN_PATH}" ]]; then
+    echo "ERROR: Container App verification escaped the private release snapshot" >&2
+    exit 1
+  fi
+  UPSTREAM_PIN_SOURCE="$(<"${REPO_ROOT}/${UPSTREAM_PIN_PATH}")"
+else
+  if ! UPSTREAM_PIN_SOURCE="$(GIT_NO_REPLACE_OBJECTS=1 git -C "${REPO_ROOT}" show \
+    "${EXPECTED_COMMIT}:${UPSTREAM_PIN_PATH}")"; then
+    echo "ERROR: reviewed production API upstream pin is missing from ${EXPECTED_COMMIT}" >&2
+    exit 1
+  fi
 fi
 PINNED_UPSTREAM_SHA256="$(awk '!/^#/ && NF { print $1; exit }' \
   <<<"${UPSTREAM_PIN_SOURCE}")"

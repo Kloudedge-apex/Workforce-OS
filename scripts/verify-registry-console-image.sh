@@ -25,7 +25,7 @@ if [[ ! "${EXPECTED_REVISION}" =~ ^[0-9a-f]{40}$ ]]; then
   exit 1
 fi
 
-for REQUIRED_COMMAND in az docker; do
+for REQUIRED_COMMAND in az docker realpath; do
   if ! command -v "${REQUIRED_COMMAND}" >/dev/null 2>&1; then
     echo "ERROR: required command is unavailable: ${REQUIRED_COMMAND}" >&2
     exit 1
@@ -51,10 +51,17 @@ if [[ "${ACTUAL_PLATFORM}" != "${EXPECTED_PLATFORM}" ]]; then
   exit 1
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-"${SCRIPT_DIR}/verify-console-image.sh" \
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+CONSOLE_IMAGE_HELPER="${SCRIPT_DIR}/verify-console-image.sh"
+if [[ "$(realpath "${CONSOLE_IMAGE_HELPER}" 2>/dev/null || true)" != "${CONSOLE_IMAGE_HELPER}" ||
+  ! -f "${CONSOLE_IMAGE_HELPER}" || -L "${CONSOLE_IMAGE_HELPER}" ||
+  ! -x "${CONSOLE_IMAGE_HELPER}" ]]; then
+  echo "ERROR: console image verifier is missing or unsafe" >&2
+  exit 1
+fi
+"${CONSOLE_IMAGE_HELPER}" \
   "${IMAGE}" \
   "${EXPECTED_REVISION}" \
-  "${EXPECTED_CLERK_KEY_SHA256}"
+  "${EXPECTED_CLERK_KEY_SHA256}" || exit 1
 
 echo "Registry console image verified: ${IMAGE} (${EXPECTED_PLATFORM}, revision=${EXPECTED_REVISION})"

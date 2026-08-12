@@ -1,16 +1,397 @@
-#!/usr/bin/env bash
+#!/bin/bash -p
 
-# Canonical production console rollout. It builds only the exact published Git
-# tree, resolves the completed ACR run to a digest, verifies the pulled object,
-# and rolls the console Container App with automatic digest-based rollback.
+# Canonical production console rollout. The mutable checkout only selects and
+# archives HEAD. The archived controller performs every release check and
+# helper invocation from that private exact-commit snapshot.
 
 set -euo pipefail
+
+RELEASE_GIT_BIN="$(type -P git || true)"
+if [[ "${RELEASE_GIT_BIN}" != /* || ! -f "${RELEASE_GIT_BIN}" ||
+  ! -x "${RELEASE_GIT_BIN}" ]]; then
+  echo "ERROR: required external Git executable is unavailable on an absolute PATH entry" >&2
+  exit 1
+fi
+
+# Run release-critical Git operations without inherited command, repository
+# routing, object-store, helper, or attributes overrides. Callers may still
+# add explicit -c values after these fixed defaults.
+isolated_release_git() (
+  unset \
+    ALL_PROXY \
+    CURL_CA_BUNDLE \
+    GIT_ALTERNATE_OBJECT_DIRECTORIES \
+    GIT_ASKPASS \
+    GIT_ATTR_SOURCE \
+    GIT_CEILING_DIRECTORIES \
+    GIT_COMMON_DIR \
+    GIT_CONFIG \
+    GIT_CONFIG_PARAMETERS \
+    GIT_CURL_VERBOSE \
+    GIT_DIR \
+    GIT_DISCOVERY_ACROSS_FILESYSTEM \
+    GIT_EXEC_PATH \
+    GIT_INDEX_FILE \
+    GIT_NAMESPACE \
+    GIT_OBJECT_DIRECTORY \
+    GIT_PROXY_COMMAND \
+    GIT_QUARANTINE_PATH \
+    GIT_REPLACE_REF_BASE \
+    GIT_SHALLOW_FILE \
+    GIT_SSL_CAINFO \
+    GIT_SSL_CAPATH \
+    GIT_SSL_NO_VERIFY \
+    GIT_SSH \
+    GIT_SSH_COMMAND \
+    GIT_TEMPLATE_DIR \
+    GIT_TRACE \
+    GIT_TRACE2 \
+    GIT_TRACE2_BRIEF \
+    GIT_TRACE2_CONFIG_PARAMS \
+    GIT_TRACE2_ENV_VARS \
+    GIT_TRACE2_EVENT \
+    GIT_TRACE2_EVENT_NESTING \
+    GIT_TRACE2_PERF \
+    GIT_TRACE_CURL \
+    GIT_TRACE_CURL_NO_DATA \
+    GIT_TRACE_PACKET \
+    GIT_TRACE_PACK_ACCESS \
+    GIT_TRACE_PACKFILE \
+    GIT_TRACE_PERFORMANCE \
+    GIT_TRACE_REFS \
+    GIT_TRACE_SETUP \
+    GIT_WORK_TREE \
+    HTTPS_PROXY \
+    HTTP_PROXY \
+    SSL_CERT_DIR \
+    SSL_CERT_FILE \
+    all_proxy \
+    https_proxy \
+    http_proxy \
+    SSH_ASKPASS
+  export GIT_ATTR_NOSYSTEM=1
+  export GIT_CONFIG_COUNT=0
+  export GIT_CONFIG_GLOBAL=/dev/null
+  export GIT_CONFIG_NOSYSTEM=1
+  export GIT_CONFIG_SYSTEM=/dev/null
+  export GIT_NO_REPLACE_OBJECTS=1
+  export GIT_TERMINAL_PROMPT=0
+  export GIT_TRACE_REDACT=1
+  export GIT_TRACE2_REDACT=1
+  "${RELEASE_GIT_BIN}" \
+    -c core.attributesFile=/dev/null \
+    -c core.hooksPath=/dev/null \
+    "$@"
+)
+
+bootstrap_exact_commit_controller() {
+  local -a controller_environment
+  local archive_git_dir archive_state_dir archive_template bootstrap_script_dir bootstrap_signal_name
+  local bootstrap_signal_status branch commit controller controller_pgid controller_pid controller_real
+  local controller_status
+  local repo_root snapshot_root source_git_common_dir source_object_dir token token_file
+
+  archive_state_dir=""
+  bootstrap_signal_name=""
+  bootstrap_signal_status=""
+  controller_pid=""
+  controller_pgid=""
+
+  for required_command in git mktemp openssl realpath tar; do
+    if ! command -v "${required_command}" >/dev/null 2>&1; then
+      echo "ERROR: required bootstrap command is unavailable: ${required_command}" >&2
+      exit 1
+    fi
+  done
+
+  bootstrap_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+  repo_root="$(cd "${bootstrap_script_dir}" && isolated_release_git rev-parse --show-toplevel)"
+  cd "${repo_root}"
+
+  branch="$(isolated_release_git rev-parse --abbrev-ref HEAD)"
+  commit="$(isolated_release_git rev-parse HEAD)"
+  if [[ ! "${commit}" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "ERROR: HEAD is not a full lowercase Git SHA" >&2
+    exit 1
+  fi
+
+  umask 077
+  token_file=""
+  snapshot_root="$(mktemp -d "${TMPDIR:-/tmp}/workforce-os-console-release.XXXXXX")"
+  cleanup_bootstrap_snapshot() {
+    local status=$?
+    trap - EXIT
+    trap '' HUP INT TERM
+    set +e
+    if [[ -n "${controller_pgid:-}" ]] && kill -0 -- "-${controller_pgid}" 2>/dev/null; then
+      kill -TERM -- "-${controller_pgid}" 2>/dev/null || true
+    elif [[ -n "${controller_pid:-}" ]] && kill -0 "${controller_pid}" 2>/dev/null; then
+      kill -TERM "${controller_pid}" 2>/dev/null || true
+    fi
+    if [[ -n "${controller_pid:-}" ]]; then
+      while kill -0 "${controller_pid}" 2>/dev/null; do
+        wait "${controller_pid}" 2>/dev/null || true
+      done
+      wait "${controller_pid}" 2>/dev/null || true
+    fi
+    while [[ -n "${controller_pgid:-}" ]] &&
+      kill -0 -- "-${controller_pgid}" 2>/dev/null; do
+      sleep 0.05
+    done
+    if [[ -n "${snapshot_root:-}" && -d "${snapshot_root}" &&
+      "$(basename "${snapshot_root}")" == workforce-os-console-release.* ]]; then
+      rm -rf -- "${snapshot_root}"
+    fi
+    if [[ -n "${token_file:-}" && -f "${token_file}" &&
+      "$(basename "${token_file}")" == workforce-os-console-release-token.* ]]; then
+      rm -f -- "${token_file}"
+    fi
+    if [[ -n "${archive_state_dir:-}" && -d "${archive_state_dir}" &&
+      "$(basename "${archive_state_dir}")" == workforce-os-console-archive-state.* ]]; then
+      rm -rf -- "${archive_state_dir}"
+    fi
+    exit "${status}"
+  }
+  trap cleanup_bootstrap_snapshot EXIT
+  snapshot_root="$(cd "${snapshot_root}" && pwd -P)"
+  token_file="$(mktemp "${TMPDIR:-/tmp}/workforce-os-console-release-token.XXXXXX")"
+  token="$(openssl rand -hex 32)"
+  if [[ ! "${token}" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "ERROR: could not create the private release snapshot admission token" >&2
+    exit 1
+  fi
+  printf '%s\n' "${token}" >"${token_file}"
+  chmod 600 "${token_file}"
+
+  source_git_common_dir="$(isolated_release_git rev-parse --git-common-dir)"
+  if [[ "${source_git_common_dir}" != /* ]]; then
+    source_git_common_dir="${repo_root}/${source_git_common_dir}"
+  fi
+  source_git_common_dir="$(cd "${source_git_common_dir}" && pwd -P)"
+  source_object_dir="$(cd "${source_git_common_dir}/objects" && pwd -P)"
+
+  archive_state_dir="$(mktemp -d "${TMPDIR:-/tmp}/workforce-os-console-archive-state.XXXXXX")"
+  archive_git_dir="${archive_state_dir}/archive.git"
+  archive_template="${archive_state_dir}/empty-git-template"
+  mkdir "${archive_template}"
+  isolated_release_git init --quiet --bare --template="${archive_template}" "${archive_git_dir}"
+  printf '%s\n' "${source_object_dir}" >"${archive_git_dir}/objects/info/alternates"
+  if ! isolated_release_git --git-dir="${archive_git_dir}" cat-file -e "${commit}^{commit}"; then
+    echo "ERROR: selected commit is unavailable through the private archive object view" >&2
+    exit 1
+  fi
+  if ! isolated_release_git --git-dir="${archive_git_dir}" archive --format=tar "${commit}" | \
+    /usr/bin/env -u TAR_OPTIONS tar -xf - -C "${snapshot_root}"; then
+    echo "ERROR: could not create the private exact-commit release snapshot" >&2
+    exit 1
+  fi
+
+  controller="${snapshot_root}/scripts/deploy-console-prod.sh"
+  controller_real="$(realpath "${controller}" 2>/dev/null || true)"
+  if [[ "${controller_real}" != "${controller}" || ! -f "${controller}" ||
+    -L "${controller}" || ! -x "${controller}" ]]; then
+    echo "ERROR: exact-commit release controller is missing or unsafe" >&2
+    exit 1
+  fi
+
+  controller_environment=(
+    /usr/bin/env
+    -u BASHOPTS
+    -u BASH_COMPAT
+    -u BASH_ENV
+    -u BASH_XTRACEFD
+    -u CDPATH
+    -u CURL_CA_BUNDLE
+    -u ENV
+    -u GH_CONFIG_DIR
+    -u GH_DEBUG
+    -u GH_REPO
+    -u GIT_SSL_CAINFO
+    -u GIT_SSL_CAPATH
+    -u GIT_SSL_NO_VERIFY
+    -u GLOBIGNORE
+    -u HTTPS_PROXY
+    -u HTTP_PROXY
+    -u NO_PROXY
+    -u POSIXLY_CORRECT
+    -u PS4
+    -u SSL_CERT_DIR
+    -u SSL_CERT_FILE
+    -u SHELLOPTS
+    -u ALL_PROXY
+    -u all_proxy
+    -u http_proxy
+    -u https_proxy
+    -u no_proxy
+  )
+  while IFS='=' read -r environment_name _; do
+    case "${environment_name}" in
+      BASH_FUNC_*%%) controller_environment+=(-u "${environment_name}") ;;
+    esac
+  done < <(/usr/bin/env)
+
+  forward_bootstrap_signal() {
+    local signal=$1
+    local status=$2
+    local target_pgid="${controller_pgid}"
+    local target_pid="${controller_pid}"
+
+    if [[ -z "${bootstrap_signal_status}" ]]; then
+      bootstrap_signal_name="${signal}"
+      bootstrap_signal_status="${status}"
+    fi
+    # Bash runs traps only between commands. If the signal lands after the
+    # async launch but before controller_pid=$!, recover that exact child from
+    # the shell's last-background PID instead of orphaning it.
+    if [[ -z "${target_pid}" && -n "${!:-}" ]]; then
+      target_pid="$!"
+      controller_pid="${target_pid}"
+      controller_pgid="${target_pid}"
+      target_pgid="${target_pid}"
+    fi
+    if [[ -z "${target_pgid}" && -n "${target_pid}" ]]; then
+      target_pgid="${target_pid}"
+      controller_pgid="${target_pgid}"
+    fi
+    if [[ -n "${target_pgid}" ]] && kill -0 -- "-${target_pgid}" 2>/dev/null; then
+      kill -s "${signal}" -- "-${target_pgid}" 2>/dev/null || true
+    elif [[ -n "${target_pid}" ]] && kill -0 "${target_pid}" 2>/dev/null; then
+      kill -s "${signal}" "${target_pid}" 2>/dev/null || true
+    fi
+  }
+  trap 'forward_bootstrap_signal HUP 129' HUP
+  trap 'forward_bootstrap_signal INT 130' INT
+  trap 'forward_bootstrap_signal TERM 143' TERM
+
+  set +e
+  set -m
+  (
+    # Async shell jobs can inherit ignored interactive signals. Restore
+    # defaults before exec so all three forwarded signals stop the controller.
+    trap - HUP INT TERM
+    exec "${controller_environment[@]}" \
+      CONSOLE_RELEASE_STAGE="exact-commit-controller" \
+      CONSOLE_RELEASE_SNAPSHOT_ROOT="${snapshot_root}" \
+      CONSOLE_RELEASE_COMMIT="${commit}" \
+      CONSOLE_RELEASE_BRANCH="${branch}" \
+      CONSOLE_RELEASE_SNAPSHOT_PARENT_PID="$$" \
+      CONSOLE_RELEASE_SNAPSHOT_TOKEN="${token}" \
+      CONSOLE_RELEASE_SNAPSHOT_TOKEN_FILE="${token_file}" \
+      GH_HOST="github.com" \
+      GH_PROMPT_DISABLED=1 \
+      "${controller}" "$@"
+  ) </dev/null &
+  controller_pid=$!
+  controller_pgid="${controller_pid}"
+  set +m
+  if [[ -n "${bootstrap_signal_name}" ]]; then
+    kill -s "${bootstrap_signal_name}" "${controller_pid}" 2>/dev/null || true
+  fi
+  while true; do
+    wait "${controller_pid}"
+    controller_status=$?
+    if ! kill -0 "${controller_pid}" 2>/dev/null; then
+      break
+    fi
+  done
+  while kill -0 -- "-${controller_pgid}" 2>/dev/null; do
+    sleep 0.05
+  done
+  controller_pid=""
+  controller_pgid=""
+  set -e
+  trap - HUP INT TERM
+  if [[ -n "${bootstrap_signal_status}" ]]; then
+    exit "${bootstrap_signal_status}"
+  fi
+  exit "${controller_status}"
+}
+
+if [[ "${CONSOLE_RELEASE_STAGE:-}" != "exact-commit-controller" ]]; then
+  bootstrap_exact_commit_controller "$@"
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
+if [[ -z "${CONSOLE_RELEASE_SNAPSHOT_ROOT:-}" ||
+  -z "${CONSOLE_RELEASE_SNAPSHOT_TOKEN:-}" ||
+  -z "${CONSOLE_RELEASE_SNAPSHOT_TOKEN_FILE:-}" ||
+  "${REPO_ROOT}" != "${CONSOLE_RELEASE_SNAPSHOT_ROOT}" ||
+  "$(basename "${REPO_ROOT}")" != workforce-os-console-release.* ||
+  "${CONSOLE_RELEASE_SNAPSHOT_PARENT_PID:-}" != "${PPID}" ||
+  ! -f "${CONSOLE_RELEASE_SNAPSHOT_TOKEN_FILE}" ||
+  -L "${CONSOLE_RELEASE_SNAPSHOT_TOKEN_FILE}" ||
+  "$(<"${CONSOLE_RELEASE_SNAPSHOT_TOKEN_FILE}")" != "${CONSOLE_RELEASE_SNAPSHOT_TOKEN}" ||
+  -e "${REPO_ROOT}/.git" ]]; then
+  echo "ERROR: refusing to run release logic outside the private exact-commit snapshot" >&2
+  exit 1
+fi
+
+COMMIT="${CONSOLE_RELEASE_COMMIT:-}"
+BRANCH="${CONSOLE_RELEASE_BRANCH:-}"
+if [[ ! "${COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "ERROR: private release snapshot has an invalid commit identity" >&2
+  exit 1
+fi
+
+SNAPSHOT_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/$(basename "${BASH_SOURCE[0]}")"
+if [[ "${SNAPSHOT_SCRIPT}" != "${REPO_ROOT}/scripts/deploy-console-prod.sh" ]]; then
+  echo "ERROR: release controller is not the private snapshot entrypoint" >&2
+  exit 1
+fi
+
+cd "${REPO_ROOT}"
 
 REGISTRY="ledgracr"
 RESOURCE_GROUP="Ledgr-prod"
 ACR_REPO="workforceos-fe"
 APP="nikxius-web"
 DOCKERFILE="Dockerfile"
+RELEASE_LOCK_REPOSITORY="Kloudedge-apex/Workforce-OS"
+RELEASE_REMOTE_URL="https://github.com/${RELEASE_LOCK_REPOSITORY}.git"
+RELEASE_LOCK_REF="refs/heads/workforce-os-release-lock/production-console"
+
+if ! command -v realpath >/dev/null 2>&1; then
+  echo "ERROR: required snapshot-admission command is unavailable: realpath" >&2
+  exit 1
+fi
+require_snapshot_release_file() {
+  local executable=$1
+  local relative_path=$2
+  local expected_path="${REPO_ROOT}/${relative_path}"
+  local resolved_path
+
+  resolved_path="$(realpath "${expected_path}" 2>/dev/null || true)"
+  if [[ "${resolved_path}" != "${expected_path}" || ! -f "${expected_path}" ||
+    -L "${expected_path}" ]]; then
+    echo "ERROR: private snapshot release file is missing or unsafe: ${relative_path}" >&2
+    return 1
+  fi
+  if [[ "${executable}" == "true" && ! -x "${expected_path}" ]]; then
+    echo "ERROR: private snapshot release helper is not executable: ${relative_path}" >&2
+    return 1
+  fi
+}
+for release_file in \
+  Dockerfile \
+  docs/ops/production-api-upstream-url.sha256 \
+  docs/ops/production-clerk-publishable-key.sha256; do
+  require_snapshot_release_file false "${release_file}" || exit 1
+done
+for release_helper in \
+  scripts/verify-console-containerapp-config.sh \
+  scripts/verify-console-image.sh \
+  scripts/verify-github-console-release-ci.sh \
+  scripts/verify-registry-console-image.sh; do
+  require_snapshot_release_file true "${release_helper}" || exit 1
+done
+run_snapshot_helper() {
+  local relative_path=$1
+  shift
+
+  require_snapshot_release_file true "${relative_path}" || return 1
+  "${REPO_ROOT}/${relative_path}" "$@" || return $?
+}
 
 ASSUME_YES="false"
 while [[ $# -gt 0 ]]; do
@@ -25,6 +406,10 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+if [[ "${ASSUME_YES}" != "true" ]]; then
+  echo "ERROR: protected console releases are noninteractive and require --yes" >&2
+  exit 2
+fi
 
 if [[ -z "${VITE_CLERK_PUBLISHABLE_KEY:-}" || \
   ! "${VITE_CLERK_PUBLISHABLE_KEY}" =~ ^pk_(test|live)_[A-Za-z0-9_-]+$ ]]; then
@@ -39,40 +424,48 @@ if [[ ! "${VERIFY_ATTEMPTS}" =~ ^[1-9][0-9]*$ || ! "${VERIFY_DELAY_SECONDS}" =~ 
   exit 1
 fi
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-cd "${REPO_ROOT}"
-
-# Untracked audit material cannot enter the build because the context comes
-# from git archive. Tracked or staged drift is rejected.
-if ! git diff --quiet || ! git diff --cached --quiet; then
-  echo "ERROR: tracked working tree or index differs from HEAD" >&2
-  git status --short --untracked-files=no >&2
-  exit 1
-fi
-
-BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 if [[ "${BRANCH}" != "main" ]]; then
   echo "ERROR: console production ships only from main (current: ${BRANCH})" >&2
   exit 1
 fi
 
-COMMIT="$(git rev-parse HEAD)"
-if [[ ! "${COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
-  echo "ERROR: HEAD is not a full lowercase Git SHA" >&2
+require_exclusive_mutation_authority() {
+  if [[ "${ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED:-}" != "true" ]]; then
+    echo "ERROR: ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED=true is required for a production release" >&2
+    echo "       set it only after the documented exclusive protected-CI OIDC RBAC audit" >&2
+    return 1
+  fi
+}
+
+# Fail before lease creation or registry artifact creation. The same
+# attestation is checked again immediately before every Container App write.
+if ! require_exclusive_mutation_authority; then
   exit 1
 fi
-REMOTE_COMMIT="$(git ls-remote --exit-code origin refs/heads/main | awk 'NR == 1 { print $1 }')"
+
+for REQUIRED_COMMAND in az docker gh git jq mktemp openssl realpath; do
+  if ! command -v "${REQUIRED_COMMAND}" >/dev/null 2>&1; then
+    echo "ERROR: required command is unavailable: ${REQUIRED_COMMAND}" >&2
+    exit 1
+  fi
+done
+
+REMOTE_COMMIT="$(gh api \
+  "repos/${RELEASE_LOCK_REPOSITORY}/git/ref/heads/main" \
+  --jq '.object.sha')"
 if [[ "${REMOTE_COMMIT}" != "${COMMIT}" ]]; then
-  echo "ERROR: local HEAD ${COMMIT} is not the published origin/main head" >&2
+  echo "ERROR: snapshot commit ${COMMIT} is not the published origin/main head" >&2
   exit 1
 fi
 
 CLERK_KEY_PIN_PATH="docs/ops/production-clerk-publishable-key.sha256"
-if ! CLERK_KEY_PIN_SOURCE="$(GIT_NO_REPLACE_OBJECTS=1 git show \
-  "${COMMIT}:${CLERK_KEY_PIN_PATH}")"; then
+if [[ ! -f "${REPO_ROOT}/${CLERK_KEY_PIN_PATH}" ||
+  -L "${REPO_ROOT}/${CLERK_KEY_PIN_PATH}" ||
+  "$(realpath "${REPO_ROOT}/${CLERK_KEY_PIN_PATH}" 2>/dev/null || true)" != "${REPO_ROOT}/${CLERK_KEY_PIN_PATH}" ]]; then
   echo "ERROR: reviewed production Clerk publishable-key pin is missing from ${COMMIT}" >&2
   exit 1
 fi
+CLERK_KEY_PIN_SOURCE="$(<"${REPO_ROOT}/${CLERK_KEY_PIN_PATH}")"
 PINNED_CLERK_KEY_SHA256="$(awk '!/^#/ && NF { print $1; exit }' \
   <<<"${CLERK_KEY_PIN_SOURCE}")"
 if [[ ! "${PINNED_CLERK_KEY_SHA256}" =~ ^[0-9a-f]{64}$ ]]; then
@@ -80,14 +473,8 @@ if [[ ! "${PINNED_CLERK_KEY_SHA256}" =~ ^[0-9a-f]{64}$ ]]; then
   exit 1
 fi
 
-"${REPO_ROOT}/scripts/verify-github-console-release-ci.sh" "${COMMIT}"
+run_snapshot_helper scripts/verify-github-console-release-ci.sh "${COMMIT}" || exit 1
 
-for REQUIRED_COMMAND in az docker tar openssl gh; do
-  if ! command -v "${REQUIRED_COMMAND}" >/dev/null 2>&1; then
-    echo "ERROR: required command is unavailable: ${REQUIRED_COMMAND}" >&2
-    exit 1
-  fi
-done
 ACTUAL_CLERK_KEY_SHA256="$(printf '%s' "${VITE_CLERK_PUBLISHABLE_KEY}" | openssl dgst -sha256 -r | awk '{ print $1 }')"
 if [[ "${ACTUAL_CLERK_KEY_SHA256}" != "${PINNED_CLERK_KEY_SHA256}" ]]; then
   echo "ERROR: supplied Clerk publishable key does not match reviewed source" >&2
@@ -98,41 +485,101 @@ if ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
-RELEASE_LOCK_REPOSITORY="Kloudedge-apex/Workforce-OS"
-RELEASE_LOCK_REF="refs/heads/workforce-os-release-lock/production-console"
-RELEASE_LOCK_ENDPOINT="repos/${RELEASE_LOCK_REPOSITORY}/git/refs/heads/workforce-os-release-lock/production-console"
 RELEASE_LOCK_ACQUIRED="false"
 RELEASE_LOCK_SAFE_TO_RELEASE="true"
-BUILD_CONTEXT=""
+LEASE_GIT_DIR=""
+LEASE_GIT_TEMPLATE=""
+LEASE_STATE_DIR=""
+LEASE_COMMIT=""
+ATTEMPT_ID=""
+BUILD_CONTEXT="${REPO_ROOT}"
+
+lease_git() {
+  isolated_release_git \
+    -c credential.helper= \
+    -c credential.interactive=false \
+    -c 'credential.https://github.com.helper=!gh auth git-credential' \
+    -c http.sslVerify=true \
+    "$@"
+}
+
 cleanup_release_resources() {
   local status=$?
-  local lock_commit=""
   trap - EXIT
   set +e
-  if [[ -n "${BUILD_CONTEXT:-}" && -d "${BUILD_CONTEXT}" ]]; then
-    rm -rf -- "${BUILD_CONTEXT}"
-  fi
   if [[ "${RELEASE_LOCK_ACQUIRED:-false}" == "true" &&
     "${RELEASE_LOCK_SAFE_TO_RELEASE:-false}" == "true" ]]; then
-    lock_commit="$(gh api "${RELEASE_LOCK_ENDPOINT}" --jq '.object.sha' 2>/dev/null)"
-    if [[ "${lock_commit}" == "${COMMIT}" ]]; then
-      gh api --method DELETE "${RELEASE_LOCK_ENDPOINT}" >/dev/null 2>&1 ||
-        echo "WARNING: console release lease cleanup failed; remove it only after confirming no rollout is active" >&2
+    if lease_git \
+      --git-dir="${LEASE_GIT_DIR}" \
+      push --porcelain \
+      --force-with-lease="${RELEASE_LOCK_REF}:${LEASE_COMMIT}" \
+      origin ":${RELEASE_LOCK_REF}" >/dev/null 2>&1; then
+      RELEASE_LOCK_ACQUIRED="false"
     else
-      echo "WARNING: console release lease identity changed; refusing to delete another process's lease" >&2
+      echo "WARNING: conditional console release lease cleanup failed; the lease was not removed" >&2
+      echo "         confirm its unique attempt identity before any separately authorized removal" >&2
+      if ((status == 0)); then
+        status=1
+      fi
     fi
   elif [[ "${RELEASE_LOCK_ACQUIRED:-false}" == "true" ]]; then
     echo "ERROR: retaining the console release lease because rollout state is uncertain" >&2
     echo "       investigate Azure state before separately authorizing lease removal" >&2
   fi
+  if [[ -n "${LEASE_STATE_DIR:-}" && -d "${LEASE_STATE_DIR}" &&
+    "$(basename "${LEASE_STATE_DIR}")" == workforce-os-console-lease-state.* ]]; then
+    rm -rf -- "${LEASE_STATE_DIR}"
+  fi
   exit "${status}"
 }
 trap cleanup_release_resources EXIT
-if ! gh api \
-  --method POST \
-  "repos/${RELEASE_LOCK_REPOSITORY}/git/refs" \
-  -f "ref=${RELEASE_LOCK_REF}" \
-  -f "sha=${COMMIT}" >/dev/null; then
+
+umask 077
+LEASE_STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/workforce-os-console-lease-state.XXXXXX")"
+LEASE_GIT_DIR="${LEASE_STATE_DIR}/lease.git"
+LEASE_GIT_TEMPLATE="${LEASE_STATE_DIR}/empty-git-template"
+mkdir "${LEASE_GIT_TEMPLATE}"
+lease_git init --quiet --bare --template="${LEASE_GIT_TEMPLATE}" "${LEASE_GIT_DIR}"
+lease_git --git-dir="${LEASE_GIT_DIR}" remote add origin "${RELEASE_REMOTE_URL}"
+if ! lease_git \
+  --git-dir="${LEASE_GIT_DIR}" \
+  fetch --quiet --no-tags --depth=1 origin refs/heads/main; then
+  echo "ERROR: could not fetch the published console release commit" >&2
+  exit 1
+fi
+FETCHED_RELEASE_COMMIT="$(lease_git --git-dir="${LEASE_GIT_DIR}" rev-parse FETCH_HEAD)"
+if [[ "${FETCHED_RELEASE_COMMIT}" != "${COMMIT}" ]]; then
+  echo "ERROR: origin/main advanced before the release lease was acquired" >&2
+  exit 1
+fi
+LEASE_TREE="$(lease_git --git-dir="${LEASE_GIT_DIR}" rev-parse "${COMMIT}^{tree}")"
+ATTEMPT_ID="$(openssl rand -hex 16)"
+if [[ ! "${LEASE_TREE}" =~ ^[0-9a-f]{40}$ ||
+  ! "${ATTEMPT_ID}" =~ ^[0-9a-f]{32}$ ]]; then
+  echo "ERROR: could not construct a unique console release lease identity" >&2
+  exit 1
+fi
+LEASE_COMMIT="$(
+  printf 'Workforce OS production console lease\n\nattempt: %s\nrelease: %s\n' \
+    "${ATTEMPT_ID}" "${COMMIT}" | \
+    GIT_AUTHOR_NAME="Workforce OS release controller" \
+      GIT_AUTHOR_EMAIL="release-controller@workforceos.invalid" \
+      GIT_COMMITTER_NAME="Workforce OS release controller" \
+      GIT_COMMITTER_EMAIL="release-controller@workforceos.invalid" \
+      lease_git --git-dir="${LEASE_GIT_DIR}" commit-tree "${LEASE_TREE}" -p "${COMMIT}"
+)"
+if [[ ! "${LEASE_COMMIT}" =~ ^[0-9a-f]{40}$ || "${LEASE_COMMIT}" == "${COMMIT}" ]]; then
+  echo "ERROR: generated console release lease identity is invalid" >&2
+  exit 1
+fi
+
+# An explicit empty expected value makes acquisition create-if-absent even if
+# an existing lock ref happens to be an ancestor of this unique lease commit.
+if ! lease_git \
+  --git-dir="${LEASE_GIT_DIR}" \
+  push --porcelain \
+  --force-with-lease="${RELEASE_LOCK_REF}:" \
+  origin "${LEASE_COMMIT}:${RELEASE_LOCK_REF}" >/dev/null 2>&1; then
   echo "ERROR: console production release lease is already held or could not be acquired" >&2
   echo "       inspect ${RELEASE_LOCK_REF} before any stale-lock removal" >&2
   exit 1
@@ -149,8 +596,8 @@ if [[ ! "${PREVIOUS_IMAGE}" =~ ^${REGISTRY}\.azurecr\.io/${ACR_REPO}@sha256:[0-9
   echo "       complete the documented one-time legacy-tag normalization first" >&2
   exit 1
 fi
-"${REPO_ROOT}/scripts/verify-console-containerapp-config.sh" \
-  "${PREVIOUS_IMAGE}" "${COMMIT}"
+run_snapshot_helper scripts/verify-console-containerapp-config.sh \
+  "${PREVIOUS_IMAGE}" "${COMMIT}" || exit 1
 
 TAG="${COMMIT}"
 TAGGED_IMAGE="${REGISTRY}.azurecr.io/${ACR_REPO}:${TAG}"
@@ -160,18 +607,6 @@ echo "Commit    : ${COMMIT}"
 echo "Build tag : ${TAGGED_IMAGE}"
 echo "App       : ${APP} (rg ${RESOURCE_GROUP})"
 echo "Prior image: ${PREVIOUS_IMAGE}"
-
-if [[ "${ASSUME_YES}" != "true" ]]; then
-  read -r -p "Deploy ${TAG} to PRODUCTION? Type 'deploy' to continue: " REPLY
-  if [[ "${REPLY}" != "deploy" ]]; then
-    echo "Aborted." >&2
-    exit 1
-  fi
-fi
-
-BUILD_CONTEXT="$(mktemp -d "${TMPDIR:-/tmp}/workforce-os-console-release.XXXXXX")"
-GIT_NO_REPLACE_OBJECTS=1 git archive --format=tar "${COMMIT}" | \
-  tar -xf - -C "${BUILD_CONTEXT}"
 
 RUN_ID="$(az acr build \
   --registry "${REGISTRY}" \
@@ -223,15 +658,17 @@ fi
 IMAGE="${REGISTRY}.azurecr.io/${ACR_REPO}@${DIGEST}"
 echo "ACR run   : ${RUN_ID}"
 echo "New image : ${IMAGE}"
-"${REPO_ROOT}/scripts/verify-registry-console-image.sh" \
+run_snapshot_helper scripts/verify-registry-console-image.sh \
   "${IMAGE}" \
   "${COMMIT}" \
-  "${PINNED_CLERK_KEY_SHA256}"
+  "${PINNED_CLERK_KEY_SHA256}" || exit 1
 
 # Refuse to overwrite a release that appeared while the ACR build and registry
 # verification were running. Recheck both identity and release posture as late
 # as possible before the only production mutation.
-CURRENT_REMOTE_COMMIT="$(git ls-remote --exit-code origin refs/heads/main | awk 'NR == 1 { print $1 }')"
+CURRENT_REMOTE_COMMIT="$(gh api \
+  "repos/${RELEASE_LOCK_REPOSITORY}/git/ref/heads/main" \
+  --jq '.object.sha')"
 if [[ "${CURRENT_REMOTE_COMMIT}" != "${COMMIT}" ]]; then
   echo "ERROR: origin/main advanced while the artifact was building; refusing to deploy stale source" >&2
   exit 1
@@ -247,25 +684,25 @@ if [[ "${CURRENT_IMAGE}" != "${PREVIOUS_IMAGE}" ]]; then
   echo "Current image : ${CURRENT_IMAGE:-<missing>}" >&2
   exit 1
 fi
-"${REPO_ROOT}/scripts/verify-console-containerapp-config.sh" \
-  "${PREVIOUS_IMAGE}" "${COMMIT}"
+run_snapshot_helper scripts/verify-console-containerapp-config.sh \
+  "${PREVIOUS_IMAGE}" "${COMMIT}" || exit 1
 
 wait_for_release() {
   local expected_image=$1
   local attempt
   for ((attempt = 1; attempt <= VERIFY_ATTEMPTS; attempt++)); do
-    if "${REPO_ROOT}/scripts/verify-console-containerapp-config.sh" \
+    if run_snapshot_helper scripts/verify-console-containerapp-config.sh \
       "${expected_image}" "${COMMIT}" >/dev/null 2>&1; then
-      "${REPO_ROOT}/scripts/verify-console-containerapp-config.sh" \
-        "${expected_image}" "${COMMIT}"
+      run_snapshot_helper scripts/verify-console-containerapp-config.sh \
+        "${expected_image}" "${COMMIT}" || return 1
       return 0
     fi
     if ((attempt < VERIFY_ATTEMPTS)); then
       sleep "${VERIFY_DELAY_SECONDS}"
     fi
   done
-  "${REPO_ROOT}/scripts/verify-console-containerapp-config.sh" \
-    "${expected_image}" "${COMMIT}"
+  run_snapshot_helper scripts/verify-console-containerapp-config.sh \
+    "${expected_image}" "${COMMIT}" || return $?
 }
 
 UPDATE_ATTEMPTED="false"
@@ -273,7 +710,8 @@ rollback_console() {
   local status=${1:-1}
   local rollback_failed="false"
   local current_image=""
-  trap - ERR HUP INT TERM
+  trap - ERR
+  trap '' HUP INT TERM
   set +e
   echo "ERROR: console rollout did not complete; restoring ${PREVIOUS_IMAGE}" >&2
   if [[ "${UPDATE_ATTEMPTED}" == "true" ]]; then
@@ -283,7 +721,7 @@ rollback_console() {
       --query 'properties.template.containers[0].image' \
       --output tsv)" || rollback_failed="true"
     if [[ "${current_image}" == "${IMAGE}" ]]; then
-      if az containerapp update \
+      if require_exclusive_mutation_authority && az containerapp update \
         --name "${APP}" \
         --resource-group "${RESOURCE_GROUP}" \
         --image "${PREVIOUS_IMAGE}" \
@@ -320,6 +758,24 @@ trap rollback_on_error ERR
 trap 'rollback_on_signal 129' HUP
 trap 'rollback_on_signal 130' INT
 trap 'rollback_on_signal 143' TERM
+
+# The stable Container Apps PATCH contract does not expose an ETag/If-Match
+# precondition. Under the documented exclusive-writer RBAC invariant, repeat
+# the exact image read immediately before the cooperative serialized write.
+PREWRITE_IMAGE="$(az containerapp show \
+  --name "${APP}" \
+  --resource-group "${RESOURCE_GROUP}" \
+  --query 'properties.template.containers[0].image' \
+  --output tsv)"
+if [[ "${PREWRITE_IMAGE}" != "${PREVIOUS_IMAGE}" ]]; then
+  echo "ERROR: console image changed at the final pre-write read; refusing to overwrite it" >&2
+  echo "Captured image : ${PREVIOUS_IMAGE}" >&2
+  echo "Pre-write image: ${PREWRITE_IMAGE:-<missing>}" >&2
+  exit 1
+fi
+if ! require_exclusive_mutation_authority; then
+  exit 1
+fi
 
 RELEASE_LOCK_SAFE_TO_RELEASE="false"
 UPDATE_ATTEMPTED="true"
