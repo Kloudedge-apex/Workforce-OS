@@ -1,4 +1,5 @@
 import app from "./app";
+import { createGracefulShutdown } from "./graceful-shutdown";
 import { logger } from "./lib/logger";
 
 const rawPort = process.env["PORT"];
@@ -15,7 +16,7 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-app.listen(port, (err) => {
+const server = app.listen(port, (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
     process.exit(1);
@@ -23,3 +24,7 @@ app.listen(port, (err) => {
 
   logger.info({ port }, "Server listening");
 });
+
+const shutdown = createGracefulShutdown(server, logger);
+process.once("SIGTERM", () => shutdown("SIGTERM"));
+process.once("SIGINT", () => shutdown("SIGINT"));
