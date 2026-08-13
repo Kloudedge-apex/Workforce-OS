@@ -54,6 +54,8 @@ export const OutreachArtifactStatus = {
   SENDING: 'SENDING',
   SIMULATED: 'SIMULATED',
   DELIVERY_UNKNOWN: 'DELIVERY_UNKNOWN',
+  FAILED: 'FAILED',
+  RECONCILIATION_REQUIRED: 'RECONCILIATION_REQUIRED',
 } as const;
 
 export type OutreachArtifactPurpose = typeof OutreachArtifactPurpose[keyof typeof OutreachArtifactPurpose];
@@ -112,6 +114,10 @@ export interface OutreachArtifact {
   sentAt: string | null;
   /** @nullable */
   rejectionReason: string | null;
+  /** @nullable */
+  failureReason: string | null;
+  /** @nullable */
+  failedAt: string | null;
   /** @nullable */
   statusReason: string | null;
   /** @nullable */
@@ -180,6 +186,7 @@ export const ArtifactSuppressionResultArtifactStatus = {
   SENDING: 'SENDING',
   SIMULATED: 'SIMULATED',
   DELIVERY_UNKNOWN: 'DELIVERY_UNKNOWN',
+  FAILED: 'FAILED',
 } as const;
 
 export type ArtifactSuppressionResultArtifact = {
@@ -210,6 +217,7 @@ export const ActivityEventKind = {
   draft_created: 'draft_created',
   draft_approved: 'draft_approved',
   draft_rejected: 'draft_rejected',
+  draft_failed: 'draft_failed',
   draft_sent: 'draft_sent',
   delivery_unknown: 'delivery_unknown',
   meeting_proposed: 'meeting_proposed',
@@ -1045,6 +1053,7 @@ export const ListArtifactsStatus = {
   SENDING: 'SENDING',
   SIMULATED: 'SIMULATED',
   DELIVERY_UNKNOWN: 'DELIVERY_UNKNOWN',
+  FAILED: 'FAILED',
 } as const;
 
 export type GetActivityStreamParams = {

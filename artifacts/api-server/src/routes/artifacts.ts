@@ -30,6 +30,8 @@ export interface UpstreamArtifact {
   reviewerNote?: string | null;
   reviewedBy?: string | null;
   reviewedAt?: string | null;
+  failureReason?: string | null;
+  failedAt?: string | null;
   sentAt?: string | null;
   sendReceiptId?: string | null;
   createdAt: string;
@@ -112,6 +114,8 @@ export interface ShapedArtifact {
   approvedAt: string | null;
   sentAt: string | null;
   rejectionReason: string | null;
+  failureReason: string | null;
+  failedAt: string | null;
   statusReason: string | null;
   sendReceiptId: string | null;
   graphRunId: string | null;
@@ -124,6 +128,9 @@ export interface PaginatedArtifacts {
   page: number;
   limit: number;
 }
+
+const HISTORICAL_FAILURE_RECONCILIATION_REASON =
+  "Historical system marker lacks trusted failure evidence. Reconcile before treating this artifact as a reviewer rejection or send failure.";
 
 export interface UpstreamArtifactPage {
   items: UpstreamArtifact[];
@@ -482,6 +489,31 @@ export function shapeEvaluatorScores(
 export function shapeArtifact(a: UpstreamArtifact): ShapedArtifact {
   const recipientRef = a.recipientRef ?? "";
   const purpose = shapeArtifactPurpose(a.purpose);
+  const legacyFailureMarker =
+    a.status === "REJECTED" &&
+    a.reviewerNote?.startsWith("auto-failed:") === true;
+  const legacyFailure = legacyFailureMarker && a.failedAt != null;
+  const reconciliationRequired =
+    a.status === "RECONCILIATION_REQUIRED" ||
+    (legacyFailureMarker && a.failedAt == null);
+  const status = legacyFailure
+    ? "FAILED"
+    : reconciliationRequired
+      ? "RECONCILIATION_REQUIRED"
+      : a.status;
+  const failureReason =
+    status === "FAILED"
+      ? a.failureReason?.trim() ||
+        (legacyFailure
+          ? a.reviewerNote?.slice("auto-failed:".length).trim()
+          : null) ||
+        null
+      : null;
+  const failedAt =
+    status === "FAILED"
+      ? (a.failedAt ??
+        (legacyFailure ? (a.updatedAt ?? a.reviewedAt ?? null) : null))
+      : null;
   const channel =
     a.channel === "EMAIL" ||
     a.channel === "LINKEDIN" ||
@@ -490,7 +522,7 @@ export function shapeArtifact(a: UpstreamArtifact): ShapedArtifact {
       : "UNKNOWN";
   return {
     id: a.id,
-    status: a.status,
+    status,
     purpose,
     channel,
     recipient: {
@@ -508,14 +540,21 @@ export function shapeArtifact(a: UpstreamArtifact): ShapedArtifact {
     evaluatorScores: shapeEvaluatorScores(a.payload),
     sendPolicy: null,
     refusal: shapeRefusal(a.payload),
-    approvalEligibility: shapeArtifactApprovalEligibility(a),
+    approvalEligibility: shapeArtifactApprovalEligibility({ ...a, status }),
     langsmithRunId: payloadString(a.payload, "langsmith_run_id") ?? null,
     createdAt: a.createdAt,
     updatedAt: a.updatedAt ?? a.createdAt,
-    approvedAt: a.reviewedAt ?? null,
+    approvedAt: reconciliationRequired ? null : (a.reviewedAt ?? null),
     sentAt: a.sentAt ?? null,
-    rejectionReason: a.status === "REJECTED" ? (a.reviewerNote ?? null) : null,
-    statusReason: a.reviewerNote ?? null,
+    rejectionReason:
+      status === "REJECTED" && !legacyFailureMarker
+        ? (a.reviewerNote ?? null)
+        : null,
+    failureReason,
+    failedAt,
+    statusReason: reconciliationRequired
+      ? HISTORICAL_FAILURE_RECONCILIATION_REASON
+      : (a.reviewerNote ?? null),
     sendReceiptId: a.sendReceiptId ?? null,
     graphRunId: a.graphRunId ?? null,
     cohort: payloadString(a.payload, "cohort") ?? null,

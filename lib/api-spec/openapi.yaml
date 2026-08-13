@@ -85,6 +85,7 @@ paths:
                 SENDING,
                 SIMULATED,
                 DELIVERY_UNKNOWN,
+                FAILED,
               ]
         - name: page
           in: query
@@ -1117,6 +1118,8 @@ components:
               SENDING,
               SIMULATED,
               DELIVERY_UNKNOWN,
+              FAILED,
+              RECONCILIATION_REQUIRED,
             ]
         purpose:
           type: string
@@ -1151,6 +1154,8 @@ components:
         approvedAt: { type: ["string", "null"] }
         sentAt: { type: ["string", "null"] }
         rejectionReason: { type: ["string", "null"] }
+        failureReason: { type: ["string", "null"] }
+        failedAt: { type: ["string", "null"] }
         statusReason: { type: ["string", "null"] }
         sendReceiptId: { type: ["string", "null"] }
         graphRunId: { type: ["string", "null"] }
@@ -1176,6 +1181,8 @@ components:
           approvedAt,
           sentAt,
           rejectionReason,
+          failureReason,
+          failedAt,
           statusReason,
           sendReceiptId,
           graphRunId,
@@ -1258,6 +1265,7 @@ components:
                   SENDING,
                   SIMULATED,
                   DELIVERY_UNKNOWN,
+                  FAILED,
                 ]
             statusChanged: { type: boolean }
           required: [id, status, statusChanged]
@@ -1290,6 +1298,7 @@ components:
               draft_created,
               draft_approved,
               draft_rejected,
+              draft_failed,
               draft_sent,
               delivery_unknown,
               meeting_proposed,

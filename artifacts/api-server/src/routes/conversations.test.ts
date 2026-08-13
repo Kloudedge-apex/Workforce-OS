@@ -256,6 +256,14 @@ describe("conversation response transforms", () => {
     ).toBe(true);
     expect(
       isReplyArtifactResult({
+        artifactId: "artifact_42",
+        status: "FAILED",
+        message: "Prior reply failed without provider acceptance",
+        created: false,
+      }),
+    ).toBe(true);
+    expect(
+      isReplyArtifactResult({
         status: "PENDING_REVIEW",
         message: "Missing id",
         created: true,
@@ -382,7 +390,8 @@ describe("conversations router", () => {
       post: async () => ({
         artifactId: "artifact_sent",
         status: "SENT",
-        message: "A reply has already been sent for the latest inbound message.",
+        message:
+          "A reply has already been sent for the latest inbound message.",
         created: false,
       }),
     });
@@ -397,7 +406,8 @@ describe("conversations router", () => {
       body: {
         runId: "artifact_sent",
         queued: false,
-        message: "A reply has already been sent for the latest inbound message.",
+        message:
+          "A reply has already been sent for the latest inbound message.",
       },
     });
   });
@@ -509,7 +519,8 @@ describe("conversations router", () => {
       post: async () => ({
         artifactId: "artifact_unsafe",
         status: "SENT",
-        message: "A reply has already been sent for the latest inbound message.",
+        message:
+          "A reply has already been sent for the latest inbound message.",
         created: false,
       }),
     });
@@ -528,7 +539,37 @@ describe("conversations router", () => {
       body: {
         runId: "artifact_unsafe",
         queued: false,
-        message: "A reply has already been sent for the latest inbound message.",
+        message:
+          "A reply has already been sent for the latest inbound message.",
+      },
+    });
+  });
+
+  it("returns an existing failed reply idempotently instead of a 502", async () => {
+    const { client } = clientWith({
+      post: async () => ({
+        artifactId: "artifact_failed",
+        status: "FAILED",
+        message: "The prior reply failed without provider acceptance.",
+        created: false,
+      }),
+    });
+    const result = await request(
+      createConversationsRouter(client),
+      "/conversations/conv_1/replies",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ body: "Try a separately reviewed reply." }),
+      },
+    );
+
+    expect(result).toEqual({
+      status: 200,
+      body: {
+        runId: "artifact_failed",
+        queued: false,
+        message: "The prior reply failed without provider acceptance.",
       },
     });
   });

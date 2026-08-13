@@ -17,6 +17,7 @@ interface AgentActivityStreamProps {
 const eventColorMap: Record<string, string> = {
   delivery_unknown: "bg-ember-500",
   draft_rejected: "bg-rust-500",
+  draft_failed: "bg-rust-500",
   draft_sent: "bg-signal-positive",
   meeting_confirmed: "bg-signal-positive",
 };
@@ -25,10 +26,20 @@ function eventLabel(kind: string): string {
   return kind.replace(/_/g, " ");
 }
 
-export function AgentActivityStream({ filter = "all", collapsed = false }: AgentActivityStreamProps) {
-  const { data: stream, isLoading, isError, refetch } = useGetActivityStream(
+export function AgentActivityStream({
+  filter = "all",
+  collapsed = false,
+}: AgentActivityStreamProps) {
+  const {
+    data: stream,
+    isLoading,
+    isError,
+    refetch,
+  } = useGetActivityStream(
     { filter },
-    { query: { refetchInterval: 5000, queryKey: ["getActivityStream", filter] } }
+    {
+      query: { refetchInterval: 5000, queryKey: ["getActivityStream", filter] },
+    },
   );
 
   if (isLoading) {
@@ -52,7 +63,10 @@ export function AgentActivityStream({ filter = "all", collapsed = false }: Agent
   if (isError) {
     if (collapsed) {
       return (
-        <div className="flex items-center justify-center p-8 text-sm text-signal-critical" role="alert">
+        <div
+          className="flex items-center justify-center p-8 text-sm text-signal-critical"
+          role="alert"
+        >
           <span className="h-2 w-2 rounded-full bg-signal-critical" />
         </div>
       );
@@ -91,7 +105,12 @@ export function AgentActivityStream({ filter = "all", collapsed = false }: Agent
       <div aria-live="polite" className="contents">
         {stream.map((event: ActivityEvent) => (
           <StaggerItem key={event.id} className="flex items-start gap-3">
-            <div className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", eventColorMap[event.kind] || "bg-ink-400")} />
+            <div
+              className={cn(
+                "mt-1.5 h-2 w-2 shrink-0 rounded-full",
+                eventColorMap[event.kind] || "bg-ink-400",
+              )}
+            />
             {!collapsed && (
               <div className="flex flex-col gap-1 min-w-0">
                 <div className="flex items-baseline justify-between gap-2">
@@ -99,7 +118,9 @@ export function AgentActivityStream({ filter = "all", collapsed = false }: Agent
                     {eventLabel(event.kind)}
                   </span>
                   <span className="text-[10px] text-ink-400 shrink-0 font-tabular">
-                    {formatDistanceToNow(new Date(event.timestamp), { addSuffix: true })}
+                    {formatDistanceToNow(new Date(event.timestamp), {
+                      addSuffix: true,
+                    })}
                   </span>
                 </div>
                 <p className="text-xs text-ink-700 dark:text-ink-300 leading-snug">

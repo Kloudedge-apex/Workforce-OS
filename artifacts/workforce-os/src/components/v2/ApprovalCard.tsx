@@ -105,6 +105,22 @@ const RESOLVED_CARDS: Partial<Record<ArtifactUiStatus, ResolvedCardConfig>> = {
     detail:
       "Do not resend. Reconcile the provider Sent folder or message receipt before creating any separately reviewed replacement.",
   },
+  FAILED: {
+    icon: <X className="h-5 w-5 text-white" />,
+    cardClass: "bg-rust-500/5 border-rust-500/30",
+    iconWrapClass: "bg-rust-500",
+    title: (name) => `Send failed for ${name}`,
+    detail:
+      "No provider acceptance occurred. Automatic retries are exhausted, and this artifact will not be retried. Create a separate, newly reviewed draft to try again.",
+  },
+  RECONCILIATION_REQUIRED: {
+    icon: <ShieldAlert className="h-5 w-5 text-white" />,
+    cardClass: "bg-ember-400/10 border-ember-400/40",
+    iconWrapClass: "bg-ember-500",
+    title: (name) => `Historical outcome for ${name} needs reconciliation`,
+    detail:
+      "This record has an old system marker without enough provenance to call it a human rejection or a send failure. Reconcile the original provider and review history before acting on it.",
+  },
   REJECTED: {
     icon: <X className="h-5 w-5 text-white" />,
     cardClass: "bg-paper-100 border-paper-200",
@@ -184,9 +200,7 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
     query: { queryKey: ["getOrgSettings"] },
   });
   const workspaceAuthorization = workspaceLiveAuthorization(orgSettings);
-  const reviewAccess = artifactReviewAccess(
-    orgSettings?.canReviewArtifacts,
-  );
+  const reviewAccess = artifactReviewAccess(orgSettings?.canReviewArtifacts);
   const liveAuthorization = artifact.sendPolicy
     ? artifact.sendPolicy.liveSendEnabled
     : workspaceAuthorization;
@@ -195,6 +209,7 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
     ...artifact,
     status: localStatus,
   });
+  const isReviewable = localStatus === "PENDING_REVIEW";
   const channelLabel =
     artifact.channel === "EMAIL"
       ? "Email"
@@ -297,6 +312,33 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
               {resolved.title(artifact.recipient.name)}
             </h4>
             <p className="text-sm text-ink-700 mt-1">{resolved.detail}</p>
+            {localStatus === "FAILED" &&
+              (artifact.failureReason || artifact.failedAt) && (
+                <dl className="mt-3 text-left text-xs text-ink-600 space-y-1 max-w-full">
+                  {artifact.failedAt && (
+                    <div>
+                      <dt className="inline font-semibold">Failed at: </dt>
+                      <dd className="inline">
+                        {new Date(artifact.failedAt).toLocaleString()}
+                      </dd>
+                    </div>
+                  )}
+                  {artifact.failureReason && (
+                    <div>
+                      <dt className="inline font-semibold">Reason: </dt>
+                      <dd className="inline break-words">
+                        {artifact.failureReason}
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+              )}
+            {localStatus === "REJECTED" && artifact.rejectionReason && (
+              <p className="mt-3 text-xs text-ink-600">
+                <span className="font-semibold">Reason: </span>
+                {artifact.rejectionReason}
+              </p>
+            )}
             <Badge
               variant="outline"
               className={cn("text-xs mt-3 border", badge.className)}
@@ -478,7 +520,14 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
         </div>
 
         {/* Action Bar */}
-        {!reviewAccess.allowed ? (
+        {!isReviewable ? (
+          <p
+            className="text-xs text-ink-500 rounded-md border border-paper-200 bg-paper-100 px-3 py-2"
+            data-testid="artifact-review-unavailable"
+          >
+            Only pending-review artifacts can be approved or rejected.
+          </p>
+        ) : !reviewAccess.allowed ? (
           <p
             className="text-xs text-ink-500 rounded-md border border-paper-200 bg-paper-100 px-3 py-2"
             data-testid="artifact-review-read-only"

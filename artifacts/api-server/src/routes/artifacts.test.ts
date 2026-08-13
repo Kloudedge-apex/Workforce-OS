@@ -48,6 +48,8 @@ function makeUpstream(over: Partial<UpstreamArtifact> = {}): UpstreamArtifact {
     reviewerNote: null,
     reviewedBy: null,
     reviewedAt: null,
+    failureReason: null,
+    failedAt: null,
     sentAt: null,
     sendReceiptId: null,
     createdAt: "2026-06-01T10:00:00.000Z",
@@ -448,6 +450,118 @@ describe("shapeArtifact", () => {
     expect(rejected.rejectionReason).toBe("off-base claim");
     const pending = shapeArtifact(makeUpstream({ reviewerNote: "note" }));
     expect(pending.rejectionReason).toBeNull();
+  });
+
+  it("maps FAILED evidence without presenting it as a rejection or delivery", () => {
+    const out = shapeArtifact(
+      makeUpstream({
+        status: "FAILED",
+        failureReason: "provider rejected after retry exhaustion",
+        failedAt: "2026-06-03T11:12:13.000Z",
+        reviewedAt: "2026-06-02T09:00:00.000Z",
+      }),
+    );
+
+    expect(out.status).toBe("FAILED");
+    expect(out.failureReason).toBe("provider rejected after retry exhaustion");
+    expect(out.failedAt).toBe("2026-06-03T11:12:13.000Z");
+    expect(out.approvedAt).toBe("2026-06-02T09:00:00.000Z");
+    expect(out.rejectionReason).toBeNull();
+    expect(out.sentAt).toBeNull();
+    expect(out.approvalEligibility).toEqual({
+      eligible: false,
+      reason: "Artifact art_1 is FAILED; only PENDING_REVIEW can be approved",
+    });
+  });
+
+  it("routes an unattested historical auto-failed marker to reconciliation", () => {
+    const out = shapeArtifact(
+      makeUpstream({
+        status: "REJECTED",
+        reviewerNote: "auto-failed: legacy provider rejection",
+        reviewedAt: "2026-06-03T11:12:12.000Z",
+        updatedAt: "2026-06-03T11:12:13.000Z",
+      }),
+    );
+
+    expect(out.status).toBe("RECONCILIATION_REQUIRED");
+    expect(out.failureReason).toBeNull();
+    expect(out.failedAt).toBeNull();
+    expect(out.approvedAt).toBeNull();
+    expect(out.rejectionReason).toBeNull();
+    expect(out.statusReason).toBe(
+      "Historical system marker lacks trusted failure evidence. Reconcile before treating this artifact as a reviewer rejection or send failure.",
+    );
+    expect(out.approvalEligibility).toEqual({
+      eligible: false,
+      reason:
+        "Artifact art_1 is RECONCILIATION_REQUIRED; only PENDING_REVIEW can be approved",
+    });
+  });
+
+  it("preserves reconciliation presentation in the unfiltered page shape", () => {
+    const page = shapePaginatedArtifacts(
+      {
+        items: [
+          makeUpstream({
+            status: "REJECTED",
+            reviewerNote: "auto-failed: legacy provider rejection",
+            failedAt: null,
+          }),
+        ],
+        total: 1,
+        page: 1,
+        limit: 20,
+      },
+      1,
+      20,
+    );
+
+    expect(page.items[0]).toMatchObject({
+      status: "RECONCILIATION_REQUIRED",
+      rejectionReason: null,
+      failureReason: null,
+      failedAt: null,
+    });
+  });
+
+  it("sanitizes reconciliation evidence already shaped by an upgraded backend", () => {
+    const out = shapeArtifact(
+      makeUpstream({
+        status: "RECONCILIATION_REQUIRED",
+        reviewerNote: "auto-failed: ambiguous historical marker",
+        reviewedAt: "2026-06-02T09:00:00.000Z",
+        updatedAt: "2026-06-03T11:12:13.000Z",
+        failedAt: null,
+      }),
+    );
+
+    expect(out).toMatchObject({
+      status: "RECONCILIATION_REQUIRED",
+      approvedAt: null,
+      rejectionReason: null,
+      failureReason: null,
+      failedAt: null,
+      statusReason:
+        "Historical system marker lacks trusted failure evidence. Reconcile before treating this artifact as a reviewer rejection or send failure.",
+    });
+    expect(out.statusReason).not.toContain("auto-failed:");
+  });
+
+  it("preserves approval timing for a gated compatibility failure", () => {
+    const out = shapeArtifact(
+      makeUpstream({
+        status: "REJECTED",
+        reviewerNote: "auto-failed: gated provider rejection",
+        reviewedAt: "2026-06-02T09:00:00.000Z",
+        failureReason: "gated provider rejection",
+        failedAt: "2026-06-03T11:12:13.000Z",
+      }),
+    );
+
+    expect(out.status).toBe("FAILED");
+    expect(out.approvedAt).toBe("2026-06-02T09:00:00.000Z");
+    expect(out.failedAt).toBe("2026-06-03T11:12:13.000Z");
   });
 
   it("exposes persisted transition evidence for delivery reconciliation", () => {

@@ -41,6 +41,10 @@ export interface OutreachArtifact {
   /** @nullable */
   rejectionReason: string | null;
   /** @nullable */
+  failureReason: string | null;
+  /** @nullable */
+  failedAt: string | null;
+  /** @nullable */
   statusReason: string | null;
   /** @nullable */
   sendReceiptId: string | null;

@@ -126,16 +126,14 @@ export default function ArtifactDetail() {
   const { data: orgSettings } = useGetOrgSettings({
     query: { queryKey: ["getOrgSettings"] },
   });
-  const reviewAccess = artifactReviewAccess(
-    orgSettings?.canReviewArtifacts,
-  );
-  const suppression = suppressionAccess(
-    orgSettings?.canManageSuppressions,
-  );
+  const reviewAccess = artifactReviewAccess(orgSettings?.canReviewArtifacts);
+  const suppression = suppressionAccess(orgSettings?.canManageSuppressions);
+
+  const canReject = reviewAccess.allowed && data?.status === "PENDING_REVIEW";
 
   React.useEffect(() => {
-    if (!reviewAccess.allowed) setRejectOpen(false);
-  }, [reviewAccess.allowed]);
+    if (!canReject) setRejectOpen(false);
+  }, [canReject]);
 
   const { mutate: approve, isPending: isApproving } = useApproveArtifact({
     mutation: {
@@ -210,8 +208,12 @@ export default function ArtifactDetail() {
   };
 
   const handleReject = () => {
-    if (!reviewAccess.allowed) {
-      toast.error(reviewAccess.reason);
+    if (!canReject) {
+      toast.error(
+        reviewAccess.allowed
+          ? "Only pending-review artifacts can be rejected."
+          : reviewAccess.reason,
+      );
       return;
     }
     reject({ id, data: { reason: rejectReason } });
@@ -279,6 +281,9 @@ export default function ArtifactDetail() {
           ? "HubSpot note"
           : "Unknown channel";
   const isDeliveryUnknown = data.status === "DELIVERY_UNKNOWN";
+  const isFailed = data.status === "FAILED";
+  const isReconciliationRequired = data.status === "RECONCILIATION_REQUIRED";
+  const isRejected = data.status === "REJECTED";
   const statusBadge = artifactStatusBadge(data.status);
   const citations = uiCitations(data.citations);
 
@@ -351,6 +356,77 @@ export default function ArtifactDetail() {
                   </div>
                 )}
               </dl>
+            </div>
+          )}
+          {isFailed && (
+            <div
+              role="alert"
+              className="rounded-xl border border-rust-500/40 bg-rust-500/5 p-5 shadow-sm"
+            >
+              <div className="flex items-center gap-2">
+                <XCircle className="h-5 w-5 text-rust-500 shrink-0" />
+                <h2 className="font-serif text-lg text-ink-900">
+                  Send failed — no delivery
+                </h2>
+              </div>
+              <p className="text-sm text-ink-700 mt-2">
+                No provider acceptance occurred. Automatic retries are
+                exhausted, and this artifact will not be retried. Create a
+                separate, newly reviewed draft to try again.
+              </p>
+              <dl className="mt-3 grid gap-1 text-xs text-ink-600">
+                {data.failedAt && (
+                  <div>
+                    <dt className="inline font-semibold">Failed at: </dt>
+                    <dd className="inline">
+                      {new Date(data.failedAt).toLocaleString()}
+                    </dd>
+                  </div>
+                )}
+                {data.failureReason && (
+                  <div>
+                    <dt className="inline font-semibold">Recorded reason: </dt>
+                    <dd className="inline break-words">{data.failureReason}</dd>
+                  </div>
+                )}
+              </dl>
+            </div>
+          )}
+          {isReconciliationRequired && (
+            <div
+              role="alert"
+              className="rounded-xl border border-ember-400/50 bg-ember-400/10 p-5 shadow-sm"
+            >
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="h-5 w-5 text-ember-500 shrink-0" />
+                <h2 className="font-serif text-lg text-ink-900">
+                  Historical outcome needs reconciliation
+                </h2>
+              </div>
+              <p className="text-sm text-ink-700 mt-2">
+                This record has an old system marker without enough provenance
+                to classify it as either a reviewer rejection or a send failure.
+                Reconcile the original provider and review history before acting
+                on it.
+              </p>
+              {data.statusReason && (
+                <p className="mt-3 text-xs text-ink-600">
+                  <span className="font-semibold">
+                    Why it is unclassified:{" "}
+                  </span>
+                  {data.statusReason}
+                </p>
+              )}
+            </div>
+          )}
+          {isRejected && data.rejectionReason && (
+            <div className="rounded-xl border border-paper-300 bg-paper-100 p-4">
+              <h2 className="font-serif text-base text-ink-900">
+                Draft rejected by reviewer
+              </h2>
+              <p className="mt-2 text-sm text-ink-700">
+                {data.rejectionReason}
+              </p>
             </div>
           )}
           {refused ? (
@@ -441,59 +517,60 @@ export default function ArtifactDetail() {
                 </p>
               ) : (
                 <>
-              {approvalEligibility.eligible && liveAuthorized && (
-                <div
-                  className="flex items-start gap-2 rounded-md border border-rust-500/30 bg-rust-500/10 p-3"
-                  role="alert"
-                >
-                  <Send className="h-4 w-4 text-rust-500 shrink-0 mt-0.5" />
-                  <p className="text-xs font-medium text-rust-600">
-                    Live delivery is authorized. Approval may deliver this{" "}
-                    {channelLabel.toLowerCase()} now or later after temporary
-                    policy gates clear.
-                  </p>
-                </div>
-              )}
-              {approvalEligibility.eligible && liveAuthorization === null && (
-                <div
-                  className="flex items-start gap-2 rounded-md border border-paper-300 bg-paper-100 p-3"
-                  role="alert"
-                >
-                  <ShieldAlert className="h-4 w-4 text-ink-500 shrink-0 mt-0.5" />
-                  <p className="text-xs font-medium text-ink-600">
-                    Approval is disabled until live-delivery authorization can
-                    be verified.
-                  </p>
-                </div>
-              )}
-              {!approvalEligibility.eligible ? (
-                <p
-                  className="text-xs text-ink-500 px-1 py-2"
-                  data-testid="approval-unavailable-reason"
-                >
-                  {approvalEligibility.reason}
-                </p>
-              ) : (
-                <Button
-                  className="w-full bg-rust-500 hover:bg-rust-600 text-white shadow-sm active-elevate-2"
-                  onClick={handleApprove}
-                  disabled={liveAuthorization === null || isApproving}
-                >
-                  <CheckCircle2 className="h-4 w-4 mr-2" />
-                  {isApproving ? "Approving…" : "Approve"}
-                </Button>
-              )}
-              <Button
-                variant="outline"
-                className="w-full border-paper-300 hover-elevate active-elevate-2"
-                onClick={() => setRejectOpen(true)}
-              >
-                <XCircle className="h-4 w-4 mr-2" /> Reject
-              </Button>
+                  {approvalEligibility.eligible && liveAuthorized && (
+                    <div
+                      className="flex items-start gap-2 rounded-md border border-rust-500/30 bg-rust-500/10 p-3"
+                      role="alert"
+                    >
+                      <Send className="h-4 w-4 text-rust-500 shrink-0 mt-0.5" />
+                      <p className="text-xs font-medium text-rust-600">
+                        Live delivery is authorized. Approval may deliver this{" "}
+                        {channelLabel.toLowerCase()} now or later after
+                        temporary policy gates clear.
+                      </p>
+                    </div>
+                  )}
+                  {approvalEligibility.eligible &&
+                    liveAuthorization === null && (
+                      <div
+                        className="flex items-start gap-2 rounded-md border border-paper-300 bg-paper-100 p-3"
+                        role="alert"
+                      >
+                        <ShieldAlert className="h-4 w-4 text-ink-500 shrink-0 mt-0.5" />
+                        <p className="text-xs font-medium text-ink-600">
+                          Approval is disabled until live-delivery authorization
+                          can be verified.
+                        </p>
+                      </div>
+                    )}
+                  {!approvalEligibility.eligible ? (
+                    <p
+                      className="text-xs text-ink-500 px-1 py-2"
+                      data-testid="approval-unavailable-reason"
+                    >
+                      {approvalEligibility.reason}
+                    </p>
+                  ) : (
+                    <Button
+                      className="w-full bg-rust-500 hover:bg-rust-600 text-white shadow-sm active-elevate-2"
+                      onClick={handleApprove}
+                      disabled={liveAuthorization === null || isApproving}
+                    >
+                      <CheckCircle2 className="h-4 w-4 mr-2" />
+                      {isApproving ? "Approving…" : "Approve"}
+                    </Button>
+                  )}
+                  <Button
+                    variant="outline"
+                    className="w-full border-paper-300 hover-elevate active-elevate-2"
+                    onClick={() => setRejectOpen(true)}
+                  >
+                    <XCircle className="h-4 w-4 mr-2" /> Reject
+                  </Button>
                 </>
               )}
-              {data.channel === "EMAIL" && (
-                suppression.allowed ? (
+              {data.channel === "EMAIL" &&
+                (suppression.allowed ? (
                   <Button
                     variant="ghost"
                     className="w-full text-ink-500 hover-elevate active-elevate-2"
@@ -510,8 +587,7 @@ export default function ArtifactDetail() {
                   >
                     {suppression.reason}
                   </p>
-                )
-              )}
+                ))}
             </div>
           )}
 
@@ -645,8 +721,8 @@ export default function ArtifactDetail() {
 
       {/* Reject dialog */}
       <Dialog
-        open={rejectOpen && reviewAccess.allowed}
-        onOpenChange={(open) => setRejectOpen(open && reviewAccess.allowed)}
+        open={rejectOpen && canReject}
+        onOpenChange={(open) => setRejectOpen(open && canReject)}
       >
         <DialogContent>
           <DialogHeader>

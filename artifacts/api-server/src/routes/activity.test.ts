@@ -38,6 +38,14 @@ const deliveryUnknown: ActivityEventUpstream = {
   leadId: "",
 };
 
+const draftFailed: ActivityEventUpstream = {
+  id: "artifact:art_failed:failed",
+  kind: "draft_failed",
+  text: "Outreach dispatch failed without provider acceptance",
+  at: "2026-06-09T12:31:00.000Z",
+  leadId: "",
+};
+
 describe("shapeActivityEvent", () => {
   it("maps a draft event without inventing agent attribution", () => {
     expect(shapeActivityEvent(draft)).toEqual({
@@ -72,10 +80,19 @@ describe("shapeActivityEvent", () => {
       artifactId: "art_999",
     });
   });
+
+  it("surfaces terminal dispatch failure as a distinct activity kind", () => {
+    expect(shapeActivityEvent(draftFailed)).toMatchObject({
+      kind: "draft_failed",
+      artifactId: "art_failed",
+    });
+  });
 });
 
 describe("shapeActivity", () => {
-  const upstream: ActivityUpstream = { events: [meeting, runNeedsApproval, draft] };
+  const upstream: ActivityUpstream = {
+    events: [meeting, runNeedsApproval, draftFailed, draft],
+  };
 
   it("unwraps the envelope into a bare array preserving order", () => {
     const out = shapeActivity(upstream);
@@ -83,13 +100,14 @@ describe("shapeActivity", () => {
     expect(out.map((e) => e.id)).toEqual([
       "meeting:mtg_9:confirmed",
       "run:run_77:needs_approval",
+      "artifact:art_failed:failed",
       "artifact:art_123:created",
     ]);
   });
 
   it("filter=outbound keeps only outbound event kinds", () => {
     const out = shapeActivity(upstream, "outbound");
-    expect(out.map((e) => e.kind)).toEqual(["draft_created"]);
+    expect(out.map((e) => e.kind)).toEqual(["draft_failed", "draft_created"]);
   });
 
   it("filter=pipeline keeps run and meeting event kinds", () => {

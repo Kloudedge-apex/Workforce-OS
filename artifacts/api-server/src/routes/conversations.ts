@@ -26,6 +26,7 @@ import {
   type PaginatedConversations,
   type ReplyIntelligence,
   type TriggerResult,
+  OutreachArtifactStatus,
 } from "@workspace/api-zod";
 import { apex, UpstreamError } from "../upstream/apex-client";
 
@@ -93,17 +94,9 @@ export interface UpstreamDraftReplyResult {
   created: boolean;
 }
 
-const ARTIFACT_STATUSES = new Set([
-  "DRAFT",
-  "PENDING_REVIEW",
-  "APPROVED",
-  "REJECTED",
-  "SENT",
-  "SUPPRESSED",
-  "SENDING",
-  "SIMULATED",
-  "DELIVERY_UNKNOWN",
-]);
+const ARTIFACT_STATUSES: ReadonlySet<string> = new Set(
+  Object.values(OutreachArtifactStatus),
+);
 
 export function isReplyArtifactResult(
   value: unknown,
@@ -130,7 +123,8 @@ export function shapeReplyIntelligence(
     upstream.nextBestAction === null ||
     upstream.nextBestActionType === null
   ) {
-    const status: AnalysisStatus = upstream.status === "PENDING" ? "PENDING" : "FAILED";
+    const status: AnalysisStatus =
+      upstream.status === "PENDING" ? "PENDING" : "FAILED";
     return {
       sentiment: null,
       sentimentConfidence: null,
@@ -383,10 +377,14 @@ export function createConversationsRouter(
           { req },
         );
         if (!isReplyArtifactResult(upstream)) {
-          res.status(502).json({ error: "Reply artifact response was invalid" });
+          res
+            .status(502)
+            .json({ error: "Reply artifact response was invalid" });
           return;
         }
-        res.status(upstream.created ? 202 : 200).json(shapeDraftReply(upstream));
+        res
+          .status(upstream.created ? 202 : 200)
+          .json(shapeDraftReply(upstream));
       } catch (error) {
         forwardUpstreamError(error, res, next);
       }
@@ -442,7 +440,9 @@ export function createConversationsRouter(
           });
           return;
         }
-        res.status(upstream.created ? 201 : 200).json(shapeDraftReply(upstream));
+        res
+          .status(upstream.created ? 201 : 200)
+          .json(shapeDraftReply(upstream));
       } catch (error) {
         forwardUpstreamError(error, res, next);
       }

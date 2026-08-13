@@ -12,6 +12,10 @@ import type { OutreachArtifactStatus } from "@workspace/api-client-react";
  *                badge so pilots can't mistake it for a real delivery.
  *  - DELIVERY_UNKNOWN → provider acceptance could not be reconciled. It is
  *                terminal and must never be presented as retryable or sent.
+ *  - FAILED → provider acceptance did not occur and automatic retries are
+ *                exhausted. It is distinct from human REJECTED.
+ *  - RECONCILIATION_REQUIRED → historical system metadata is insufficient to
+ *                classify the row as either a human rejection or send failure.
  *
  * The generated client is the source of the complete server enum.
  */
@@ -23,7 +27,10 @@ export interface ArtifactStatusBadge {
   className: string;
 }
 
-export const ARTIFACT_STATUS_BADGES: Record<ArtifactUiStatus, ArtifactStatusBadge> = {
+export const ARTIFACT_STATUS_BADGES: Record<
+  ArtifactUiStatus,
+  ArtifactStatusBadge
+> = {
   DRAFT: {
     label: "Draft",
     className: "bg-paper-100 text-ink-600 border-paper-200",
@@ -42,7 +49,8 @@ export const ARTIFACT_STATUS_BADGES: Record<ArtifactUiStatus, ArtifactStatusBadg
   },
   SENT: {
     label: "Sent",
-    className: "bg-signal-positive/10 text-signal-positive border-signal-positive/20",
+    className:
+      "bg-signal-positive/10 text-signal-positive border-signal-positive/20",
   },
   SIMULATED: {
     label: "Simulated (dry-run)",
@@ -50,6 +58,14 @@ export const ARTIFACT_STATUS_BADGES: Record<ArtifactUiStatus, ArtifactStatusBadg
   },
   DELIVERY_UNKNOWN: {
     label: "Delivery unknown — reconcile before resend",
+    className: "bg-ember-400/15 text-ember-600 border-ember-400/40",
+  },
+  FAILED: {
+    label: "Failed — no delivery",
+    className: "bg-rust-500/10 text-rust-600 border-rust-500/30",
+  },
+  RECONCILIATION_REQUIRED: {
+    label: "Unclassified — reconcile history",
     className: "bg-ember-400/15 text-ember-600 border-ember-400/40",
   },
   REJECTED: {
@@ -62,6 +78,20 @@ export const ARTIFACT_STATUS_BADGES: Record<ArtifactUiStatus, ArtifactStatusBadg
   },
 };
 
+const TERMINAL_ARTIFACT_STATUSES: ReadonlySet<ArtifactUiStatus> = new Set([
+  "REJECTED",
+  "SENT",
+  "SUPPRESSED",
+  "SIMULATED",
+  "DELIVERY_UNKNOWN",
+  "FAILED",
+  "RECONCILIATION_REQUIRED",
+]);
+
+export function isTerminalArtifactStatus(status: string): boolean {
+  return TERMINAL_ARTIFACT_STATUSES.has(status as ArtifactUiStatus);
+}
+
 const FALLBACK_BADGE: ArtifactStatusBadge = {
   label: "",
   className: "bg-paper-100 text-ink-600 border-paper-200",
@@ -72,7 +102,9 @@ const FALLBACK_BADGE: ArtifactStatusBadge = {
  * humanized neutral badge rather than crashing or masquerading as a known one.
  */
 export function artifactStatusBadge(status: string): ArtifactStatusBadge {
-  const known = (ARTIFACT_STATUS_BADGES as Record<string, ArtifactStatusBadge>)[status];
+  const known = (ARTIFACT_STATUS_BADGES as Record<string, ArtifactStatusBadge>)[
+    status
+  ];
   if (known) return known;
   return { ...FALLBACK_BADGE, label: status.replace(/_/g, " ") };
 }

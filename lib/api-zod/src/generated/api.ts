@@ -30,7 +30,7 @@ export const ListPendingArtifactsQueryParams = zod.object({
 export const ListPendingArtifactsResponse = zod.object({
   "items": zod.array(zod.object({
   "id": zod.string(),
-  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN']),
+  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN', 'FAILED', 'RECONCILIATION_REQUIRED']),
   "purpose": zod.enum(['OUTBOUND', 'REPLY', 'FOLLOW_UP']),
   "channel": zod.enum(['EMAIL', 'LINKEDIN', 'HUBSPOT_NOTE', 'UNKNOWN']),
   "recipient": zod.object({
@@ -77,6 +77,8 @@ export const ListPendingArtifactsResponse = zod.object({
   "approvedAt": zod.string().nullable(),
   "sentAt": zod.string().nullable(),
   "rejectionReason": zod.string().nullable(),
+  "failureReason": zod.string().nullable(),
+  "failedAt": zod.string().nullable(),
   "statusReason": zod.string().nullable(),
   "sendReceiptId": zod.string().nullable(),
   "graphRunId": zod.string().nullable(),
@@ -95,7 +97,7 @@ export const listArtifactsQueryPageDefault = 1;
 export const listArtifactsQueryLimitDefault = 20;
 
 export const ListArtifactsQueryParams = zod.object({
-  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN']).optional(),
+  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN', 'FAILED']).optional(),
   "page": zod.coerce.number().default(listArtifactsQueryPageDefault),
   "limit": zod.coerce.number().default(listArtifactsQueryLimitDefault)
 })
@@ -103,7 +105,7 @@ export const ListArtifactsQueryParams = zod.object({
 export const ListArtifactsResponse = zod.object({
   "items": zod.array(zod.object({
   "id": zod.string(),
-  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN']),
+  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN', 'FAILED', 'RECONCILIATION_REQUIRED']),
   "purpose": zod.enum(['OUTBOUND', 'REPLY', 'FOLLOW_UP']),
   "channel": zod.enum(['EMAIL', 'LINKEDIN', 'HUBSPOT_NOTE', 'UNKNOWN']),
   "recipient": zod.object({
@@ -150,6 +152,8 @@ export const ListArtifactsResponse = zod.object({
   "approvedAt": zod.string().nullable(),
   "sentAt": zod.string().nullable(),
   "rejectionReason": zod.string().nullable(),
+  "failureReason": zod.string().nullable(),
+  "failedAt": zod.string().nullable(),
   "statusReason": zod.string().nullable(),
   "sendReceiptId": zod.string().nullable(),
   "graphRunId": zod.string().nullable(),
@@ -170,7 +174,7 @@ export const GetArtifactParams = zod.object({
 
 export const GetArtifactResponse = zod.object({
   "id": zod.string(),
-  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN']),
+  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN', 'FAILED', 'RECONCILIATION_REQUIRED']),
   "purpose": zod.enum(['OUTBOUND', 'REPLY', 'FOLLOW_UP']),
   "channel": zod.enum(['EMAIL', 'LINKEDIN', 'HUBSPOT_NOTE', 'UNKNOWN']),
   "recipient": zod.object({
@@ -217,6 +221,8 @@ export const GetArtifactResponse = zod.object({
   "approvedAt": zod.string().nullable(),
   "sentAt": zod.string().nullable(),
   "rejectionReason": zod.string().nullable(),
+  "failureReason": zod.string().nullable(),
+  "failedAt": zod.string().nullable(),
   "statusReason": zod.string().nullable(),
   "sendReceiptId": zod.string().nullable(),
   "graphRunId": zod.string().nullable(),
@@ -233,7 +239,7 @@ export const ApproveArtifactParams = zod.object({
 
 export const ApproveArtifactResponse = zod.object({
   "id": zod.string(),
-  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN']),
+  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN', 'FAILED', 'RECONCILIATION_REQUIRED']),
   "purpose": zod.enum(['OUTBOUND', 'REPLY', 'FOLLOW_UP']),
   "channel": zod.enum(['EMAIL', 'LINKEDIN', 'HUBSPOT_NOTE', 'UNKNOWN']),
   "recipient": zod.object({
@@ -280,6 +286,8 @@ export const ApproveArtifactResponse = zod.object({
   "approvedAt": zod.string().nullable(),
   "sentAt": zod.string().nullable(),
   "rejectionReason": zod.string().nullable(),
+  "failureReason": zod.string().nullable(),
+  "failedAt": zod.string().nullable(),
   "statusReason": zod.string().nullable(),
   "sendReceiptId": zod.string().nullable(),
   "graphRunId": zod.string().nullable(),
@@ -300,7 +308,7 @@ export const RejectArtifactBody = zod.object({
 
 export const RejectArtifactResponse = zod.object({
   "id": zod.string(),
-  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN']),
+  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN', 'FAILED', 'RECONCILIATION_REQUIRED']),
   "purpose": zod.enum(['OUTBOUND', 'REPLY', 'FOLLOW_UP']),
   "channel": zod.enum(['EMAIL', 'LINKEDIN', 'HUBSPOT_NOTE', 'UNKNOWN']),
   "recipient": zod.object({
@@ -347,6 +355,8 @@ export const RejectArtifactResponse = zod.object({
   "approvedAt": zod.string().nullable(),
   "sentAt": zod.string().nullable(),
   "rejectionReason": zod.string().nullable(),
+  "failureReason": zod.string().nullable(),
+  "failedAt": zod.string().nullable(),
   "statusReason": zod.string().nullable(),
   "sendReceiptId": zod.string().nullable(),
   "graphRunId": zod.string().nullable(),
@@ -364,7 +374,7 @@ export const SuppressArtifactParams = zod.object({
 export const SuppressArtifactResponse = zod.object({
   "artifact": zod.object({
   "id": zod.string(),
-  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN']),
+  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN', 'FAILED']),
   "statusChanged": zod.boolean()
 }),
   "suppression": zod.object({
@@ -391,7 +401,7 @@ export const GetActivityStreamQueryParams = zod.object({
 
 export const GetActivityStreamResponseItem = zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['run_started', 'run_needs_approval', 'run_completed', 'run_failed', 'draft_created', 'draft_approved', 'draft_rejected', 'draft_sent', 'delivery_unknown', 'meeting_proposed', 'meeting_confirmed']),
+  "kind": zod.enum(['run_started', 'run_needs_approval', 'run_completed', 'run_failed', 'draft_created', 'draft_approved', 'draft_rejected', 'draft_failed', 'draft_sent', 'delivery_unknown', 'meeting_proposed', 'meeting_confirmed']),
   "action": zod.string(),
   "timestamp": zod.string(),
   "artifactId": zod.string().nullable(),

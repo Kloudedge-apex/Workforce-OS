@@ -19,4 +19,5 @@ export const ArtifactSuppressionResultArtifactStatus = {
   SENDING: 'SENDING',
   SIMULATED: 'SIMULATED',
   DELIVERY_UNKNOWN: 'DELIVERY_UNKNOWN',
+  FAILED: 'FAILED',
 } as const;

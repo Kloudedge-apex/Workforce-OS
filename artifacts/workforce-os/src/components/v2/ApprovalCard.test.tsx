@@ -59,6 +59,8 @@ function artifact(overrides: Partial<OutreachArtifact> = {}): OutreachArtifact {
     approvedAt: null,
     sentAt: null,
     rejectionReason: null,
+    failureReason: null,
+    failedAt: null,
     statusReason: null,
     sendReceiptId: null,
     graphRunId: null,
@@ -129,7 +131,55 @@ describe("ApprovalCard review contract", () => {
   it("labels a simulated artifact terminal without promising later delivery", () => {
     const html = renderCard(artifact({ status: "SIMULATED" }));
     expect(html).toContain("This artifact is terminal");
-    expect(html).toContain("future, separately reviewed draft may be delivered");
+    expect(html).toContain(
+      "future, separately reviewed draft may be delivered",
+    );
     expect(html).not.toContain("Enable live sending to deliver");
+  });
+
+  it("renders terminal FAILED evidence with no review or retry action", () => {
+    const html = renderCard(
+      artifact({
+        status: "FAILED",
+        approvalEligibility: {
+          eligible: false,
+          reason: "Artifact is FAILED; only PENDING_REVIEW can be approved",
+        },
+        failureReason: "provider rejected after retry exhaustion",
+        failedAt: "2026-08-13T01:02:03.000Z",
+      }),
+    );
+
+    expect(html).toContain("Send failed for Buyer");
+    expect(html).toContain("No provider acceptance occurred");
+    expect(html).toContain("provider rejected after retry exhaustion");
+    expect(html).not.toContain(">Approve<");
+    expect(html).not.toContain(">Reject<");
+    expect(html).not.toContain("Retry");
+    expect(html).not.toContain(">Sent<");
+  });
+
+  it("renders an unclassified historical row as reconciliation, not rejection", () => {
+    const html = renderCard(
+      artifact({
+        status: "RECONCILIATION_REQUIRED",
+        approvalEligibility: {
+          eligible: false,
+          reason:
+            "Artifact is RECONCILIATION_REQUIRED; only PENDING_REVIEW can be approved",
+        },
+        statusReason:
+          "Historical system marker lacks trusted failure evidence.",
+      }),
+    );
+
+    expect(html).toContain("Historical outcome for Buyer needs reconciliation");
+    expect(html).toContain("without enough provenance");
+    expect(html).toContain("Unclassified — reconcile history");
+    expect(html).not.toContain("Rejected draft");
+    expect(html).not.toContain("Send failed");
+    expect(html).not.toContain(">Approve<");
+    expect(html).not.toContain(">Reject<");
+    expect(html).not.toContain("Retry");
   });
 });
