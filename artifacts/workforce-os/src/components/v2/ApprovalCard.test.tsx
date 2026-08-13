@@ -125,4 +125,11 @@ describe("ApprovalCard review contract", () => {
     expect(html).not.toContain("View Trace");
     expect(html).not.toContain("Reasoning Trace");
   });
+
+  it("labels a simulated artifact terminal without promising later delivery", () => {
+    const html = renderCard(artifact({ status: "SIMULATED" }));
+    expect(html).toContain("This artifact is terminal");
+    expect(html).toContain("future, separately reviewed draft may be delivered");
+    expect(html).not.toContain("Enable live sending to deliver");
+  });
 });

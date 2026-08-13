@@ -101,7 +101,6 @@ describe("shapeIcpProfile", () => {
     ).toEqual([]);
   });
 });
-
 describe("toIcpCreateBody", () => {
   it("renames FE fields and parses sizeBand into employee bounds", () => {
     const body = toIcpCreateBody({
@@ -225,7 +224,9 @@ describe("shapeAuthUrl", () => {
     expect(shapeAuthUrl({ authUrl: "https://accounts.google.com/o/oauth2/v2/auth?x=1" })).toBe(
       "https://accounts.google.com/o/oauth2/v2/auth?x=1",
     );
-    expect(shapeAuthUrl({ authUrl: "  https://a.example/path " })).toBe("https://a.example/path");
+    expect(shapeAuthUrl({ authUrl: "  https://accounts.google.com/o/oauth2/auth " })).toBe(
+      "https://accounts.google.com/o/oauth2/auth",
+    );
   });
 
   it("returns null for missing/garbage payloads — the route must 502, not fake a URL", () => {
@@ -235,6 +236,10 @@ describe("shapeAuthUrl", () => {
     expect(shapeAuthUrl({ authUrl: "" })).toBeNull();
     expect(shapeAuthUrl({ authUrl: 42 })).toBeNull();
     expect(shapeAuthUrl({ authUrl: "javascript:alert(1)" })).toBeNull();
+    expect(shapeAuthUrl({ authUrl: "http://accounts.google.com/o/oauth2/v2/auth" })).toBeNull();
+    expect(shapeAuthUrl({ authUrl: "https://a.example/path" })).toBeNull();
+    expect(shapeAuthUrl({ authUrl: "https://accounts.google.com.evil.example/path" })).toBeNull();
+    expect(shapeAuthUrl({ authUrl: "https://accounts.google.com:8443/path" })).toBeNull();
     expect(shapeAuthUrl({ authUrl: "not-a-url" })).toBeNull();
     expect(shapeAuthUrl("https://raw-string.example")).toBeNull();
   });

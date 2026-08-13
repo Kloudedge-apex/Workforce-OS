@@ -546,6 +546,44 @@ describe("shapeArtifactApprovalEligibility", () => {
     });
   });
 
+  it("mirrors the backend plain-text body-format gate", () => {
+    const invalidFormat = shapeArtifactApprovalEligibility(
+      makeUpstream({
+        payload: approvablePayload({ bodyContentType: "markdown" }),
+      }),
+    );
+    expect(invalidFormat).toEqual({
+      eligible: false,
+      reason:
+        "Artifact cannot be approved because its email body format is invalid",
+    });
+
+    for (const payload of [
+      approvablePayload({ bodyContentType: "html" }),
+      approvablePayload({ body: "<p>Provider-bound HTML</p>" }),
+    ]) {
+      const body = payload.body as string;
+      expect(
+        shapeArtifactApprovalEligibility(
+          makeUpstream({ bodyText: body, payload }),
+        ),
+      ).toEqual({
+        eligible: false,
+        reason:
+          "Artifact cannot be approved because this release only dispatches reviewer-bound plain-text bodies",
+      });
+    }
+
+    expect(
+      shapeArtifactApprovalEligibility(
+        makeUpstream({
+          bodyText: "Hello <team>",
+          payload: approvablePayload({ body: "Hello <team>" }),
+        }),
+      ),
+    ).toEqual({ eligible: true, reason: null });
+  });
+
   it("rejects malformed grounding arrays, duplicate facts, and drafts without a cited signal", () => {
     const malformed = [
       approvablePayload({ qaIssues: [""] }),

@@ -1,6 +1,7 @@
 import app from "./app";
 import { createGracefulShutdown } from "./graceful-shutdown";
 import { logger } from "./lib/logger";
+import { validateApexUpstreamConfig } from "./upstream/apex-client";
 
 const rawPort = process.env["PORT"];
 
@@ -15,6 +16,9 @@ const port = Number(rawPort);
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
+
+// Validate the bearer-token forwarding destination before accepting traffic.
+validateApexUpstreamConfig();
 
 const server = app.listen(port, (err) => {
   if (err) {

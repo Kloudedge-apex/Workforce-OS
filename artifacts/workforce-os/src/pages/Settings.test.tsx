@@ -13,6 +13,7 @@ import Settings, {
 const mocks = vi.hoisted(() => ({
   location: "/settings/integrations",
   integrationStatus: "available" as "available" | "connected",
+  mailboxReady: true as boolean | null,
   mailboxCapability: true as boolean | null,
   orgCapability: true as boolean | null,
   suppressionCapability: true as boolean | null,
@@ -118,7 +119,17 @@ vi.mock("@workspace/api-client-react", async (importOriginal) => {
         canManageMailbox: mocks.mailboxCapability,
         canManageOrg: mocks.orgCapability,
         canManageSuppressions: mocks.suppressionCapability,
-        sendReadiness: null,
+        sendReadiness:
+          mocks.mailboxReady === null
+            ? null
+            : {
+                liveSendAllowed: false,
+                physicalAddressSet: true,
+                senderNameSet: true,
+                countrySet: true,
+                mailboxConnected: mocks.mailboxReady,
+                dailyCapRemaining: 10,
+              },
       },
       isLoading: false,
       isError: false,
@@ -187,6 +198,7 @@ describe("Settings Gmail readiness refresh", () => {
   beforeEach(() => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
     mocks.integrationStatus = "available";
+    mocks.mailboxReady = true;
     mocks.location = "/settings/integrations";
     mocks.mailboxCapability = true;
     mocks.orgCapability = true;
@@ -312,6 +324,26 @@ describe("Settings Gmail readiness refresh", () => {
     });
     expect(mocks.refetchIntegrations).toHaveBeenCalledTimes(1);
   });
+
+  it.each([
+    [false, "needs attention", "not operational"],
+    [null, "unverified", "could not be verified"],
+  ] as const)(
+    "does not show green connected when mailbox readiness is %s",
+    async (mailboxReady, status, explanation) => {
+      mocks.integrationStatus = "connected";
+      mocks.mailboxReady = mailboxReady;
+      await renderSettings();
+
+      const badge = container.querySelector(
+        '[data-testid="gmail-integration-status"]',
+      );
+      expect(badge?.textContent).toBe(status);
+      expect(badge?.className).not.toContain("bg-green-50");
+      expect(container.textContent).toContain(explanation);
+      expect(getButton("Disconnect").disabled).toBe(false);
+    },
+  );
 
   it("renders known non-admin capability as read-only without OAuth controls", async () => {
     mocks.mailboxCapability = false;

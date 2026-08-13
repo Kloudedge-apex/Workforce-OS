@@ -20,6 +20,30 @@ describe("sanitizeHtml", () => {
     expect(out).toContain("Nikxius");
   });
 
+  it("overrides rel=opener on links that open a new tab", () => {
+    const out = sanitizeHtml(
+      '<a href="https://evil.example" target="_blank" rel="opener">Open</a>',
+    );
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = out;
+    const link = wrapper.querySelector("a");
+
+    expect(link?.getAttribute("target")).toBe("_blank");
+    expect(link?.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
+  it("removes named or top-level link targets from inbound HTML", () => {
+    const out = sanitizeHtml(
+      '<a href="https://evil.example" target="_top" rel="opener">Open</a>',
+    );
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = out;
+    const link = wrapper.querySelector("a");
+
+    expect(link?.hasAttribute("target")).toBe(false);
+    expect(link?.hasAttribute("rel")).toBe(false);
+  });
+
   it("strips inline event handlers", () => {
     const out = sanitizeHtml('<a href="#" onclick="steal()">x</a>');
     expect(out).not.toContain("onclick");

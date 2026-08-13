@@ -3,15 +3,39 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
 
 const artifactDir = path.dirname(fileURLToPath(import.meta.url));
+const upstreamPinPath = path.resolve(
+  artifactDir,
+  "../../docs/ops/production-api-upstream-url.sha256",
+);
+
+async function readReviewedUpstreamPin() {
+  const contents = await readFile(upstreamPinPath, "utf8");
+  const values = contents
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line !== "" && !line.startsWith("#"));
+
+  if (
+    values.length !== 1 ||
+    (values[0] !== "UNCONFIGURED" && !/^[0-9a-f]{64}$/u.test(values[0] ?? ""))
+  ) {
+    throw new Error(
+      `${upstreamPinPath} must contain exactly one lowercase SHA-256 or UNCONFIGURED`,
+    );
+  }
+
+  return values[0];
+}
 
 async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
+  const reviewedUpstreamPin = await readReviewedUpstreamPin();
   await rm(distDir, { recursive: true, force: true });
 
   await esbuild({
@@ -102,9 +126,15 @@ async function buildAll() {
       "electron",
     ],
     sourcemap: "linked",
+    // Bind the bearer-token destination to the reviewed source pin. The
+    // production release gate rejects UNCONFIGURED; ordinary CI images can
+    // still exercise the generic HTTPS-origin validation before that gate.
+    define: {
+      __REVIEWED_API_UPSTREAM_SHA256__: JSON.stringify(reviewedUpstreamPin),
+    },
     plugins: [
       // pino relies on workers to handle logging, instead of externalizing it we use a plugin to handle it
-      esbuildPluginPino({ transports: ["pino-pretty"] })
+      esbuildPluginPino({ transports: ["pino-pretty"] }),
     ],
     // Make sure packages that are cjs only (e.g. express) but are bundled continue to work in our esm output file
     banner: {

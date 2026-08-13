@@ -7,7 +7,6 @@ import express, {
   type RequestHandler,
   type Response,
 } from "express";
-import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { requireClerkAuth } from "./middlewares/clerk-auth";
@@ -23,6 +22,18 @@ export function createApp(options: CreateAppOptions = {}): Express {
   const app: Express = express();
   const apiRouter = options.apiRouter ?? router;
   const clerkGuard = options.clerkGuard ?? requireClerkAuth();
+
+  app.disable("x-powered-by");
+  app.use((_req, res, next) => {
+    // The console contains one-click approval actions and must never be
+    // embedded by another origin. X-Frame-Options covers older user agents;
+    // frame-ancestors is the authoritative modern control.
+    res.setHeader("Content-Security-Policy", "frame-ancestors 'none'");
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    next();
+  });
 
   app.use(
     pinoHttp({
@@ -43,7 +54,6 @@ export function createApp(options: CreateAppOptions = {}): Express {
       },
     }),
   );
-  app.use(cors());
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
@@ -53,6 +63,11 @@ export function createApp(options: CreateAppOptions = {}): Express {
     (req, res, next) =>
       req.path === "/healthz" ? next() : clerkGuard(req, res, next),
     apiRouter,
+    (_req, res) => {
+      // Never let an unknown API path fall through to the production SPA and
+      // masquerade as a successful HTML response to a generated client call.
+      res.status(404).json({ error: "not_found" });
+    },
   );
 
   // Production single-container mode: serve the built Vite FE + SPA fallback.

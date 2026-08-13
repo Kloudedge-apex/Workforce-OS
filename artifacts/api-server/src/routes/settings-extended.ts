@@ -274,15 +274,29 @@ router.get("/settings/integrations", async (req, res, next) => {
 /**
  * PURE: extract the OAuth authorization URL from the upstream auth-url
  * response ({ authUrl: string }). Returns null when the body carries no
- * usable http(s) URL — the route then answers 502 honestly instead of
- * handing the FE a garbage value to open.
+ * usable Google HTTPS authorization URL — the route then answers 502 honestly
+ * instead of handing the FE an attacker-controlled location to open.
  */
 export function shapeAuthUrl(raw: unknown): string | null {
   const rec = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
   const authUrl = rec?.["authUrl"];
   if (typeof authUrl !== "string") return null;
   const trimmed = authUrl.trim();
-  if (!/^https?:\/\//i.test(trimmed)) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  if (
+    parsed.protocol !== "https:" ||
+    parsed.hostname !== "accounts.google.com" ||
+    parsed.port !== "" ||
+    parsed.username !== "" ||
+    parsed.password !== ""
+  ) {
+    return null;
+  }
   return trimmed;
 }
 

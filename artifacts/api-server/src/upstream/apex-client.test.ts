@@ -1,6 +1,12 @@
+import { createHash } from "node:crypto";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { Request } from "express";
-import { apex, UpstreamError, type UpstreamCtx } from "./apex-client";
+import {
+  apex,
+  UpstreamError,
+  validateApexUpstreamConfig,
+  type UpstreamCtx,
+} from "./apex-client";
 
 const ctx: UpstreamCtx = {
   req: { orgId: "org_x", clerkToken: "tok_abc" } as Pick<Request, "orgId" | "clerkToken">,
@@ -9,6 +15,7 @@ const ctx: UpstreamCtx = {
 describe("apex upstream client", () => {
   beforeEach(() => {
     process.env["API_UPSTREAM_URL"] = "https://up.example.com";
+    delete process.env["API_UPSTREAM_URL_SHA256"];
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -48,5 +55,32 @@ describe("apex upstream client", () => {
     delete process.env["API_UPSTREAM_URL"];
     vi.stubGlobal("fetch", vi.fn());
     await expect(apex.get("/x", ctx)).rejects.toThrow("API_UPSTREAM_URL");
+  });
+
+  it.each([
+    "http://up.example.com",
+    "https://user:pass@up.example.com",
+    "https://up.example.com/api",
+    "https://up.example.com?next=evil",
+    " https://up.example.com",
+  ])("rejects a non-origin or non-HTTPS upstream before fetch: %s", async (url) => {
+    process.env["API_UPSTREAM_URL"] = url;
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(apex.get("/x", ctx)).rejects.toThrow("API_UPSTREAM_URL");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("enforces a reviewed upstream digest when one is configured", () => {
+    const reviewedUrl = "https://up.example.com";
+    process.env["API_UPSTREAM_URL_SHA256"] = createHash("sha256")
+      .update(reviewedUrl)
+      .digest("hex");
+
+    expect(validateApexUpstreamConfig(reviewedUrl)).toBe(reviewedUrl);
+    expect(() => validateApexUpstreamConfig("https://attacker.example")).toThrow(
+      "source-reviewed production origin",
+    );
   });
 });

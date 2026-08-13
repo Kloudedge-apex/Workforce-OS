@@ -95,7 +95,7 @@ const RESOLVED_CARDS: Partial<Record<ArtifactUiStatus, ResolvedCardConfig>> = {
     iconWrapClass: "bg-ember-500",
     title: (name) => `Simulated send for ${name}`,
     detail:
-      "Dry-run only — no real email was sent. Enable live sending to deliver.",
+      "Dry-run only — no real email was sent. This artifact is terminal; only a future, separately reviewed draft may be delivered.",
   },
   DELIVERY_UNKNOWN: {
     icon: <ShieldAlert className="h-5 w-5 text-white" />,

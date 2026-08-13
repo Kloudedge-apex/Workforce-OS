@@ -849,6 +849,7 @@ function IntegrationsTab() {
   const [gmailWaiting, setGmailWaiting] = useState(false);
   const [gmailLaunching, setGmailLaunching] = useState(false);
   const gmailDeadline = useRef<number | null>(null);
+  const gmailReadinessRefreshRequested = useRef(false);
   const finalizedAttempt = useRef<string | null>(null);
   const handledCallbackError = useRef<string | null>(null);
   const queryClient = useQueryClient();
@@ -874,6 +875,7 @@ function IntegrationsTab() {
     query: { queryKey: ["getOrgSettings"] },
   });
   const mailboxManagementCapability = orgSettings?.canManageMailbox ?? null;
+  const mailboxReadiness = getSendReadiness(orgSettings)?.mailboxConnected ?? null;
   const { mutate: disconnect, isPending: disconnecting } = useDisconnectIntegration({
     mutation: {
       onSuccess: () => {
@@ -952,10 +954,18 @@ function IntegrationsTab() {
 
   useEffect(() => {
     if (!gmailWaiting) return;
-    if (gmailRow?.status === "connected") {
+    if (gmailRow?.status === "connected" && mailboxReadiness === true) {
       setGmailWaiting(false);
       void refreshSetupQueries(queryClient);
       toast.success("Gmail connected.");
+    } else if (
+      gmailRow?.status === "connected" &&
+      !gmailReadinessRefreshRequested.current
+    ) {
+      // A provider row alone is insufficient: refresh the backend's stronger
+      // mailbox-readiness verdict before reporting connection success.
+      gmailReadinessRefreshRequested.current = true;
+      void refreshSetupQueries(queryClient);
     } else if (gmailRow?.status === "errored") {
       setGmailWaiting(false);
       toast.error(gmailRow.errorMessage ?? "Gmail connection failed.");
@@ -963,7 +973,7 @@ function IntegrationsTab() {
       setGmailWaiting(false);
       toast("Gmail still isn't connected — finish the Google consent screen, then check back here.");
     }
-  }, [gmailWaiting, gmailRow, queryClient]);
+  }, [gmailWaiting, gmailRow, mailboxReadiness, queryClient]);
 
   const handleConnectGmail = async () => {
     // Open synchronously inside the click gesture so browser popup blockers do
@@ -976,6 +986,7 @@ function IntegrationsTab() {
       return;
     }
     popup.opener = null;
+    gmailReadinessRefreshRequested.current = false;
     setGmailLaunching(true);
     try {
       const url = await fetchGmailAuthUrl();
@@ -1021,8 +1032,16 @@ function IntegrationsTab() {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {visibleIntegrations.map(int => {
           const meta = PROVIDER_META[int.provider] ?? { name: int.provider, description: "" };
-          const isConnected = int.status === "connected";
           const isGmail = int.provider === "gmail";
+          const hasConnectedRow = int.status === "connected";
+          const isConnected = hasConnectedRow && (!isGmail || mailboxReadiness === true);
+          const displayedStatus = isConnected
+            ? "connected"
+            : hasConnectedRow
+              ? mailboxReadiness === false
+                ? "needs attention"
+                : "unverified"
+              : int.status;
           const gmailBusy = isGmail && (gmailLaunching || gmailWaiting || finalizingGmail);
           return (
             <SettingsCard key={int.id} className="p-4 flex gap-3 hover-elevate">
@@ -1030,13 +1049,23 @@ function IntegrationsTab() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-0.5">
                   <span className="text-sm font-semibold text-ink-900 dark:text-paper-50">{meta.name}</span>
-                  <Badge className={cn("text-[10px] h-4 px-1.5 border", isConnected ? "bg-green-50 text-green-700 border-green-200" : int.status === "errored" ? "bg-red-50 text-red-600 border-red-200" : "bg-paper-100 text-ink-500 border-paper-200")}>
-                    {int.status}
+                  <Badge
+                    data-testid={isGmail ? "gmail-integration-status" : undefined}
+                    className={cn("text-[10px] h-4 px-1.5 border", isConnected ? "bg-green-50 text-green-700 border-green-200" : int.status === "errored" ? "bg-red-50 text-red-600 border-red-200" : hasConnectedRow ? "bg-ember-400/10 text-ember-700 border-ember-400/30" : "bg-paper-100 text-ink-500 border-paper-200")}
+                  >
+                    {displayedStatus}
                   </Badge>
                 </div>
                 <p className="text-xs text-ink-500 leading-relaxed mb-2">{meta.description}</p>
                 {int.accountEmail && <p className="text-xs font-mono text-ink-400 mb-2 truncate">{int.accountEmail}</p>}
                 {int.errorMessage && <p className="text-xs text-red-500 mb-2">{int.errorMessage}</p>}
+                {isGmail && hasConnectedRow && mailboxReadiness !== true && (
+                  <p className="text-xs text-ember-700 mb-2" role="status">
+                    {mailboxReadiness === false
+                      ? "Google authorization exists, but the backend reports that this mailbox is not operational. Disconnect and reconnect Gmail before sending."
+                      : "Google authorization exists, but mailbox readiness could not be verified. Sending remains unavailable."}
+                  </p>
+                )}
                 {isGmail && gmailWaiting && !isConnected && (
                   <p className="text-xs text-ink-500 mb-2">
                     Waiting for Google authorization — complete the consent screen in the other tab.
@@ -1046,16 +1075,16 @@ function IntegrationsTab() {
                 {mailboxManagementCapability === true && (
                   <Button
                     size="sm"
-                    variant={isConnected ? "outline" : "default"}
-                    className={cn("h-7 text-xs", isConnected ? "border-paper-300 text-ink-600" : "bg-rust-500 hover:bg-rust-600 text-white")}
+                    variant={hasConnectedRow ? "outline" : "default"}
+                    className={cn("h-7 text-xs", hasConnectedRow ? "border-paper-300 text-ink-600" : "bg-rust-500 hover:bg-rust-600 text-white")}
                     disabled={disconnecting || gmailBusy}
                     onClick={() =>
-                      isConnected
+                      hasConnectedRow
                         ? disconnect({ provider: int.provider })
                         : handleConnectGmail()
                     }
                   >
-                    {isConnected
+                    {hasConnectedRow
                       ? "Disconnect"
                       : isGmail
                         ? (gmailWaiting ? "Waiting for Google…" : gmailLaunching ? "Opening Google…" : "Connect with Google")

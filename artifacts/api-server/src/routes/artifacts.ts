@@ -157,6 +157,18 @@ function nonBlankString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
+type EmailBodyContentType = "text" | "html";
+
+function isEmailBodyContentType(value: unknown): value is EmailBodyContentType {
+  return value === "text" || value === "html";
+}
+
+function inferEmailBodyContentType(body: string): EmailBodyContentType {
+  return /<\/?(html|body|p|div|br|a|span|table|h[1-6])\b/i.test(body)
+    ? "html"
+    : "text";
+}
+
 function strictStringArray(value: unknown): string[] | null {
   if (!Array.isArray(value)) return null;
   const result: string[] = [];
@@ -265,6 +277,24 @@ export function shapeArtifactApprovalEligibility(
   ) {
     return approvalUnavailable(
       "Artifact cannot be approved because the reviewed content does not match the send payload",
+    );
+  }
+
+  const explicitBodyContentType = payload["bodyContentType"];
+  if (
+    explicitBodyContentType !== undefined &&
+    !isEmailBodyContentType(explicitBodyContentType)
+  ) {
+    return approvalUnavailable(
+      "Artifact cannot be approved because its email body format is invalid",
+    );
+  }
+  const bodyContentType = isEmailBodyContentType(explicitBodyContentType)
+    ? explicitBodyContentType
+    : inferEmailBodyContentType(body);
+  if (bodyContentType !== "text") {
+    return approvalUnavailable(
+      "Artifact cannot be approved because this release only dispatches reviewer-bound plain-text bodies",
     );
   }
 

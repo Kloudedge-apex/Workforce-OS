@@ -83,4 +83,35 @@ describe("production API auth mount", () => {
     expect(post.mock.calls[0]?.[1].req.clerkToken).toBe("verified-token");
     expect(post.mock.calls[0]?.[2]).toEqual({ reviewedBy: "user_verified" });
   });
+
+  it("denies framing, suppresses cross-origin API access, and keeps unknown API routes JSON", async () => {
+    const apiRouter = Router();
+    const app = createApp({
+      apiRouter,
+      clerkGuard: (_req, _res, next) => next(),
+    });
+    const server = app.listen(0, "127.0.0.1");
+    servers.push(server);
+    await once(server, "listening");
+    const address = server.address() as AddressInfo;
+
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/api/not-a-real-route`,
+      { headers: { origin: "https://attacker.example" } },
+    );
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    expect(response.headers.get("content-security-policy")).toBe(
+      "frame-ancestors 'none'",
+    );
+    expect(response.headers.get("x-frame-options")).toBe("DENY");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("referrer-policy")).toBe(
+      "strict-origin-when-cross-origin",
+    );
+    expect(response.headers.get("x-powered-by")).toBeNull();
+    expect(response.headers.get("access-control-allow-origin")).toBeNull();
+    await expect(response.json()).resolves.toEqual({ error: "not_found" });
+  });
 });
