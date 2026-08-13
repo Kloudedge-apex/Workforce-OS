@@ -69,6 +69,8 @@ test_source_contract() {
     'protectedRoute.status !== 401'
   assert_contains "${REPO_ROOT}/scripts/verify-console-image.sh" \
     'docker stop --time 10'
+  assert_contains "${REPO_ROOT}/scripts/verify-console-image.sh" \
+    'API_UPSTREAM_URL=https://apex-gtm-api.ashysmoke-fd2f7a7f.eastus.azurecontainerapps.io'
   assert_contains "${REPO_ROOT}/artifacts/api-server/src/index.ts" \
     'process.once("SIGTERM"'
   assert_contains "${REPO_ROOT}/.github/workflows/ci.yml" \

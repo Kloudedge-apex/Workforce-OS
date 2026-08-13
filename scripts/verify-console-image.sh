@@ -148,7 +148,7 @@ RUNTIME_CONTAINER="$(docker run --detach \
   --cap-drop ALL \
   --security-opt no-new-privileges \
   --network none \
-  --env API_UPSTREAM_URL=https://api.workforceos.invalid \
+  --env API_UPSTREAM_URL=https://apex-gtm-api.ashysmoke-fd2f7a7f.eastus.azurecontainerapps.io \
   --env CLERK_JWKS_URL=https://clerk.workforceos.invalid/.well-known/jwks.json \
   --env CLERK_ISSUER=https://clerk.workforceos.invalid \
   --env CLERK_AUTHORIZED_PARTIES=https://workforceos.invalid \
