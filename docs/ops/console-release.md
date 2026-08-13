@@ -50,11 +50,43 @@ Before a rollout:
    `.gitattributes` rules remain part of the selected tree and still apply.
 3. Wait for the push-triggered GitHub `CI` workflow on that exact commit. Both
    `Type Check, Test & Build` and `Production Console Image Contract` must pass.
-4. **External NO-GO:** a protected deploy workflow/environment with CI OIDC and
-   required branch protection does not yet exist; branch-protection enablement
-   remains plan-blocked. Do not run this production controller until that
-   external release boundary exists, using `git`, `gh`, `jq`, Azure CLI, and a
-   working Linux/amd64 Docker engine.
+4. The manual-only source workflow is
+   `.github/workflows/release-production.yml`. Adding that file on a review
+   branch does not create or prove a production release boundary. **External
+   NO-GO:** do not dispatch it until the source change is reviewed on `main`,
+   `main` is reported protected by GitHub, and the fixed
+   `workforce-os-production` environment has administrator bypass disabled, at
+   least one required reviewer with self-review prevention, and a
+   protected-branches-only deployment policy. The workflow audits those
+   settings through the environment API and fails closed when its token cannot
+   read them.
+5. The protected environment, OIDC federation, and exclusive Azure RBAC do not
+   yet exist as verified release evidence. The environment must own the
+   `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, and
+   `ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED` variables and the
+   `VITE_CLERK_PUBLISHABLE_KEY` secret. Repository- or organization-scoped
+   fallbacks are not admitted: the workflow checks each environment metadata
+   endpoint before checkout and OIDC login. Both
+   `production-api-upstream-url.sha256` and
+   `production-clerk-publishable-key.sha256` also remain `UNCONFIGURED` at this
+   commit. Do not guess either value from tests, examples, or historical notes.
+
+At this review point GitHub reports `main` as unprotected, the repository has
+no environments, and the private-repository protection API is plan-blocked.
+The eventual branch evidence must prove more than the boolean `protected`
+flag: require reviewed pull requests, the exact blocking CI checks, stale-review
+dismissal, administrator enforcement, and disabled force-push/deletion. The
+workflow's runtime flag check does not replace that separately retained ruleset
+evidence.
+
+`scripts/verify-production-release-workflow.sh` enforces the manual trigger,
+minimal permissions, fixed environment and concurrency, pinned actions, exact
+ordered job/step shape, environment metadata checks, and direct controller
+invocation. CI runs it during review, and the release workflow reruns it from
+the exact checked-out commit before trust-pin validation or OIDC. This is a
+source-review defense, not runtime authority: only protected reviewed source
+combined with an approved and successfully audited production environment can
+authorize the release job.
 
 ## Container App mutation authority
 
@@ -155,17 +187,22 @@ immutable image digests. Restore the captured revisions if authentication
 smoke checks fail. Do not weaken or bypass the preflight to admit legacy
 configuration.
 
-The future protected job must inject the reviewed
-`VITE_CLERK_PUBLISHABLE_KEY` and the authority attestation without printing
-either value, then invoke `scripts/deploy-console-prod.sh --yes`. There is
-currently no authorized manual-workstation invocation. `--yes` is mandatory;
-the script has no interactive approval path, and its private snapshot
-controller runs with stdin attached to `/dev/null`. HUP, INT, and TERM are
-forwarded to that controller's isolated process group before the bootstrap
-waits for termination and removes the private snapshot.
-The protected job must execute `scripts/deploy-console-prod.sh` directly, not
-through `bash scripts/deploy-console-prod.sh`, so the privileged shebang is the
-shell startup boundary.
+After every external NO-GO above is closed, dispatch the workflow from protected
+`main` with the exact 40-character current `main` SHA and the exact phrase
+`RELEASE WORKFORCE OS PRODUCTION`. It rechecks the remote `main` identity,
+exact-commit CI, environment policy and variable/secret scope, reviewed pins,
+and the logged-in Azure subscription, tenant, and service-principal client ID
+before release. The authority attestation comes only from the protected
+environment variable; it is neither a dispatch input nor a source constant.
+
+The protected job injects the reviewed `VITE_CLERK_PUBLISHABLE_KEY` without
+printing it, then invokes `scripts/deploy-console-prod.sh --yes` directly. There
+is no authorized manual-workstation invocation. `--yes` is mandatory; the
+script has no interactive approval path, and its private snapshot controller
+runs with stdin attached to `/dev/null`. HUP, INT, and TERM are forwarded to
+that controller's isolated process group before the bootstrap waits for
+termination and removes the private snapshot. Direct execution is required so
+the privileged shebang remains the shell startup boundary.
 
 Within that future protected job, the script:
 
@@ -182,8 +219,10 @@ Within that future protected job, the script:
    to the captured prior digest if rollout verification fails.
 
 Retain the commit, GitHub run, ACR run ID, registry digest, prior digest,
-operator identity, and command log. Do not place Clerk tokens, customer data,
-or other credentials in the evidence record.
+reviewer/operator identity, and command log. A successful workflow appends a
+concise evidence index to its run summary; the controller's detailed identities
+and verification output remain in that protected run log. Do not place Clerk
+tokens, customer data, or other credentials in the evidence record.
 
 This guard proves artifact and rollout identity only. Fresh-user onboarding,
 cross-organization denial, real OAuth, provider delivery, DNS, and browser

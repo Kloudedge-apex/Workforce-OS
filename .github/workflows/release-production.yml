@@ -1,0 +1,222 @@
+name: Release Production Console
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Full 40-character lowercase SHA currently at protected main
+        required: true
+        type: string
+      confirmation:
+        description: Type RELEASE WORKFORCE OS PRODUCTION exactly
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+  deployments: read
+  id-token: write
+
+concurrency:
+  group: workforce-os-production
+  cancel-in-progress: false
+
+jobs:
+  release-production:
+    name: Release Production Console
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: workforce-os-production
+
+    steps:
+      - name: Admit protected main release request
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          EXPECTED_CONFIRMATION: RELEASE WORKFORCE OS PRODUCTION
+          GH_TOKEN: ${{ github.token }}
+          REF_PROTECTED: ${{ github.ref_protected }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${RELEASE_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "ERROR: release_sha must be a full lowercase Git SHA" >&2
+            exit 1
+          fi
+          if [[ "${RELEASE_SHA}" != "${GITHUB_SHA}" ]]; then
+            echo "ERROR: confirmed release SHA does not equal the workflow commit" >&2
+            exit 1
+          fi
+          if [[ "${CONFIRMATION}" != "${EXPECTED_CONFIRMATION}" ]]; then
+            echo "ERROR: production confirmation phrase does not match" >&2
+            exit 1
+          fi
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "ERROR: production releases run only from main" >&2
+            exit 1
+          fi
+          if [[ "${REF_PROTECTED}" != "true" ]]; then
+            echo "ERROR: GitHub does not report main as protected" >&2
+            exit 1
+          fi
+          remote_main_sha="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" \
+            --jq '.object.sha')"
+          if [[ "${remote_main_sha}" != "${RELEASE_SHA}" ]]; then
+            echo "ERROR: confirmed release SHA is not the current remote main head" >&2
+            exit 1
+          fi
+
+      - name: Audit protected production environment
+        id: protected_environment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          environment_json="${RUNNER_TEMP}/workforce-os-production-environment.json"
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/environments/workforce-os-production" \
+            >"${environment_json}"
+          jq -e '
+            .name == "workforce-os-production"
+            and .can_admins_bypass == false
+            and ([
+              .protection_rules[]?
+              | select(.type == "required_reviewers")
+              | select(.prevent_self_review == true)
+              | select((.reviewers // []) | length > 0)
+            ] | length == 1)
+            and .deployment_branch_policy.protected_branches == true
+            and .deployment_branch_policy.custom_branch_policies == false
+          ' "${environment_json}" >/dev/null
+
+          read_environment_variable() {
+            local variable_name="$1"
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/environments/workforce-os-production/variables/${variable_name}" |
+              jq -er \
+                --arg expected_name "${variable_name}" '
+                  select(.name == $expected_name)
+                  | .value
+                  | select(type == "string" and length > 0)
+                '
+          }
+
+          guid_pattern='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+          azure_client_id="$(read_environment_variable AZURE_CLIENT_ID)"
+          azure_subscription_id="$(read_environment_variable AZURE_SUBSCRIPTION_ID)"
+          azure_tenant_id="$(read_environment_variable AZURE_TENANT_ID)"
+          exclusive_authority="$(read_environment_variable ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED)"
+          [[ "${azure_client_id}" =~ ${guid_pattern} ]]
+          [[ "${azure_subscription_id}" =~ ${guid_pattern} ]]
+          [[ "${azure_tenant_id}" =~ ${guid_pattern} ]]
+          [[ "${exclusive_authority}" == "true" ]]
+
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/environments/workforce-os-production/secrets/VITE_CLERK_PUBLISHABLE_KEY" |
+            jq -e '.name == "VITE_CLERK_PUBLISHABLE_KEY"' >/dev/null
+
+          {
+            printf 'azure_client_id=%s\n' "${azure_client_id}"
+            printf 'azure_subscription_id=%s\n' "${azure_subscription_id}"
+            printf 'azure_tenant_id=%s\n' "${azure_tenant_id}"
+            printf 'exclusive_authority=%s\n' "${exclusive_authority}"
+          } >>"${GITHUB_OUTPUT}"
+
+      - name: Checkout exact release commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ inputs.release_sha }}
+
+      - name: Materialize exact commit as local main
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          set -euo pipefail
+          git checkout --force -B main "${RELEASE_SHA}"
+          test "$(git rev-parse HEAD)" = "${RELEASE_SHA}"
+          test "$(git rev-parse --abbrev-ref HEAD)" = "main"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+      - name: Verify production release workflow source
+        run: scripts/verify-production-release-workflow.sh .github/workflows/release-production.yml
+
+      - name: Verify reviewed production trust pins
+        run: |
+          set -euo pipefail
+          verify_pin() {
+            local pin_file="$1"
+            local pin_count pin_value
+            if [[ ! -f "${pin_file}" || -L "${pin_file}" ]]; then
+              echo "ERROR: reviewed trust pin is missing or unsafe: ${pin_file}" >&2
+              return 1
+            fi
+            pin_count="$(awk '!/^[[:space:]]*#/ && NF { count++ } END { print count + 0 }' "${pin_file}")"
+            pin_value="$(awk '!/^[[:space:]]*#/ && NF { print; exit }' "${pin_file}")"
+            if [[ "${pin_count}" != "1" || ! "${pin_value}" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "ERROR: reviewed trust pin is not one full lowercase SHA-256: ${pin_file}" >&2
+              return 1
+            fi
+          }
+          verify_pin docs/ops/production-api-upstream-url.sha256
+          verify_pin docs/ops/production-clerk-auth.sha256
+          verify_pin docs/ops/production-clerk-publishable-key.sha256
+
+      - name: Verify exact-commit GitHub CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: scripts/verify-github-console-release-ci.sh "${RELEASE_SHA}"
+
+      - name: Azure login with protected OIDC identity
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2.3.0
+        with:
+          client-id: ${{ steps.protected_environment.outputs.azure_client_id }}
+          subscription-id: ${{ steps.protected_environment.outputs.azure_subscription_id }}
+          tenant-id: ${{ steps.protected_environment.outputs.azure_tenant_id }}
+
+      - name: Verify Azure release identity
+        env:
+          AZURE_CLIENT_ID: ${{ steps.protected_environment.outputs.azure_client_id }}
+          AZURE_SUBSCRIPTION_ID: ${{ steps.protected_environment.outputs.azure_subscription_id }}
+          AZURE_TENANT_ID: ${{ steps.protected_environment.outputs.azure_tenant_id }}
+        run: |
+          set -euo pipefail
+          account_json="$(az account show --output json)"
+          jq -e \
+            --arg client_id "${AZURE_CLIENT_ID}" \
+            --arg subscription_id "${AZURE_SUBSCRIPTION_ID}" \
+            --arg tenant_id "${AZURE_TENANT_ID}" '
+              (.id | ascii_downcase) == ($subscription_id | ascii_downcase)
+              and (.tenantId | ascii_downcase) == ($tenant_id | ascii_downcase)
+              and .state == "Enabled"
+              and .isDefault == true
+              and .user.type == "servicePrincipal"
+              and (.user.name | ascii_downcase) == ($client_id | ascii_downcase)
+            ' <<<"${account_json}" >/dev/null
+
+      - name: Release exact production console commit
+        env:
+          ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED: ${{ steps.protected_environment.outputs.exclusive_authority }}
+          GH_TOKEN: ${{ github.token }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ "${ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED}" != "true" ]]; then
+            echo "ERROR: exclusive Container App authority is not attested by the protected environment" >&2
+            exit 1
+          fi
+          if [[ -z "${VITE_CLERK_PUBLISHABLE_KEY}" ]]; then
+            echo "ERROR: protected Clerk publishable key is unavailable" >&2
+            exit 1
+          fi
+          ./scripts/deploy-console-prod.sh --yes
+          {
+            echo "### Production console release evidence"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Environment: \`workforce-os-production\`"
+            echo "- Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- Controller identity, CI run, ACR run, image digests, and verification results are retained in this run log."
+          } >>"${GITHUB_STEP_SUMMARY}"

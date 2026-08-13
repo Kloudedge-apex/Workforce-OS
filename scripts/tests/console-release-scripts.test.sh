@@ -60,6 +60,10 @@ test_source_contract() {
   assert_excludes "${REPO_ROOT}/Dockerfile" "FROM node:24-slim"
   assert_contains "${REPO_ROOT}/.github/workflows/ci.yml" "Production Console Image Contract"
   assert_contains "${REPO_ROOT}/.github/workflows/ci.yml" "console-release-scripts.test.sh"
+  assert_contains "${REPO_ROOT}/.github/workflows/ci.yml" \
+    "scripts/verify-production-release-workflow.sh"
+  [[ -x "${REPO_ROOT}/scripts/verify-production-release-workflow.sh" ]] || \
+    fail "production release workflow verifier is not executable"
   assert_contains "${REPO_ROOT}/docs/ops/production-clerk-auth.sha256" \
     "5eddc3f498e16df540776fa025bef86f741fae6815abfb9dd80652026b8956ad"
   assert_contains "${REPO_ROOT}/scripts/verify-console-containerapp-config.sh" \
@@ -93,6 +97,156 @@ test_clerk_auth_pin_vector() {
   [[ "${actual}" == "${expected}" ]] ||
     fail "Clerk auth canonical test vector changed: ${actual}"
   pass
+}
+
+expect_workflow_verifier_rejects() {
+  local fixture=$1
+  local label=$2
+  if "${REPO_ROOT}/scripts/verify-production-release-workflow.sh" \
+    "${fixture}" >/dev/null 2>&1; then
+    fail "production workflow verifier accepted ${label}"
+  fi
+  pass
+}
+
+test_production_release_workflow_verifier() {
+  local harness workflow
+  harness="$(mktemp -d)"
+  TEMP_DIRS+=("${harness}")
+  workflow="${REPO_ROOT}/.github/workflows/release-production.yml"
+
+  "${REPO_ROOT}/scripts/verify-production-release-workflow.sh" \
+    "${workflow}" >/dev/null
+  pass
+
+  awk '
+    { print }
+    $0 == "  workflow_dispatch:" { print "  push:" }
+  ' "${workflow}" >"${harness}/automatic-trigger.yml"
+  expect_workflow_verifier_rejects \
+    "${harness}/automatic-trigger.yml" "an automatic push trigger"
+
+  awk '
+    { print }
+    $0 == "    steps:" {
+      print "      - name: Unreviewed pre-audit command"
+      print "        run: echo unsafe"
+    }
+  ' "${workflow}" >"${harness}/extra-pre-audit-step.yml"
+  expect_workflow_verifier_rejects \
+    "${harness}/extra-pre-audit-step.yml" "an extra pre-audit run step"
+
+  awk '
+    { print }
+    $0 == "    environment: workforce-os-production" {
+      print "    container: ubuntu:24.04"
+    }
+  ' "${workflow}" >"${harness}/container-job.yml"
+  expect_workflow_verifier_rejects \
+    "${harness}/container-job.yml" "a job-level container override"
+
+  awk '
+    { print }
+    $0 == "    environment: workforce-os-production" {
+      print "    strategy: {}"
+    }
+  ' "${workflow}" >"${harness}/strategy-job.yml"
+  expect_workflow_verifier_rejects \
+    "${harness}/strategy-job.yml" "a job-level strategy override"
+
+  sed \
+    's|actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0|actions/checkout@v4|' \
+    "${workflow}" >"${harness}/mutable-action.yml"
+  expect_workflow_verifier_rejects \
+    "${harness}/mutable-action.yml" "a mutable action reference"
+
+  sed 's|  contents: write|  contents: read|' \
+    "${workflow}" >"${harness}/downgraded-permissions.yml"
+  expect_workflow_verifier_rejects \
+    "${harness}/downgraded-permissions.yml" "downgraded contents permission"
+
+  sed 's|  deployments: read|  deployments: write|' \
+    "${workflow}" >"${harness}/deployment-permissions.yml"
+  expect_workflow_verifier_rejects \
+    "${harness}/deployment-permissions.yml" "non-read deployment permission"
+
+  sed \
+    's|ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED: ${{ steps.protected_environment.outputs.exclusive_authority }}|ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED: "true"|' \
+    "${workflow}" >"${harness}/hardcoded-authority.yml"
+  expect_workflow_verifier_rejects \
+    "${harness}/hardcoded-authority.yml" "hardcoded mutation authority"
+
+  sed \
+    's|ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED: ${{ steps.protected_environment.outputs.exclusive_authority }}|ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED: ${{ inputs.authority_confirmed }}|' \
+    "${workflow}" >"${harness}/input-authority.yml"
+  expect_workflow_verifier_rejects \
+    "${harness}/input-authority.yml" "dispatch-input mutation authority"
+
+  sed \
+    's|client-id: ${{ steps.protected_environment.outputs.azure_client_id }}|client-id: ${{ vars.AZURE_CLIENT_ID }}|' \
+    "${workflow}" >"${harness}/fallback-variable.yml"
+  expect_workflow_verifier_rejects \
+    "${harness}/fallback-variable.yml" "a repository/org variable fallback"
+
+  sed \
+    's|select(.prevent_self_review == true)|select(.prevent_self_review == false)|' \
+    "${workflow}" >"${harness}/self-review.yml"
+  expect_workflow_verifier_rejects \
+    "${harness}/self-review.yml" "an environment that allows self-review"
+
+  sed \
+    's|environments/workforce-os-production/secrets|actions/secrets|' \
+    "${workflow}" >"${harness}/repo-secret-scope.yml"
+  expect_workflow_verifier_rejects \
+    "${harness}/repo-secret-scope.yml" "a non-environment Clerk secret scope"
+
+  sed \
+    's|environments/workforce-os-production/variables/${variable_name}|actions/variables/${variable_name}|' \
+    "${workflow}" >"${harness}/repo-variable-scope.yml"
+  expect_workflow_verifier_rejects \
+    "${harness}/repo-variable-scope.yml" "a non-environment identity variable scope"
+
+  awk '
+    { print }
+    $0 == "      - name: Checkout exact release commit" {
+      print "        shell: sh"
+    }
+  ' "${workflow}" >"${harness}/shell-override.yml"
+  expect_workflow_verifier_rejects \
+    "${harness}/shell-override.yml" "a step shell override"
+
+  sed \
+    's|    name: Release Production Console|    name: \&release-name Release Production Console|' \
+    "${workflow}" >"${harness}/yaml-anchor.yml"
+  expect_workflow_verifier_rejects \
+    "${harness}/yaml-anchor.yml" "a YAML anchor"
+
+  awk '
+    { print }
+    $0 == "      - name: Release exact production console commit" {
+      print "        continue-on-error: true"
+    }
+  ' "${workflow}" >"${harness}/continue-on-error.yml"
+  expect_workflow_verifier_rejects \
+    "${harness}/continue-on-error.yml" "continue-on-error release execution"
+
+  awk '
+    { print }
+    $0 == "      - name: Release exact production console commit" {
+      print "        if: ${{ always() }}"
+    }
+  ' "${workflow}" >"${harness}/always.yml"
+  expect_workflow_verifier_rejects \
+    "${harness}/always.yml" "an always-run release step"
+
+  awk '
+    { print }
+    $0 == "      - name: Verify Azure release identity" {
+      print "        if: ${{ false }}"
+    }
+  ' "${workflow}" >"${harness}/skipped-identity.yml"
+  expect_workflow_verifier_rejects \
+    "${harness}/skipped-identity.yml" "a conditionally skipped Azure identity check"
 }
 
 make_registry_harness() {
@@ -1341,6 +1495,7 @@ test_controller_never_deletes_supplied_snapshot_path() {
 
 test_source_contract
 test_clerk_auth_pin_vector
+test_production_release_workflow_verifier
 test_registry_verifier
 test_github_ci_verifier
 test_containerapp_verifier
