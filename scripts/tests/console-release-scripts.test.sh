@@ -60,6 +60,12 @@ test_source_contract() {
   assert_excludes "${REPO_ROOT}/Dockerfile" "FROM node:24-slim"
   assert_contains "${REPO_ROOT}/.github/workflows/ci.yml" "Production Console Image Contract"
   assert_contains "${REPO_ROOT}/.github/workflows/ci.yml" "console-release-scripts.test.sh"
+  assert_contains "${REPO_ROOT}/scripts/verify-console-image.sh" \
+    'RUNTIME_CONTAINER="$(docker run --detach'
+  assert_contains "${REPO_ROOT}/scripts/verify-console-image.sh" \
+    'protectedRoute.status !== 401'
+  assert_contains "${REPO_ROOT}/scripts/verify-console-image.sh" \
+    'docker stop --time 10'
   assert_contains "${REPO_ROOT}/.github/workflows/ci.yml" \
     "scripts/verify-production-release-workflow.sh"
   [[ -x "${REPO_ROOT}/scripts/verify-production-release-workflow.sh" ]] || \

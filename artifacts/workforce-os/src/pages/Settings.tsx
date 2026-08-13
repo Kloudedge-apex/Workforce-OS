@@ -67,7 +67,10 @@ export default function Settings() {
       {/* Health bar */}
       <HealthBar />
 
-      <div className="flex flex-1 min-h-0">
+      <div
+        className="flex flex-1 min-h-0 flex-col md:flex-row"
+        data-testid="settings-layout"
+      >
         {/* Desktop sidebar */}
         <aside className="hidden md:flex w-44 shrink-0 flex-col border-r border-paper-200 bg-paper-100 p-2 gap-0.5 overflow-y-auto">
           <p className="text-[10px] font-bold text-ink-400 uppercase tracking-widest px-3 pt-2 pb-1">Settings</p>
@@ -90,7 +93,10 @@ export default function Settings() {
         </aside>
 
         {/* Mobile horizontal tabs */}
-        <div className="md:hidden overflow-x-auto flex border-b border-paper-200 bg-paper-100 no-scrollbar shrink-0">
+        <div
+          className="md:hidden w-full overflow-x-auto flex border-b border-paper-200 bg-paper-100 no-scrollbar shrink-0"
+          data-testid="settings-mobile-tabs"
+        >
           {TABS.map(({ id, label }) => (
             <button
               key={id}

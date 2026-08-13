@@ -6,10 +6,14 @@ import {
   approvalSavedFromError,
   decisionErrorMessage,
 } from "@/lib/decisionError";
-import RunDetail from "./RunDetail";
+import RunDetail, {
+  RUN_DETAIL_POLL_INTERVAL_MS,
+  runDetailRefetchInterval,
+} from "./RunDetail";
 
 const mockState = vi.hoisted(() => ({
   reviewCapability: true as boolean | null,
+  runUnavailable: false,
 }));
 
 const awaitingRunDetail = {
@@ -49,13 +53,29 @@ vi.mock("@/components/motion/CountUp", () => ({
     React.createElement("span", null, String(value)),
 }));
 
+vi.mock("@/lib/unavailable", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/unavailable")>();
+  return {
+    ...actual,
+    UnavailableState: ({ feature }: { feature?: string }) =>
+      React.createElement(
+        "div",
+        null,
+        "Not available yet: ",
+        feature ?? "this feature",
+      ),
+  };
+});
+
 vi.mock("@workspace/api-client-react", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@workspace/api-client-react")>();
   return {
     ...actual,
     useGetRun: () => ({
-      data: awaitingRunDetail,
+      data: mockState.runUnavailable
+        ? { unavailable: true, feature: "run detail" }
+        : awaitingRunDetail,
       isLoading: false,
       isError: false,
       refetch: vi.fn(),
@@ -151,6 +171,7 @@ describe("approvalSavedFromError", () => {
 describe("RunDetail review capability", () => {
   beforeEach(() => {
     mockState.reviewCapability = true;
+    mockState.runUnavailable = false;
   });
 
   it("renders run approve and reject controls for an authorized reviewer", () => {
@@ -179,5 +200,40 @@ describe("RunDetail review capability", () => {
     expect(html).toContain('data-testid="run-review-read-only"');
     expect(html).not.toContain('data-testid="approve-run"');
     expect(html).not.toContain('data-testid="reject-run"');
+  });
+
+  it("renders the legacy gap state exactly once", () => {
+    mockState.runUnavailable = true;
+    const html = renderRunDetail();
+
+    expect(html.match(/Not available yet/g)).toHaveLength(1);
+    expect(html).toContain("the run detail view");
+  });
+});
+
+describe("runDetailRefetchInterval", () => {
+  const detailWithStatus = (status: string) => ({
+    ...awaitingRunDetail,
+    run: { ...awaitingRunDetail.run, status },
+  });
+
+  it("polls a submitted decision while the worker is settling it", () => {
+    expect(
+      runDetailRefetchInterval(detailWithStatus("AWAITING_APPROVAL"), true),
+    ).toBe(RUN_DETAIL_POLL_INTERVAL_MS);
+    expect(
+      runDetailRefetchInterval(detailWithStatus("AWAITING_APPROVAL"), false),
+    ).toBe(false);
+  });
+
+  it("polls asynchronous runs and stops once they are terminal", () => {
+    expect(runDetailRefetchInterval(detailWithStatus("RUNNING"), false)).toBe(
+      RUN_DETAIL_POLL_INTERVAL_MS,
+    );
+    for (const status of ["COMPLETED", "FAILED", "CANCELLED"]) {
+      expect(runDetailRefetchInterval(detailWithStatus(status), true)).toBe(
+        false,
+      );
+    }
   });
 });

@@ -223,6 +223,20 @@ describe("Settings Gmail readiness refresh", () => {
     vi.restoreAllMocks();
   });
 
+  it("stacks the mobile tabs above content while retaining the desktop row", async () => {
+    await renderSettings();
+
+    const layout = container.querySelector('[data-testid="settings-layout"]');
+    const mobileTabs = container.querySelector(
+      '[data-testid="settings-mobile-tabs"]',
+    );
+
+    expect(layout?.className.split(" ")).toEqual(
+      expect.arrayContaining(["flex-col", "md:flex-row"]),
+    );
+    expect(mobileTabs?.className.split(" ")).toContain("w-full");
+  });
+
   it("refreshes readiness with neutral copy when polling confirms Gmail connected", async () => {
     await renderSettings();
 

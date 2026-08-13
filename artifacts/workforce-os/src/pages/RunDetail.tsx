@@ -33,6 +33,40 @@ type RunReviewAccess =
   | { allowed: true; reason: null }
   | { allowed: false; reason: string };
 
+export const RUN_DETAIL_POLL_INTERVAL_MS = 2_000;
+
+function runStatusFromData(data: unknown): string | null {
+  if (typeof data !== "object" || data === null || !("run" in data)) {
+    return null;
+  }
+
+  const run = (data as { run?: unknown }).run;
+  if (typeof run !== "object" || run === null || !("status" in run)) {
+    return null;
+  }
+
+  return typeof (run as { status?: unknown }).status === "string"
+    ? (run as { status: string }).status
+    : null;
+}
+
+/**
+ * Poll only while the view can still change without another user action.
+ * AWAITING_APPROVAL is otherwise stable, while RUNNING is worker-owned async
+ * progress and a submitted decision must be observed until that status moves.
+ */
+export function runDetailRefetchInterval(
+  data: unknown,
+  decisionSettling: boolean,
+): number | false {
+  const status = runStatusFromData(data);
+  if (status === "RUNNING") return RUN_DETAIL_POLL_INTERVAL_MS;
+  if (status === "AWAITING_APPROVAL" && decisionSettling) {
+    return RUN_DETAIL_POLL_INTERVAL_MS;
+  }
+  return false;
+}
+
 /**
  * The existing `canReviewArtifacts` field is backed by the same upstream
  * AdminOrManagerGuard that protects run approve/reject. Treat every value other
@@ -83,7 +117,16 @@ const NODE_DOT_COLORS: Record<string, string> = {
  * No optimistic flips: the run row (refetched via `onSettled`) is the only
  * source of truth for whether the decision actually applied.
  */
-function useRunDecision(id: string, decision: "approve" | "reject", onSettled: () => void) {
+interface RunDecisionLifecycle {
+  onError: () => void;
+  onSettled: () => void;
+}
+
+function useRunDecision(
+  id: string,
+  decision: "approve" | "reject",
+  lifecycle: RunDecisionLifecycle,
+) {
   return useMutation({
     mutationFn: () =>
       customFetch<{ status?: string }>(
@@ -99,8 +142,11 @@ function useRunDecision(id: string, decision: "approve" | "reject", onSettled: (
           : "Rejected — the run will wind down without drafting",
       );
     },
-    onError: (err: unknown) => toast.error(decisionErrorMessage(err)),
-    onSettled,
+    onError: (err: unknown) => {
+      lifecycle.onError();
+      toast.error(decisionErrorMessage(err));
+    },
+    onSettled: lifecycle.onSettled,
   });
 }
 
@@ -201,22 +247,56 @@ export default function RunDetail() {
   const [, navigate] = useLocation();
   const id = params?.id ?? "";
 
+  const [decisionSettling, setDecisionSettling] = React.useState(false);
+  const decisionLock = React.useRef(false);
+
   const { data, isLoading, isError, refetch } = useGetRun(id, {
-    query: { queryKey: ["getRun", id], enabled: !!id },
+    query: {
+      queryKey: ["getRun", id],
+      enabled: !!id,
+      refetchInterval: (query) =>
+        runDetailRefetchInterval(query.state.data, decisionSettling),
+    },
   });
   const { data: orgSettings } = useGetOrgSettings({
     query: { queryKey: ["getOrgSettings"] },
   });
   const reviewAccess = runReviewAccess(orgSettings?.canReviewArtifacts);
 
-  const approve = useRunDecision(id, "approve", () => void refetch());
-  const reject = useRunDecision(id, "reject", () => void refetch());
-  const deciding = approve.isPending || reject.isPending;
+  const releaseDecisionLock = React.useCallback(() => {
+    decisionLock.current = false;
+    setDecisionSettling(false);
+  }, []);
+
+  React.useEffect(() => {
+    releaseDecisionLock();
+  }, [id, releaseDecisionLock]);
+
+  const runStatus = runStatusFromData(data);
+  React.useEffect(() => {
+    // Unknown data during a refetch must not reopen the controls. Release only
+    // after the server reports a concrete status transition (or on error/id
+    // change through the explicit lifecycle handlers above).
+    if (runStatus !== null && runStatus !== "AWAITING_APPROVAL") {
+      releaseDecisionLock();
+    }
+  }, [releaseDecisionLock, runStatus]);
+
+  const decisionLifecycle: RunDecisionLifecycle = {
+    onError: releaseDecisionLock,
+    onSettled: () => void refetch(),
+  };
+  const approve = useRunDecision(id, "approve", decisionLifecycle);
+  const reject = useRunDecision(id, "reject", decisionLifecycle);
+  const deciding = decisionSettling || approve.isPending || reject.isPending;
   const handleApprove = () => {
     if (!reviewAccess.allowed) {
       toast.error(reviewAccess.reason);
       return;
     }
+    if (decisionLock.current || deciding) return;
+    decisionLock.current = true;
+    setDecisionSettling(true);
     approve.mutate();
   };
   const handleReject = () => {
@@ -224,6 +304,9 @@ export default function RunDetail() {
       toast.error(reviewAccess.reason);
       return;
     }
+    if (decisionLock.current || deciding) return;
+    decisionLock.current = true;
+    setDecisionSettling(true);
     reject.mutate();
   };
 
@@ -322,6 +405,17 @@ export default function RunDetail() {
               drafting — every draft still gets its own individual review before anything can
               send. Rejecting ends the run here without drafting anything.
             </p>
+            {decisionSettling && (
+              <p
+                className="mt-4 rounded-md border border-rust-200 bg-white/70 px-3 py-2 text-xs text-ink-600"
+                role="status"
+                data-testid="run-decision-settling"
+              >
+                {approve.isPending || reject.isPending
+                  ? "Submitting the decision…"
+                  : "Decision submitted — waiting for the run status to update."}
+              </p>
+            )}
             {!reviewAccess.allowed ? (
               <p
                 className="mt-4 rounded-md border border-paper-200 bg-paper-100 px-3 py-2 text-xs text-ink-500"
