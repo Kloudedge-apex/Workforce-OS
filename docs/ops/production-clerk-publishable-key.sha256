@@ -1,4 +1,6 @@
 # SHA-256 of the exact production VITE_CLERK_PUBLISHABLE_KEY bytes.
 # The key is public, but it changes the browser bundle and Clerk instance.
-# Replace UNCONFIGURED only through a reviewed source change.
-UNCONFIGURED
+# Reviewed 2026-08-14 from the public workforceos.xyz browser bundle. The
+# source key is pk_live and encodes clerk.workforceos.xyz; the key itself is
+# intentionally not stored in this repository.
+582032c8b52eb24d10f761d9f14ab38293ba79871021cf8827bc53cf75b03d2c

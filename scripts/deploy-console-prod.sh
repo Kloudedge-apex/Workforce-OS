@@ -412,11 +412,49 @@ if [[ "${ASSUME_YES}" != "true" ]]; then
   exit 2
 fi
 
-if [[ -z "${VITE_CLERK_PUBLISHABLE_KEY:-}" || \
-  ! "${VITE_CLERK_PUBLISHABLE_KEY}" =~ ^pk_(test|live)_[A-Za-z0-9_-]+$ ]]; then
-  echo "ERROR: VITE_CLERK_PUBLISHABLE_KEY must be supplied in the environment" >&2
-  exit 1
-fi
+decode_clerk_frontend_host() {
+  local encoded decoded host label
+  local -a labels
+
+  if [[ ! "$1" =~ ^pk_live_[A-Za-z0-9_-]+$ ]]; then
+    echo "ERROR: VITE_CLERK_PUBLISHABLE_KEY must be a production pk_live key" >&2
+    return 1
+  fi
+
+  encoded="${1#pk_live_}"
+  encoded="${encoded//-/+}"
+  encoded="${encoded//_//}"
+  case $((${#encoded} % 4)) in
+    0) ;;
+    2) encoded="${encoded}==" ;;
+    3) encoded="${encoded}=" ;;
+    *)
+      echo "ERROR: production Clerk publishable key encoding is invalid" >&2
+      return 1
+      ;;
+  esac
+  if ! decoded="$(printf '%s' "${encoded}" | openssl base64 -d -A 2>/dev/null)" ||
+    [[ "${decoded}" != *'$' ]]; then
+    echo "ERROR: production Clerk publishable key encoding is invalid" >&2
+    return 1
+  fi
+
+  host="${decoded%?}"
+  if ((${#host} > 253)) || [[ "${host}" != *.* ]]; then
+    echo "ERROR: production Clerk publishable key frontend host is invalid" >&2
+    return 1
+  fi
+  IFS='.' read -r -a labels <<<"${host}"
+  for label in "${labels[@]}"; do
+    if [[ ! "${label}" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then
+      echo "ERROR: production Clerk publishable key frontend host is invalid" >&2
+      return 1
+    fi
+  done
+  printf '%s\n' "${host}"
+}
+
+CLERK_FRONTEND_HOST="$(decode_clerk_frontend_host "${VITE_CLERK_PUBLISHABLE_KEY:-}")" || exit 1
 
 VERIFY_ATTEMPTS="${CONSOLE_RELEASE_VERIFY_ATTEMPTS:-30}"
 VERIFY_DELAY_SECONDS="${CONSOLE_RELEASE_VERIFY_DELAY_SECONDS:-10}"
@@ -598,7 +636,7 @@ if [[ ! "${PREVIOUS_IMAGE}" =~ ^${REGISTRY}\.azurecr\.io/${ACR_REPO}@sha256:[0-9
   exit 1
 fi
 run_snapshot_helper scripts/verify-console-containerapp-config.sh \
-  "${PREVIOUS_IMAGE}" "${COMMIT}" || exit 1
+  "${PREVIOUS_IMAGE}" "${COMMIT}" "${CLERK_FRONTEND_HOST}" || exit 1
 
 TAG="${COMMIT}"
 TAGGED_IMAGE="${REGISTRY}.azurecr.io/${ACR_REPO}:${TAG}"
@@ -686,16 +724,16 @@ if [[ "${CURRENT_IMAGE}" != "${PREVIOUS_IMAGE}" ]]; then
   exit 1
 fi
 run_snapshot_helper scripts/verify-console-containerapp-config.sh \
-  "${PREVIOUS_IMAGE}" "${COMMIT}" || exit 1
+  "${PREVIOUS_IMAGE}" "${COMMIT}" "${CLERK_FRONTEND_HOST}" || exit 1
 
 wait_for_release() {
   local expected_image=$1
   local attempt
   for ((attempt = 1; attempt <= VERIFY_ATTEMPTS; attempt++)); do
     if run_snapshot_helper scripts/verify-console-containerapp-config.sh \
-      "${expected_image}" "${COMMIT}" >/dev/null 2>&1; then
+      "${expected_image}" "${COMMIT}" "${CLERK_FRONTEND_HOST}" >/dev/null 2>&1; then
       run_snapshot_helper scripts/verify-console-containerapp-config.sh \
-        "${expected_image}" "${COMMIT}" || return 1
+        "${expected_image}" "${COMMIT}" "${CLERK_FRONTEND_HOST}" || return 1
       return 0
     fi
     if ((attempt < VERIFY_ATTEMPTS)); then
@@ -703,7 +741,7 @@ wait_for_release() {
     fi
   done
   run_snapshot_helper scripts/verify-console-containerapp-config.sh \
-    "${expected_image}" "${COMMIT}" || return $?
+    "${expected_image}" "${COMMIT}" "${CLERK_FRONTEND_HOST}" || return $?
 }
 
 UPDATE_ATTEMPTED="false"

@@ -5,6 +5,9 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TEMP_DIRS=()
 TESTS_PASSED=0
+TEST_CLERK_FRONTEND_HOST="clerk.release-test.invalid"
+TEST_PRODUCTION_CLERK_KEY="pk_live_Y2xlcmsucmVsZWFzZS10ZXN0LmludmFsaWQk"
+TEST_PRODUCTION_CLERK_KEY_SHA256="44626f30f1bd59da5e6a8b357e460a172d8d0252fd3c027d00657f722199589e"
 
 cleanup() {
   local dir
@@ -74,10 +77,24 @@ test_source_contract() {
     fail "production release workflow verifier is not executable"
   assert_contains "${REPO_ROOT}/docs/ops/production-clerk-auth.sha256" \
     "5eddc3f498e16df540776fa025bef86f741fae6815abfb9dd80652026b8956ad"
+  assert_contains "${REPO_ROOT}/docs/ops/production-api-upstream-url.sha256" \
+    "aa40c9486ae64a02da1f3d6e379dfa64aecc68b9671f76f9d5d2f7daef4fecdd"
+  assert_contains "${REPO_ROOT}/docs/ops/production-clerk-publishable-key.sha256" \
+    "582032c8b52eb24d10f761d9f14ab38293ba79871021cf8827bc53cf75b03d2c"
+  assert_excludes "${REPO_ROOT}/docs/ops/production-api-upstream-url.sha256" \
+    "UNCONFIGURED"
+  assert_excludes "${REPO_ROOT}/docs/ops/production-clerk-publishable-key.sha256" \
+    "UNCONFIGURED"
   assert_contains "${REPO_ROOT}/scripts/verify-console-containerapp-config.sh" \
     'CLERK_AUTH_PIN_VERSION="workforce-os-clerk-auth.v1"'
+  assert_contains "${REPO_ROOT}/scripts/verify-console-containerapp-config.sh" \
+    'container command override count'
+  assert_contains "${REPO_ROOT}/scripts/verify-console-containerapp-config.sh" \
+    'duplicate, secret-backed, or unreviewed variable'
   assert_contains "${REPO_ROOT}/scripts/deploy-console-prod.sh" \
     'protected console releases are noninteractive and require --yes'
+  assert_contains "${REPO_ROOT}/scripts/deploy-console-prod.sh" \
+    'must be a production pk_live key'
   assert_contains "${REPO_ROOT}/scripts/deploy-console-prod.sh" \
     'docs/ops/production-clerk-auth.sha256'
   assert_contains "${REPO_ROOT}/scripts/deploy-console-prod.sh" ') </dev/null &'
@@ -411,8 +428,13 @@ write_containerapp_fixture() {
       latestReadyRevisionName: "nikxius-web--1",
       template: {
         scale: {minReplicas: 1},
+        initContainers: [],
+        volumes: [],
         containers: [{
           image: $image,
+          command: [],
+          args: [],
+          volumeMounts: [],
           env: [
             {name: "NODE_ENV", value: "production"},
             {name: "PORT", value: "8080"},
@@ -433,7 +455,8 @@ write_containerapp_fixture() {
 }
 
 test_containerapp_verifier() {
-  local harness image commit snapshot_root wrong_commit
+  local clerk_frontend_host dangerous_env harness image commit snapshot_root wrong_commit
+  clerk_frontend_host="clerk.workforceos.xyz"
   harness="$(mktemp -d)"
   TEMP_DIRS+=("${harness}")
   mkdir -p "${harness}/bin" "${harness}/scripts"
@@ -461,8 +484,16 @@ test_containerapp_verifier() {
     active: true,
     healthState: "Healthy",
     provisioningState: "Provisioned",
-    template: {containers: [{image: $image}]}
+    template: {
+      initContainers: [],
+      volumes: [],
+      containers: [{image: $image, command: [], args: [], volumeMounts: []}]
+    }
   }}' >"${harness}/revision.json"
+  jq --slurpfile app "${harness}/app.json" \
+    '.properties.template.containers[0].env = $app[0].properties.template.containers[0].env' \
+    "${harness}/revision.json" >"${harness}/revision-with-env.json"
+  mv "${harness}/revision-with-env.json" "${harness}/revision.json"
 
   cat >"${harness}/bin/az" <<'EOF'
 #!/usr/bin/env bash
@@ -479,7 +510,7 @@ EOF
   env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/app.json" \
     REVISION_JSON_FILE="${harness}/revision.json" \
     "${harness}/scripts/verify-console-containerapp-config.sh" \
-    "${image}" "${commit}" >/dev/null
+    "${image}" "${commit}" "${clerk_frontend_host}" >/dev/null
   pass
 
   jq '(.properties.template.containers[0].env[] | select(.name == "DEV_TRUST_X_ORG_ID").value) = "true"' \
@@ -487,7 +518,7 @@ EOF
   if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/unsafe-app.json" \
     REVISION_JSON_FILE="${harness}/revision.json" \
     "${harness}/scripts/verify-console-containerapp-config.sh" \
-    "${image}" "${commit}" >/dev/null 2>&1; then
+    "${image}" "${commit}" "${clerk_frontend_host}" >/dev/null 2>&1; then
     fail "Container App verifier accepted the dev auth bypass"
   fi
   pass
@@ -497,7 +528,7 @@ EOF
   if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/scale-zero-app.json" \
     REVISION_JSON_FILE="${harness}/revision.json" \
     "${harness}/scripts/verify-console-containerapp-config.sh" \
-    "${image}" "${commit}" >/dev/null 2>&1; then
+    "${image}" "${commit}" "${clerk_frontend_host}" >/dev/null 2>&1; then
     fail "Container App verifier accepted a zero-minimum public console"
   fi
   pass
@@ -507,8 +538,123 @@ EOF
   if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/plaintext-ingress-app.json" \
     REVISION_JSON_FILE="${harness}/revision.json" \
     "${harness}/scripts/verify-console-containerapp-config.sh" \
-    "${image}" "${commit}" >/dev/null 2>&1; then
+    "${image}" "${commit}" "${clerk_frontend_host}" >/dev/null 2>&1; then
     fail "Container App verifier accepted plaintext public ingress"
+  fi
+  pass
+
+  jq '.properties.template.containers[0].command = ["node"]' \
+    "${harness}/app.json" >"${harness}/command-override-app.json"
+  if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/command-override-app.json" \
+    REVISION_JSON_FILE="${harness}/revision.json" \
+    "${harness}/scripts/verify-console-containerapp-config.sh" \
+    "${image}" "${commit}" "${clerk_frontend_host}" >/dev/null 2>&1; then
+    fail "Container App verifier accepted a command override"
+  fi
+  pass
+
+  jq '.properties.template.containers[0].args = ["--inspect=0.0.0.0:9229"]' \
+    "${harness}/app.json" >"${harness}/argument-override-app.json"
+  if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/argument-override-app.json" \
+    REVISION_JSON_FILE="${harness}/revision.json" \
+    "${harness}/scripts/verify-console-containerapp-config.sh" \
+    "${image}" "${commit}" "${clerk_frontend_host}" >/dev/null 2>&1; then
+    fail "Container App verifier accepted an argument override"
+  fi
+  pass
+
+  jq '.properties.template.containers[0].volumeMounts = [{volumeName: "override", mountPath: "/app"}]' \
+    "${harness}/app.json" >"${harness}/volume-mount-app.json"
+  if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/volume-mount-app.json" \
+    REVISION_JSON_FILE="${harness}/revision.json" \
+    "${harness}/scripts/verify-console-containerapp-config.sh" \
+    "${image}" "${commit}" "${clerk_frontend_host}" >/dev/null 2>&1; then
+    fail "Container App verifier accepted a volume mount over image content"
+  fi
+  pass
+
+  jq '.properties.template.volumes = [{name: "override", storageType: "EmptyDir"}]' \
+    "${harness}/app.json" >"${harness}/volume-app.json"
+  if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/volume-app.json" \
+    REVISION_JSON_FILE="${harness}/revision.json" \
+    "${harness}/scripts/verify-console-containerapp-config.sh" \
+    "${image}" "${commit}" "${clerk_frontend_host}" >/dev/null 2>&1; then
+    fail "Container App verifier accepted an unreviewed template volume"
+  fi
+  pass
+
+  jq '.properties.template.initContainers = [{name: "rewrite", image: "attacker.invalid/rewrite:latest"}]' \
+    "${harness}/app.json" >"${harness}/init-container-app.json"
+  if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/init-container-app.json" \
+    REVISION_JSON_FILE="${harness}/revision.json" \
+    "${harness}/scripts/verify-console-containerapp-config.sh" \
+    "${image}" "${commit}" "${clerk_frontend_host}" >/dev/null 2>&1; then
+    fail "Container App verifier accepted an init container"
+  fi
+  pass
+
+  jq '.properties.template.containers[0].command = ["node", "-e", "process.exit(0)"]' \
+    "${harness}/revision.json" >"${harness}/revision-command-override.json"
+  if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/app.json" \
+    REVISION_JSON_FILE="${harness}/revision-command-override.json" \
+    "${harness}/scripts/verify-console-containerapp-config.sh" \
+    "${image}" "${commit}" "${clerk_frontend_host}" >/dev/null 2>&1; then
+    fail "Container App verifier accepted an active-revision command override"
+  fi
+  pass
+
+  jq '.properties.template.containers[0].env += [{name: "NODE_TLS_REJECT_UNAUTHORIZED", value: "0"}]' \
+    "${harness}/revision.json" >"${harness}/revision-dangerous-env.json"
+  if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/app.json" \
+    REVISION_JSON_FILE="${harness}/revision-dangerous-env.json" \
+    "${harness}/scripts/verify-console-containerapp-config.sh" \
+    "${image}" "${commit}" "${clerk_frontend_host}" >/dev/null 2>&1; then
+    fail "Container App verifier accepted a dangerous active-revision environment modifier"
+  fi
+  pass
+
+  jq '(.properties.template.containers[0].env[] | select(.name == "PORT").value) = "9090"' \
+    "${harness}/revision.json" >"${harness}/revision-env-mismatch.json"
+  if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/app.json" \
+    REVISION_JSON_FILE="${harness}/revision-env-mismatch.json" \
+    "${harness}/scripts/verify-console-containerapp-config.sh" \
+    "${image}" "${commit}" "${clerk_frontend_host}" >/dev/null 2>&1; then
+    fail "Container App verifier accepted active-revision env values that differ from the template"
+  fi
+  pass
+
+  for dangerous_env in \
+    NODE_TLS_REJECT_UNAUTHORIZED \
+    HTTPS_PROXY \
+    NODE_OPTIONS \
+    UNREVIEWED_RUNTIME_FLAG; do
+    jq --arg name "${dangerous_env}" \
+      '.properties.template.containers[0].env += [{name: $name, value: "unsafe"}]' \
+      "${harness}/app.json" >"${harness}/${dangerous_env}.json"
+    if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/${dangerous_env}.json" \
+      REVISION_JSON_FILE="${harness}/revision.json" \
+      "${harness}/scripts/verify-console-containerapp-config.sh" \
+      "${image}" "${commit}" "${clerk_frontend_host}" >/dev/null 2>&1; then
+      fail "Container App verifier accepted unreviewed runtime env ${dangerous_env}"
+    fi
+    pass
+  done
+
+  jq '(.properties.template.containers[0].env[] | select(.name == "NODE_ENV")) = {name: "NODE_ENV", secretRef: "node-env"}' \
+    "${harness}/app.json" >"${harness}/secret-backed-runtime-app.json"
+  if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/secret-backed-runtime-app.json" \
+    REVISION_JSON_FILE="${harness}/revision.json" \
+    "${harness}/scripts/verify-console-containerapp-config.sh" \
+    "${image}" "${commit}" "${clerk_frontend_host}" >/dev/null 2>&1; then
+    fail "Container App verifier accepted an opaque secret-backed runtime modifier"
+  fi
+  pass
+
+  if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/app.json" \
+    REVISION_JSON_FILE="${harness}/revision.json" \
+    "${harness}/scripts/verify-console-containerapp-config.sh" \
+    "${image}" "${commit}" "clerk.attacker.example" >/dev/null 2>&1; then
+    fail "Container App verifier accepted a publishable key host outside the pinned Clerk tuple"
   fi
   pass
 
@@ -517,7 +663,7 @@ EOF
   if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/unreviewed-upstream-app.json" \
     REVISION_JSON_FILE="${harness}/revision.json" \
     "${harness}/scripts/verify-console-containerapp-config.sh" \
-    "${image}" "${commit}" >/dev/null 2>&1; then
+    "${image}" "${commit}" "${clerk_frontend_host}" >/dev/null 2>&1; then
     fail "Container App verifier accepted an unreviewed bearer-token upstream"
   fi
   pass
@@ -527,7 +673,7 @@ EOF
   if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/unreviewed-clerk-jwks-app.json" \
     REVISION_JSON_FILE="${harness}/revision.json" \
     "${harness}/scripts/verify-console-containerapp-config.sh" \
-    "${image}" "${commit}" >/dev/null 2>&1; then
+    "${image}" "${commit}" "${clerk_frontend_host}" >/dev/null 2>&1; then
     fail "Container App verifier accepted an unreviewed Clerk JWKS URL"
   fi
   pass
@@ -537,7 +683,7 @@ EOF
   if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/unreviewed-clerk-issuer-app.json" \
     REVISION_JSON_FILE="${harness}/revision.json" \
     "${harness}/scripts/verify-console-containerapp-config.sh" \
-    "${image}" "${commit}" >/dev/null 2>&1; then
+    "${image}" "${commit}" "${clerk_frontend_host}" >/dev/null 2>&1; then
     fail "Container App verifier accepted an unreviewed Clerk issuer"
   fi
   pass
@@ -547,7 +693,7 @@ EOF
   if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/unreviewed-clerk-domain-app.json" \
     REVISION_JSON_FILE="${harness}/revision.json" \
     "${harness}/scripts/verify-console-containerapp-config.sh" \
-    "${image}" "${commit}" >/dev/null 2>&1; then
+    "${image}" "${commit}" "${clerk_frontend_host}" >/dev/null 2>&1; then
     fail "Container App verifier accepted an unreviewed Clerk domain"
   fi
   pass
@@ -557,7 +703,7 @@ EOF
   if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/unreviewed-clerk-audience-app.json" \
     REVISION_JSON_FILE="${harness}/revision.json" \
     "${harness}/scripts/verify-console-containerapp-config.sh" \
-    "${image}" "${commit}" >/dev/null 2>&1; then
+    "${image}" "${commit}" "${clerk_frontend_host}" >/dev/null 2>&1; then
     fail "Container App verifier accepted an unreviewed Clerk audience"
   fi
   pass
@@ -567,7 +713,7 @@ EOF
   if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/unreviewed-clerk-parties-app.json" \
     REVISION_JSON_FILE="${harness}/revision.json" \
     "${harness}/scripts/verify-console-containerapp-config.sh" \
-    "${image}" "${commit}" >/dev/null 2>&1; then
+    "${image}" "${commit}" "${clerk_frontend_host}" >/dev/null 2>&1; then
     fail "Container App verifier accepted unreviewed Clerk authorized parties"
   fi
   pass
@@ -577,7 +723,7 @@ EOF
   if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/app.json" \
     REVISION_JSON_FILE="${harness}/unhealthy-revision.json" \
     "${harness}/scripts/verify-console-containerapp-config.sh" \
-    "${image}" "${commit}" >/dev/null 2>&1; then
+    "${image}" "${commit}" "${clerk_frontend_host}" >/dev/null 2>&1; then
     fail "Container App verifier accepted an unhealthy revision"
   fi
   pass
@@ -598,13 +744,13 @@ EOF
     CONSOLE_RELEASE_SNAPSHOT_ROOT="${snapshot_root}" \
     CONSOLE_RELEASE_COMMIT="${commit}" \
     "${snapshot_root}/scripts/verify-console-containerapp-config.sh" \
-    "${image}" "${commit}" >/dev/null
+    "${image}" "${commit}" "${clerk_frontend_host}" >/dev/null
   if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/app.json" \
     REVISION_JSON_FILE="${harness}/revision.json" \
     CONSOLE_RELEASE_SNAPSHOT_ROOT="${snapshot_root}" \
     CONSOLE_RELEASE_COMMIT="${commit}" \
     "${snapshot_root}/scripts/verify-console-containerapp-config.sh" \
-    "${image}" "${wrong_commit}" >/dev/null 2>&1; then
+    "${image}" "${wrong_commit}" "${clerk_frontend_host}" >/dev/null 2>&1; then
     fail "snapshot Container App verifier accepted a different commit identity"
   fi
   pass
@@ -636,8 +782,8 @@ EOF
 
   cat >"${HARNESS}/repo/scripts/verify-console-containerapp-config.sh" <<'EOF'
 #!/usr/bin/env bash
-printf 'verify-containerapp %s %s\n' "$1" "$2" >>"${CALL_LOG}"
-if [[ "$2" != "${FAKE_COMMIT}" ]]; then
+printf 'verify-containerapp %s %s %s\n' "$1" "$2" "$3" >>"${CALL_LOG}"
+if [[ "$2" != "${FAKE_COMMIT}" || "$3" != "clerk.release-test.invalid" ]]; then
   exit 1
 fi
 if [[ -n "${FAKE_NEW_IMAGE:-}" && "$1" == "${FAKE_NEW_IMAGE}" ]]; then
@@ -834,7 +980,7 @@ EOF
   UPDATE_LOG="${HARNESS}/updates.log"
   SHOW_LOG="${HARNESS}/shows.log"
   mkdir -p "${HARNESS}/repo/docs/ops" "${HARNESS}/repo-git-common/objects"
-  printf '%s\n' d0aff3861e7d1ae6baf25cd8bc5f10c9e9b0162b577d5d41eeeb93cb70eb524a \
+  printf '%s\n' "${TEST_PRODUCTION_CLERK_KEY_SHA256}" \
     >"${HARNESS}/repo/docs/ops/production-clerk-publishable-key.sha256"
   printf '%s\n' f6c46487188a7edd8c8d86cac11db16775ce7b2718875ce0b056b77ca614055d \
     >"${HARNESS}/repo/docs/ops/production-api-upstream-url.sha256"
@@ -887,7 +1033,7 @@ run_fake_deploy() {
     FAKE_BLOCKER_PID_FILE="${FAKE_BLOCKER_PID_FILE:-}" \
     FAKE_SNAPSHOT_ROOT_FILE="${FAKE_SNAPSHOT_ROOT_FILE:-}" \
     FAKE_CONTROLLER_READY_FILE="${FAKE_CONTROLLER_READY_FILE:-}" \
-    VITE_CLERK_PUBLISHABLE_KEY="pk_test_c2FmZS10ZXN0LW9ubHkk" \
+    VITE_CLERK_PUBLISHABLE_KEY="${FAKE_CLERK_PUBLISHABLE_KEY:-${TEST_PRODUCTION_CLERK_KEY}}" \
     ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED="${FAKE_AUTHORITY_CONFIRMED:-true}" \
     CONSOLE_RELEASE_VERIFY_ATTEMPTS=1 \
     CONSOLE_RELEASE_VERIFY_DELAY_SECONDS=0 \
@@ -922,6 +1068,7 @@ reset_deploy_harness() {
   FAKE_SNAPSHOT_ROOT_FILE=""
   FAKE_CONTROLLER_READY_FILE=""
   FAKE_AUTHORITY_CONFIRMED=true
+  FAKE_CLERK_PUBLISHABLE_KEY=""
 }
 
 test_deploy_guard() {
@@ -941,8 +1088,9 @@ test_deploy_guard() {
   assert_contains "${CALL_LOG}" "archive --format=tar ${FAKE_COMMIT}"
   assert_before "${CALL_LOG}" "archive --format=tar ${FAKE_COMMIT}" "verify-ci ${FAKE_COMMIT}"
   assert_contains "${CALL_LOG}" "--secret-build-arg VITE_CLERK_PUBLISHABLE_KEY="
-  assert_contains "${CALL_LOG}" "--build-arg VITE_CLERK_PUBLISHABLE_KEY_SHA256=d0aff3861e7d1ae6baf25cd8bc5f10c9e9b0162b577d5d41eeeb93cb70eb524a"
-  assert_contains "${CALL_LOG}" "verify-registry ${expected_image} ${FAKE_COMMIT} d0aff3861e7d1ae6baf25cd8bc5f10c9e9b0162b577d5d41eeeb93cb70eb524a"
+  assert_contains "${CALL_LOG}" "--build-arg VITE_CLERK_PUBLISHABLE_KEY_SHA256=${TEST_PRODUCTION_CLERK_KEY_SHA256}"
+  assert_contains "${CALL_LOG}" "verify-registry ${expected_image} ${FAKE_COMMIT} ${TEST_PRODUCTION_CLERK_KEY_SHA256}"
+  assert_contains "${CALL_LOG}" "verify-containerapp ${FAKE_PREVIOUS_IMAGE} ${FAKE_COMMIT} ${TEST_CLERK_FRONTEND_HOST}"
   assert_contains "${CALL_LOG}" "init --quiet --bare --template="
   assert_contains "${CALL_LOG}" "push --porcelain --force-with-lease=refs/heads/workforce-os-release-lock/production-console: origin ${FAKE_LEASE_COMMIT}:refs/heads/workforce-os-release-lock/production-console"
   assert_contains "${CALL_LOG}" "push --porcelain --force-with-lease=refs/heads/workforce-os-release-lock/production-console:${FAKE_LEASE_COMMIT} origin :refs/heads/workforce-os-release-lock/production-console"
@@ -951,6 +1099,40 @@ test_deploy_guard() {
   assert_contains "${CALL_LOG}" "az containerapp update --name nikxius-web"
   assert_before "${CALL_LOG}" "verify-registry" "az containerapp update"
   [[ "$(tail -n 1 "${UPDATE_LOG}")" == "${expected_image}" ]] || fail "deploy did not select exact digest"
+  pass
+
+  reset_deploy_harness
+  FAKE_CLERK_PUBLISHABLE_KEY="pk_test_c2FmZS10ZXN0LW9ubHkk"
+  if run_fake_deploy >/dev/null 2>&1; then
+    fail "production deploy accepted a Clerk test-instance publishable key"
+  fi
+  assert_excludes "${CALL_LOG}" "verify-ci"
+  assert_excludes "${CALL_LOG}" "az acr build"
+  assert_excludes "${CALL_LOG}" "az containerapp update"
+  pass
+
+  reset_deploy_harness
+  FAKE_CLERK_PUBLISHABLE_KEY="pk_live_bm90LWEtaG9zdCQ"
+  if run_fake_deploy >/dev/null 2>&1; then
+    fail "production deploy accepted a publishable key without a canonical frontend host"
+  fi
+  assert_excludes "${CALL_LOG}" "verify-ci"
+  assert_excludes "${CALL_LOG}" "az acr build"
+  pass
+
+  reset_deploy_harness
+  FAKE_CLERK_PUBLISHABLE_KEY="pk_live_Y2xlcmsuYXR0YWNrZXIuaW52YWxpZCQ"
+  printf '%s\n' 3153569d10c45437a53a7b4275dfbb60c19bd8d25b9118667f468b1927e10618 \
+    >"${HARNESS}/repo/docs/ops/production-clerk-publishable-key.sha256"
+  if run_fake_deploy >/dev/null 2>&1; then
+    fail "production deploy accepted a publishable key outside the pinned Clerk auth tuple"
+  fi
+  assert_contains "${CALL_LOG}" \
+    "verify-containerapp ${FAKE_PREVIOUS_IMAGE} ${FAKE_COMMIT} clerk.attacker.invalid"
+  assert_excludes "${CALL_LOG}" "az acr build"
+  assert_excludes "${CALL_LOG}" "az containerapp update"
+  printf '%s\n' "${TEST_PRODUCTION_CLERK_KEY_SHA256}" \
+    >"${HARNESS}/repo/docs/ops/production-clerk-publishable-key.sha256"
   pass
 
   reset_deploy_harness
@@ -1356,7 +1538,7 @@ test_archive_ignores_uncommitted_attributes() {
     GIT_CONFIG_GLOBAL="${harness}/hostile.gitconfig" \
     TAR_OPTIONS='--exclude=scripts/deploy-console-prod.sh' \
     TMPDIR="${tmp}" \
-    VITE_CLERK_PUBLISHABLE_KEY=pk_test_c2FmZS10ZXN0LW9ubHkk \
+    VITE_CLERK_PUBLISHABLE_KEY="${TEST_PRODUCTION_CLERK_KEY}" \
     ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED=false \
     "${repo}/scripts/deploy-console-prod.sh" --yes \
     >"${harness}/archive.stdout" 2>"${harness}/archive.stderr"
@@ -1411,7 +1593,7 @@ test_snapshot_pin_component_symlink_rejected() {
     CONSOLE_RELEASE_SNAPSHOT_PARENT_PID="$$" \
     CONSOLE_RELEASE_SNAPSHOT_TOKEN="${token}" \
     CONSOLE_RELEASE_SNAPSHOT_TOKEN_FILE="${harness}/token" \
-    VITE_CLERK_PUBLISHABLE_KEY=pk_test_c2FmZS10ZXN0LW9ubHkk \
+    VITE_CLERK_PUBLISHABLE_KEY="${TEST_PRODUCTION_CLERK_KEY}" \
     ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED=false \
     "${snapshot_root}/scripts/deploy-console-prod.sh" --yes \
     >"${harness}/symlink.stdout" 2>"${harness}/symlink.stderr"; then
@@ -1461,7 +1643,7 @@ test_snapshot_clerk_auth_pin_symlink_rejected() {
     CONSOLE_RELEASE_SNAPSHOT_PARENT_PID="$$" \
     CONSOLE_RELEASE_SNAPSHOT_TOKEN="${token}" \
     CONSOLE_RELEASE_SNAPSHOT_TOKEN_FILE="${harness}/token" \
-    VITE_CLERK_PUBLISHABLE_KEY=pk_test_c2FmZS10ZXN0LW9ubHkk \
+    VITE_CLERK_PUBLISHABLE_KEY="${TEST_PRODUCTION_CLERK_KEY}" \
     ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED=false \
     "${snapshot_root}/scripts/deploy-console-prod.sh" --yes \
     >"${harness}/symlink.stdout" 2>"${harness}/symlink.stderr"; then
@@ -1491,7 +1673,7 @@ test_controller_never_deletes_supplied_snapshot_path() {
     CONSOLE_RELEASE_SNAPSHOT_ROOT="${spoof_root}" \
     CONSOLE_RELEASE_COMMIT="${commit}" \
     CONSOLE_RELEASE_BRANCH=main \
-    VITE_CLERK_PUBLISHABLE_KEY=pk_test_c2FmZS10ZXN0LW9ubHkk \
+    VITE_CLERK_PUBLISHABLE_KEY="${TEST_PRODUCTION_CLERK_KEY}" \
     ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED=false \
     "${spoof_root}/scripts/deploy-console-prod.sh" --yes >/dev/null 2>&1; then
     fail "spoofed controller execution unexpectedly passed authority admission"

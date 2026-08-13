@@ -68,8 +68,13 @@ Before a rollout:
    fallbacks are not admitted: the workflow checks each environment metadata
    endpoint before checkout and OIDC login. Both
    `production-api-upstream-url.sha256` and
-   `production-clerk-publishable-key.sha256` also remain `UNCONFIGURED` at this
-   commit. Do not guess either value from tests, examples, or historical notes.
+   `production-clerk-publishable-key.sha256` are source-pinned from a
+   2026-08-14 read-only production observation. The API origin came from the
+   `nikxius-web` Container App configuration. The public `pk_live` Clerk key
+   came from the served `workforceos.xyz` browser bundle, encodes
+   `clerk.workforceos.xyz`, and matches Clerk's public discovery issuer. Recheck
+   those observations before release; do not substitute tests, examples, or
+   historical notes.
 
 At this review point GitHub reports `main` as unprotected, the repository has
 no environments, and the private-repository protection API is plan-blocked.

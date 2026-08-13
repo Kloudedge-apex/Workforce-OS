@@ -7,12 +7,26 @@ set -euo pipefail
 
 EXPECTED_IMAGE="${1:-}"
 EXPECTED_COMMIT="${2:-}"
+EXPECTED_CLERK_FRONTEND_HOST="${3:-}"
 RESOURCE_GROUP="Ledgr-prod"
 APP="nikxius-web"
 
+valid_dns_hostname() {
+  local host=$1
+  local label
+  local -a labels
+
+  ((${#host} <= 253)) && [[ "${host}" == *.* ]] || return 1
+  IFS='.' read -r -a labels <<<"${host}"
+  for label in "${labels[@]}"; do
+    [[ "${label}" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || return 1
+  done
+}
+
 if [[ ! "${EXPECTED_IMAGE}" =~ ^ledgracr\.azurecr\.io/workforceos-fe@sha256:[0-9a-f]{64}$ ||
-  ! "${EXPECTED_COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
-  echo "Usage: $0 <ledgracr.azurecr.io/workforceos-fe@sha256:digest> <full-lowercase-git-sha>" >&2
+  ! "${EXPECTED_COMMIT}" =~ ^[0-9a-f]{40}$ ]] ||
+  ! valid_dns_hostname "${EXPECTED_CLERK_FRONTEND_HOST}"; then
+  echo "Usage: $0 <ledgracr.azurecr.io/workforceos-fe@sha256:digest> <full-lowercase-git-sha> <clerk-frontend-host>" >&2
   exit 2
 fi
 for REQUIRED_COMMAND in az git jq openssl realpath; do
@@ -119,9 +133,50 @@ require_value "$(json_value '(.properties.configuration.ingress.allowInsecure //
 require_value "$(json_value '.properties.configuration.ingress.targetPort')" "8080" "ingress target port"
 require_value "$(json_value '.properties.template.containers | length')" "1" "container count"
 require_value "$(json_value '.properties.template.containers[0].image')" "${EXPECTED_IMAGE}" "template image"
+require_value "$(json_value '(.properties.template.containers[0].command // []) | length')" "0" "container command override count"
+require_value "$(json_value '(.properties.template.containers[0].args // []) | length')" "0" "container argument override count"
+require_value "$(json_value '(.properties.template.containers[0].volumeMounts // []) | length')" "0" "container volume mount count"
+require_value "$(json_value '(.properties.template.initContainers // []) | length')" "0" "init container count"
+require_value "$(json_value '(.properties.template.volumes // []) | length')" "0" "template volume count"
 MIN_REPLICAS="$(json_value '(.properties.template.scale.minReplicas // 0)')"
 if [[ ! "${MIN_REPLICAS}" =~ ^[0-9]+$ ]] || ((MIN_REPLICAS < 1)); then
   echo "ERROR: console minimum replicas must be at least one" >&2
+  exit 1
+fi
+
+runtime_env_contract() {
+  local document=$1
+  jq -e '
+    (.properties.template.containers[0].env // []) as $env
+    | [
+        "API_UPSTREAM_URL",
+        "CLERK_AUDIENCE",
+        "CLERK_AUTHORIZED_PARTIES",
+        "CLERK_DOMAIN",
+        "CLERK_ISSUER",
+        "CLERK_JWKS_URL",
+        "DEV_TRUST_X_ORG_ID",
+        "FE_DIST",
+        "NODE_ENV",
+        "PORT"
+      ] as $allowed
+    | ($env | length) == ($env | map(.name) | unique | length)
+      and ($env | all(
+        . as $entry
+        | ($entry.name | type) == "string"
+          and ($allowed | index($entry.name)) != null
+          and (($entry.secretRef // "") == "")
+          and ($entry.value | type) == "string"
+      ))
+  ' >/dev/null <<<"${document}"
+}
+
+# The console/BFF has no runtime secrets and needs only this reviewed public
+# configuration. Reject every extra variable, including TLS, proxy, and
+# NODE_OPTIONS modifiers that could change the meaning of the pinned origins or
+# the process launched from the verified image.
+if ! runtime_env_contract "${APP_JSON}"; then
+  echo "ERROR: console runtime environment contains a duplicate, secret-backed, or unreviewed variable" >&2
   exit 1
 fi
 
@@ -166,6 +221,14 @@ for CLERK_ORIGIN in "${CLERK_ISSUER}" "${CLERK_DOMAIN}"; do
     exit 1
   fi
 done
+require_value \
+  "${CLERK_ISSUER}" \
+  "https://${EXPECTED_CLERK_FRONTEND_HOST}" \
+  "Clerk issuer bound to the publishable key"
+require_value \
+  "${CLERK_JWKS_URL}" \
+  "https://${EXPECTED_CLERK_FRONTEND_HOST}/.well-known/jwks.json" \
+  "Clerk JWKS URL bound to the publishable key"
 
 CLERK_PARTIES="$(env_value CLERK_AUTHORIZED_PARTIES)"
 if [[ -z "${CLERK_PARTIES}" ]]; then
@@ -210,9 +273,31 @@ REVISION_JSON="$(az containerapp revision show \
 require_value "$(jq -er '.properties.active' <<<"${REVISION_JSON}")" "true" "revision active state"
 require_value "$(jq -er '.properties.healthState' <<<"${REVISION_JSON}")" "Healthy" "revision health"
 require_value "$(jq -er '.properties.provisioningState' <<<"${REVISION_JSON}")" "Provisioned" "revision provisioning"
+if ! runtime_env_contract "${REVISION_JSON}"; then
+  echo "ERROR: active revision environment contains a duplicate, secret-backed, or unreviewed variable" >&2
+  exit 1
+fi
+if ! jq -e -s '
+  def env_pairs:
+    (.properties.template.containers[0].env // [])
+    | map({name: .name, value: .value})
+    | sort_by(.name);
+  (.[0] | env_pairs) == (.[1] | env_pairs)
+' >/dev/null \
+  <(printf '%s\n' "${APP_JSON}") \
+  <(printf '%s\n' "${REVISION_JSON}"); then
+  echo "ERROR: active revision environment differs from the verified template" >&2
+  exit 1
+fi
+require_value "$(jq -er '.properties.template.containers | length' <<<"${REVISION_JSON}")" "1" "active revision container count"
 require_value \
   "$(jq -er '.properties.template.containers[0].image' <<<"${REVISION_JSON}")" \
   "${EXPECTED_IMAGE}" \
   "active revision image"
+require_value "$(jq -er '(.properties.template.containers[0].command // []) | length' <<<"${REVISION_JSON}")" "0" "active revision command override count"
+require_value "$(jq -er '(.properties.template.containers[0].args // []) | length' <<<"${REVISION_JSON}")" "0" "active revision argument override count"
+require_value "$(jq -er '(.properties.template.containers[0].volumeMounts // []) | length' <<<"${REVISION_JSON}")" "0" "active revision volume mount count"
+require_value "$(jq -er '(.properties.template.initContainers // []) | length' <<<"${REVISION_JSON}")" "0" "active revision init container count"
+require_value "$(jq -er '(.properties.template.volumes // []) | length' <<<"${REVISION_JSON}")" "0" "active revision volume count"
 
 echo "Console Container App configuration verified (immutable image, auth, ingress, probe, active revision)"
