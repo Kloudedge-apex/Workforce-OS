@@ -783,6 +783,13 @@ function IntegrationsTab() {
       refetchInterval: gmailWaiting ? GMAIL_POLL_INTERVAL_MS : false,
     },
   });
+  // Mailbox management uses the same backend AdminOrManagerGuard as artifact
+  // review. Only an explicit allow enables OAuth or disconnect controls;
+  // denial and unavailable capability state remain read-only.
+  const { data: orgSettings } = useGetOrgSettings({
+    query: { queryKey: ["getOrgSettings"] },
+  });
+  const mailboxManagementCapability = orgSettings?.canReviewArtifacts ?? null;
   const { mutate: disconnect, isPending: disconnecting } = useDisconnectIntegration({
     mutation: {
       onSuccess: () => {
@@ -837,6 +844,17 @@ function IntegrationsTab() {
   return (
     <>
       <SectionHeader title="Mailbox" description="Connect Gmail for reviewed outreach and durable reply ingestion." />
+      {mailboxManagementCapability !== true && (
+        <div
+          className="mb-3 rounded-md border border-paper-200 bg-paper-50 px-3 py-2 text-xs text-ink-600"
+          data-testid="mailbox-management-read-only"
+          role="status"
+        >
+          {mailboxManagementCapability === false
+            ? "Mailbox status is read-only. Connecting or disconnecting Gmail requires an administrator or manager."
+            : "Mailbox management permissions could not be verified. Connecting and disconnecting are disabled."}
+        </div>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {visibleIntegrations.map(int => {
           const meta = PROVIDER_META[int.provider] ?? { name: int.provider, description: "" };
@@ -862,23 +880,25 @@ function IntegrationsTab() {
                     This card updates when the mailbox is actually connected.
                   </p>
                 )}
-                <Button
-                  size="sm"
-                  variant={isConnected ? "outline" : "default"}
-                  className={cn("h-7 text-xs", isConnected ? "border-paper-300 text-ink-600" : "bg-rust-500 hover:bg-rust-600 text-white")}
-                  disabled={disconnecting || gmailBusy}
-                  onClick={() =>
-                    isConnected
-                      ? disconnect({ provider: int.provider })
-                      : handleConnectGmail()
-                  }
-                >
-                  {isConnected
-                    ? "Disconnect"
-                    : isGmail
-                      ? (gmailWaiting ? "Waiting for Google…" : gmailLaunching ? "Opening Google…" : "Connect with Google")
-                      : "Connect"}
-                </Button>
+                {mailboxManagementCapability === true && (
+                  <Button
+                    size="sm"
+                    variant={isConnected ? "outline" : "default"}
+                    className={cn("h-7 text-xs", isConnected ? "border-paper-300 text-ink-600" : "bg-rust-500 hover:bg-rust-600 text-white")}
+                    disabled={disconnecting || gmailBusy}
+                    onClick={() =>
+                      isConnected
+                        ? disconnect({ provider: int.provider })
+                        : handleConnectGmail()
+                    }
+                  >
+                    {isConnected
+                      ? "Disconnect"
+                      : isGmail
+                        ? (gmailWaiting ? "Waiting for Google…" : gmailLaunching ? "Opening Google…" : "Connect with Google")
+                        : "Connect"}
+                  </Button>
+                )}
               </div>
             </SettingsCard>
           );

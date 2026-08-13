@@ -8,6 +8,7 @@ import Settings from "./Settings";
 
 const mocks = vi.hoisted(() => ({
   integrationStatus: "available" as "available" | "connected",
+  mailboxCapability: true as boolean | null,
   disconnectOptions: undefined as
     | { mutation?: { onSuccess?: () => unknown } }
     | undefined,
@@ -75,6 +76,11 @@ vi.mock("@workspace/api-client-react", async (importOriginal) => {
       isError: false,
       refetch: mocks.refetchIntegrations,
     }),
+    useGetOrgSettings: () => ({
+      data: { canReviewArtifacts: mocks.mailboxCapability },
+      isLoading: false,
+      isError: false,
+    }),
     useDisconnectIntegration: (options: unknown) => {
       mocks.disconnectOptions = options as typeof mocks.disconnectOptions;
       return { mutate: mocks.disconnect, isPending: false };
@@ -114,6 +120,7 @@ describe("Settings Gmail readiness refresh", () => {
   beforeEach(() => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
     mocks.integrationStatus = "available";
+    mocks.mailboxCapability = true;
     mocks.disconnectOptions = undefined;
     mocks.disconnect.mockReset();
     mocks.refetchIntegrations.mockReset();
@@ -204,5 +211,29 @@ describe("Settings Gmail readiness refresh", () => {
       refetchType: "all",
     });
     expect(mocks.refetchIntegrations).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders known non-admin capability as read-only without OAuth controls", async () => {
+    mocks.mailboxCapability = false;
+    mocks.integrationStatus = "connected";
+    await renderSettings();
+
+    expect(container.textContent).toContain(
+      "Connecting or disconnecting Gmail requires an administrator or manager.",
+    );
+    expect(container.textContent).not.toContain("Disconnect");
+    expect(mocks.fetchGmailAuthUrl).not.toHaveBeenCalled();
+    expect(mocks.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when mailbox management capability is unknown", async () => {
+    mocks.mailboxCapability = null;
+    await renderSettings();
+
+    expect(container.textContent).toContain(
+      "Mailbox management permissions could not be verified.",
+    );
+    expect(container.textContent).not.toContain("Connect with Google");
+    expect(mocks.fetchGmailAuthUrl).not.toHaveBeenCalled();
   });
 });
