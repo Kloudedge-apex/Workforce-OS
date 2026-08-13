@@ -1,7 +1,11 @@
 import React from "react";
 import { useRoute, useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
-import { useGetRun, customFetch } from "@workspace/api-client-react";
+import {
+  useGetOrgSettings,
+  useGetRun,
+  customFetch,
+} from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +28,31 @@ const STATUS_STYLES: Record<string, string> = {
   FAILED: "bg-rust-500/10 text-rust-500 border-rust-500/20",
   CANCELLED: "bg-paper-100 text-ink-600 border-paper-200",
 };
+
+type RunReviewAccess =
+  | { allowed: true; reason: null }
+  | { allowed: false; reason: string };
+
+/**
+ * The existing `canReviewArtifacts` field is backed by the same upstream
+ * AdminOrManagerGuard that protects run approve/reject. Treat every value other
+ * than an explicit true as read-only so a missing or failed capability probe
+ * can never expose run decision controls.
+ */
+export function runReviewAccess(value: unknown): RunReviewAccess {
+  if (value === true) return { allowed: true, reason: null };
+  if (value === false) {
+    return {
+      allowed: false,
+      reason: "Read-only: your workspace role cannot approve or reject runs.",
+    };
+  }
+  return {
+    allowed: false,
+    reason:
+      "Read-only: review capability is unavailable, so run approve and reject actions are disabled.",
+  };
+}
 
 const NODE_ICONS: Record<string, React.ReactNode> = {
   agent_run: <Bot className="h-3.5 w-3.5" />,
@@ -175,10 +204,28 @@ export default function RunDetail() {
   const { data, isLoading, isError, refetch } = useGetRun(id, {
     query: { queryKey: ["getRun", id], enabled: !!id },
   });
+  const { data: orgSettings } = useGetOrgSettings({
+    query: { queryKey: ["getOrgSettings"] },
+  });
+  const reviewAccess = runReviewAccess(orgSettings?.canReviewArtifacts);
 
   const approve = useRunDecision(id, "approve", () => void refetch());
   const reject = useRunDecision(id, "reject", () => void refetch());
   const deciding = approve.isPending || reject.isPending;
+  const handleApprove = () => {
+    if (!reviewAccess.allowed) {
+      toast.error(reviewAccess.reason);
+      return;
+    }
+    approve.mutate();
+  };
+  const handleReject = () => {
+    if (!reviewAccess.allowed) {
+      toast.error(reviewAccess.reason);
+      return;
+    }
+    reject.mutate();
+  };
 
   if (isLoading) return (
     <div className="p-6 space-y-4 max-w-3xl mx-auto">
@@ -275,35 +322,44 @@ export default function RunDetail() {
               drafting — every draft still gets its own individual review before anything can
               send. Rejecting ends the run here without drafting anything.
             </p>
-            <div className="flex flex-wrap gap-2 mt-4">
-              <Button
-                className="bg-rust-500 hover:bg-rust-600 text-white shadow-sm active-elevate-2"
-                onClick={() => approve.mutate()}
-                disabled={deciding}
-                data-testid="approve-run"
+            {!reviewAccess.allowed ? (
+              <p
+                className="mt-4 rounded-md border border-paper-200 bg-paper-100 px-3 py-2 text-xs text-ink-500"
+                data-testid="run-review-read-only"
               >
-                {approve.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <CheckCircle2 className="h-4 w-4 mr-2" />
-                )}
-                Approve & Continue
-              </Button>
-              <Button
-                variant="outline"
-                className="border-rust-300 text-rust-700 dark:text-rust-300 hover-elevate active-elevate-2"
-                onClick={() => reject.mutate()}
-                disabled={deciding}
-                data-testid="reject-run"
-              >
-                {reject.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <XCircle className="h-4 w-4 mr-2" />
-                )}
-                Reject run
-              </Button>
-            </div>
+                {reviewAccess.reason}
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2 mt-4">
+                <Button
+                  className="bg-rust-500 hover:bg-rust-600 text-white shadow-sm active-elevate-2"
+                  onClick={handleApprove}
+                  disabled={deciding}
+                  data-testid="approve-run"
+                >
+                  {approve.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                  )}
+                  Approve & Continue
+                </Button>
+                <Button
+                  variant="outline"
+                  className="border-rust-300 text-rust-700 dark:text-rust-300 hover-elevate active-elevate-2"
+                  onClick={handleReject}
+                  disabled={deciding}
+                  data-testid="reject-run"
+                >
+                  {reject.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <XCircle className="h-4 w-4 mr-2" />
+                  )}
+                  Reject run
+                </Button>
+              </div>
+            )}
           </div>
         )}
 

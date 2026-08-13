@@ -1660,7 +1660,7 @@ components:
         liveSendEnabled: { type: boolean }
         postalAddress: { type: ["string", "null"] }
         unsubscribeUrl: { type: ["string", "null"] }
-        suppressionCount: { type: integer }
+        suppressionCount: { type: [integer, "null"] }
         allowlistedDomains:
           type: array
           items: { type: string }

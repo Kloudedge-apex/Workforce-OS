@@ -89,7 +89,7 @@ export interface OrgSettings {
   liveSendEnabled: boolean;
   postalAddress: string | null;
   unsubscribeUrl: string | null;
-  suppressionCount: number;
+  suppressionCount: number | null;
   allowlistedDomains: string[];
   plan: string | null;
   creditsRemaining: number | null;
@@ -111,13 +111,13 @@ export interface OrgSettings {
  * SYNTHESIZED (no backing Org column on the deployed backend, per audit):
  *   logoUrl=null, timezone='UTC', unsubscribeUrl=null, allowlistedDomains=[],
  *   creditsRemaining=null (the backend does not expose credit accounting).
- *   suppressionCount has no count endpoint upstream → 0 unless caller supplies one.
+ *   suppressionCount has no count endpoint upstream → null unless caller supplies one.
  * `welcomeComplete` is never synthesized: the caller must supply the derived
  * backend onboarding verdict, and a missing/malformed verdict fails closed.
  */
 export function shapeOrgSettings(
   org: ApexOrg,
-  suppressionCount = 0,
+  suppressionCount: number | null = null,
   welcomeComplete = false,
   canReviewArtifacts: boolean | null = null,
 ): OrgSettings {
@@ -190,7 +190,7 @@ router.get("/settings/org", async (req, res, next) => {
       apex.get("/orgs/me", { req }) as Promise<ApexOrg>,
       fetchReviewCapability(req),
     ]);
-    res.json(shapeOrgSettings(org, 0, onboarding?.complete === true, canReviewArtifacts));
+    res.json(shapeOrgSettings(org, null, onboarding?.complete === true, canReviewArtifacts));
   } catch (err) {
     if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
     next(err);
@@ -267,7 +267,7 @@ router.put("/settings/org", async (req, res, next) => {
       apex.get("/orgs/onboarding/status", { req }) as Promise<ApexOnboardingStatus>,
       fetchReviewCapability(req),
     ]);
-    res.json(shapeOrgSettings(updated, 0, onboarding?.complete === true, canReviewArtifacts));
+    res.json(shapeOrgSettings(updated, null, onboarding?.complete === true, canReviewArtifacts));
   } catch (err) {
     if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
     // Surface upstream validation failures honestly (e.g. country must be

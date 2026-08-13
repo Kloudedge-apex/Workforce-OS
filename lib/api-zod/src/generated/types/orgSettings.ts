@@ -24,7 +24,8 @@ export interface OrgSettings {
   postalAddress?: string | null;
   /** @nullable */
   unsubscribeUrl?: string | null;
-  suppressionCount: number;
+  /** @nullable */
+  suppressionCount: number | null;
   allowlistedDomains: string[];
   /** @nullable */
   plan: string | null;

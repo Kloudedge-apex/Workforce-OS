@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -751,6 +752,21 @@ const GMAIL_POLL_INTERVAL_MS = 3_000;
 /** Stop polling after this long without a CONNECTED/ERROR resolution. */
 const GMAIL_POLL_TIMEOUT_MS = 180_000;
 
+function refreshReadinessQueries(queryClient: QueryClient) {
+  return Promise.all([
+    queryClient.invalidateQueries({
+      queryKey: ["getWelcomeStatus"],
+      exact: true,
+      refetchType: "all",
+    }),
+    queryClient.invalidateQueries({
+      queryKey: ["getOrgSettings"],
+      exact: true,
+      refetchType: "all",
+    }),
+  ]);
+}
+
 function IntegrationsTab() {
   // GL3: gmail is an OAuth provider — the consent screen happens in a new tab
   // and the callback lands on the backend, so the FE only learns the outcome
@@ -759,6 +775,7 @@ function IntegrationsTab() {
   const [gmailWaiting, setGmailWaiting] = useState(false);
   const [gmailLaunching, setGmailLaunching] = useState(false);
   const gmailDeadline = useRef<number | null>(null);
+  const queryClient = useQueryClient();
 
   const { data, isLoading, isError, refetch } = useListIntegrations({
     query: {
@@ -767,7 +784,14 @@ function IntegrationsTab() {
     },
   });
   const { mutate: disconnect, isPending: disconnecting } = useDisconnectIntegration({
-    mutation: { onSuccess: () => { toast.success("Disconnected"); refetch(); }, onError: () => toast.error("Disconnect failed") },
+    mutation: {
+      onSuccess: () => {
+        toast.success("Disconnected");
+        void refreshReadinessQueries(queryClient);
+        refetch();
+      },
+      onError: () => toast.error("Disconnect failed"),
+    },
   });
 
   const visibleIntegrations = (data ?? []).filter((integration) => integration.provider === "gmail");
@@ -776,7 +800,8 @@ function IntegrationsTab() {
     if (!gmailWaiting) return;
     if (gmailRow?.status === "connected") {
       setGmailWaiting(false);
-      toast.success("Gmail connected — this workspace can now send from your mailbox.");
+      void refreshReadinessQueries(queryClient);
+      toast.success("Gmail connected.");
     } else if (gmailRow?.status === "errored") {
       setGmailWaiting(false);
       toast.error(gmailRow.errorMessage ?? "Gmail connection failed.");
@@ -784,7 +809,7 @@ function IntegrationsTab() {
       setGmailWaiting(false);
       toast("Gmail still isn't connected — finish the Google consent screen, then check back here.");
     }
-  }, [gmailWaiting, gmailRow]);
+  }, [gmailWaiting, gmailRow, queryClient]);
 
   const handleConnectGmail = async () => {
     setGmailLaunching(true);

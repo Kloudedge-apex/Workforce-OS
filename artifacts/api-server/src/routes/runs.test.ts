@@ -1,7 +1,9 @@
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
-import express, { type Router } from "express";
+import type { Router } from "express";
 import { describe, it, expect, vi } from "vitest";
+import { createApp } from "../app";
+import { UpstreamError } from "../upstream/apex-client";
 import {
   createRunDecisionRouter,
   shapeRun,
@@ -19,32 +21,22 @@ async function requestDecision(
   path: string,
   actor?: string,
 ): Promise<{ status: number; body: unknown }> {
-  const app = express();
-  app.use(express.json());
-  if (actor !== undefined) {
-    app.use((req, _res, next) => {
-      req.clerkUserId = actor;
+  const app = createApp({
+    apiRouter: router,
+    clerkGuard: (req, _res, next) => {
+      if (actor !== undefined) {
+        req.clerkUserId = actor;
+      }
       next();
-    });
-  }
-  app.use(router);
-  app.use(
-    (
-      _error: unknown,
-      _req: express.Request,
-      res: express.Response,
-      _next: express.NextFunction,
-    ) => {
-      res.status(500).json({ error: "test-unhandled" });
     },
-  );
+  });
 
   const server = app.listen(0, "127.0.0.1");
   await once(server, "listening");
   const address = server.address() as AddressInfo;
 
   try {
-    const response = await fetch(`http://127.0.0.1:${address.port}${path}`, {
+    const response = await fetch(`http://127.0.0.1:${address.port}/api${path}`, {
       method: "POST",
     });
     const text = await response.text();
@@ -102,6 +94,32 @@ describe("run decision routes", () => {
       expect(result).toEqual({ status: 200, body: { status: "resuming" } });
       expect(post).toHaveBeenCalledOnce();
       expect(post.mock.calls[0]?.[2]).toEqual({ approvedBy: "user_reviewer" });
+    },
+  );
+
+  it.each(["approve", "reject"] as const)(
+    "preserves an upstream role denial for run %s",
+    async (decision) => {
+      const post = vi.fn(
+        async (..._args: Parameters<RunDecisionUpstreamClient["post"]>) => {
+          throw new UpstreamError(403, {
+            message: "Requires admin or manager role",
+          });
+        },
+      );
+      const client = { post } as RunDecisionUpstreamClient;
+
+      const result = await requestDecision(
+        createRunDecisionRouter(client),
+        `/runs/run_1/${decision}`,
+        "user_member",
+      );
+
+      expect(result).toEqual({
+        status: 403,
+        body: { error: "upstream", status: 403 },
+      });
+      expect(post).toHaveBeenCalledOnce();
     },
   );
 });

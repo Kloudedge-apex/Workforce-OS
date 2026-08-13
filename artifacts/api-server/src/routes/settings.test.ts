@@ -33,7 +33,7 @@ describe("shapeOrgSettings", () => {
     expect(out.plan).toBe("GROWTH");
   });
 
-  it("synthesizes fields with no backing Org column", () => {
+  it("defaults fields with no backing Org column without inventing values", () => {
     const out = shapeOrgSettings(upstream);
     expect(out.logoUrl).toBeNull();
     expect(out.timezone).toBe("UTC");
@@ -42,12 +42,12 @@ describe("shapeOrgSettings", () => {
     expect(out.creditsRemaining).toBeNull();
     expect(out.welcomeComplete).toBe(false);
     expect(out.canReviewArtifacts).toBeNull();
-    expect(out.suppressionCount).toBe(0);
+    expect(out.suppressionCount).toBeNull();
   });
 
   it("uses only the caller-supplied derived onboarding verdict", () => {
-    expect(shapeOrgSettings(upstream, 0, true).welcomeComplete).toBe(true);
-    expect(shapeOrgSettings(upstream, 0, false).welcomeComplete).toBe(false);
+    expect(shapeOrgSettings(upstream, null, true).welcomeComplete).toBe(true);
+    expect(shapeOrgSettings(upstream, null, false).welcomeComplete).toBe(false);
   });
 
   it("treats a missing sendReadiness as unknown → dry-run, never live", () => {
@@ -98,9 +98,9 @@ describe("shapeOrgSettings", () => {
   });
 
   it("threads only the caller-supplied review capability through", () => {
-    expect(shapeOrgSettings(upstream, 0, false, true).canReviewArtifacts).toBe(true);
-    expect(shapeOrgSettings(upstream, 0, false, false).canReviewArtifacts).toBe(false);
-    expect(shapeOrgSettings(upstream, 0, false, null).canReviewArtifacts).toBeNull();
+    expect(shapeOrgSettings(upstream, null, false, true).canReviewArtifacts).toBe(true);
+    expect(shapeOrgSettings(upstream, null, false, false).canReviewArtifacts).toBe(false);
+    expect(shapeOrgSettings(upstream, null, false, null).canReviewArtifacts).toBeNull();
   });
 
   it("defaults nullable/absent columns safely", () => {
