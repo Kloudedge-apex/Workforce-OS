@@ -15,6 +15,11 @@ const mocks = vi.hoisted(() => ({
   integrationStatus: "available" as "available" | "connected",
   mailboxCapability: true as boolean | null,
   orgCapability: true as boolean | null,
+  suppressionCapability: true as boolean | null,
+  suppressionRows: [] as Array<Record<string, unknown>>,
+  listSuppressionOptions: undefined as any,
+  createSuppressionOptions: undefined as any,
+  createSuppression: vi.fn(),
   disconnectOptions: undefined as
     | { mutation?: { onSuccess?: () => unknown } }
     | undefined,
@@ -112,7 +117,7 @@ vi.mock("@workspace/api-client-react", async (importOriginal) => {
         canReviewArtifacts: true,
         canManageMailbox: mocks.mailboxCapability,
         canManageOrg: mocks.orgCapability,
-        canManageSuppressions: true,
+        canManageSuppressions: mocks.suppressionCapability,
         sendReadiness: null,
       },
       isLoading: false,
@@ -127,6 +132,20 @@ vi.mock("@workspace/api-client-react", async (importOriginal) => {
     useFinalizeGmailIntegration: (options: unknown) => {
       mocks.finalizeOptions = options as typeof mocks.finalizeOptions;
       return { mutate: mocks.finalize, isPending: false };
+    },
+    useListSuppressions: (_params: unknown, options: unknown) => {
+      mocks.listSuppressionOptions = options;
+      return {
+        data: { rows: mocks.suppressionRows, nextCursor: null },
+        isLoading: false,
+        isFetching: false,
+        isError: false,
+        refetch: vi.fn(),
+      };
+    },
+    useCreateSuppression: (options: unknown) => {
+      mocks.createSuppressionOptions = options;
+      return { mutate: mocks.createSuppression, isPending: false };
     },
   };
 });
@@ -433,6 +452,121 @@ describe("Settings organization capability", () => {
       "Organization management permissions could not be verified.",
     );
     expect(getButton("Save Changes").disabled).toBe(true);
+  });
+});
+
+describe("Settings suppression registry", () => {
+  beforeEach(() => {
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true, React });
+    mocks.location = "/settings/suppressions";
+    mocks.suppressionCapability = true;
+    mocks.suppressionRows = [
+      {
+        id: "sup_1",
+        recipientRef: "buyer@example.com",
+        reason: "USER_UNSUBSCRIBED",
+        source: "list_unsubscribe",
+        createdAt: "2026-08-13T12:00:00.000Z",
+      },
+      {
+        id: "sup_legacy_reply",
+        recipientRef: "legacy-reply@example.com",
+        reason: "MANUAL",
+        source: "gmail_reply",
+        createdAt: "2026-08-13T11:00:00.000Z",
+      },
+      {
+        id: "sup_provider_complaint",
+        recipientRef: "provider-complaint@example.com",
+        reason: "COMPLAINED",
+        source: "provider_complaint",
+        createdAt: "2026-08-13T10:00:00.000Z",
+      },
+    ];
+    mocks.listSuppressionOptions = undefined;
+    mocks.createSuppressionOptions = undefined;
+    mocks.createSuppression.mockReset();
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+    queryClient.clear();
+    vi.restoreAllMocks();
+  });
+
+  it("shows authoritative rows without offering an unsafe delete", async () => {
+    await renderSettings();
+
+    expect(container.textContent).toContain("buyer@example.com");
+    expect(container.textContent).toContain("Unsubscribed");
+    expect(container.textContent).toContain("list_unsubscribe");
+    expect(container.textContent).toContain(
+      "No total is estimated; pages show only rows confirmed by the backend.",
+    );
+    expect(container.textContent).not.toContain("Unsuppress");
+    expect(mocks.listSuppressionOptions?.query?.enabled).toBe(true);
+  });
+
+  it("keeps reason labels neutral and shows source-derived provenance", async () => {
+    await renderSettings();
+
+    const rows = Array.from(container.querySelectorAll("tbody tr"));
+    const legacyReply = rows.find((row) =>
+      row.textContent?.includes("legacy-reply@example.com"),
+    );
+    const providerComplaint = rows.find((row) =>
+      row.textContent?.includes("provider-complaint@example.com"),
+    );
+
+    expect(legacyReply?.textContent).toContain("Manual suppression");
+    expect(legacyReply?.textContent).toContain("gmail_reply");
+    expect(legacyReply?.textContent).not.toContain("Manual opt-out");
+    expect(providerComplaint?.textContent).toContain("Complaint");
+    expect(providerComplaint?.textContent).toContain("provider_complaint");
+    expect(providerComplaint?.textContent).not.toContain("operator recorded");
+  });
+
+  it("submits only a truthful operator-observed complaint", async () => {
+    await renderSettings();
+
+    const input = container.querySelector('input[type="email"]');
+    const select = container.querySelector("select");
+    expect(input).toBeInstanceOf(HTMLInputElement);
+    expect(select).toBeInstanceOf(HTMLSelectElement);
+
+    await act(async () => {
+      (input as HTMLInputElement).value = "  complaint@example.com  ";
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+      (select as HTMLSelectElement).value = "COMPLAINED";
+      select?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain(
+      "It does not claim that Gmail supplied a complaint event.",
+    );
+    await act(async () => getButton("Record stop").click());
+    expect(mocks.createSuppression).toHaveBeenCalledWith({
+      data: {
+        recipientRef: "complaint@example.com",
+        reason: "COMPLAINED",
+      },
+    });
+  });
+
+  it("never requests recipient PII when suppression permission is denied", async () => {
+    mocks.suppressionCapability = false;
+    await renderSettings();
+
+    expect(container.textContent).toContain("Suppression registry restricted");
+    expect(container.textContent).not.toContain("buyer@example.com");
+    expect(mocks.listSuppressionOptions?.query?.enabled).toBe(false);
   });
 });
 

@@ -994,6 +994,51 @@ export const GetOrgHealthResponse = zod.object({
 
 
 /**
+ * @summary List the authoritative outreach suppression registry
+ */
+export const listSuppressionsQueryLimitDefault = 50;
+export const listSuppressionsQueryLimitMax = 200;
+
+
+
+
+export const ListSuppressionsQueryParams = zod.object({
+  "limit": zod.coerce.number().min(1).max(listSuppressionsQueryLimitMax).default(listSuppressionsQueryLimitDefault),
+  "cursor": zod.coerce.string().min(1).optional()
+})
+
+export const ListSuppressionsResponse = zod.object({
+  "rows": zod.array(zod.object({
+  "id": zod.string(),
+  "recipientRef": zod.string(),
+  "reason": zod.enum(['USER_UNSUBSCRIBED', 'BOUNCED', 'COMPLAINED', 'MANUAL']),
+  "source": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+})),
+  "nextCursor": zod.string().nullable()
+})
+
+
+/**
+ * @summary Record an operator-observed opt-out or complaint
+ */
+export const createSuppressionBodyRecipientRefMax = 512;
+
+export const createSuppressionBodyReasonDefault = `MANUAL`;
+
+export const CreateSuppressionBody = zod.object({
+  "recipientRef": zod.string().min(1).max(createSuppressionBodyRecipientRefMax),
+  "reason": zod.enum(['MANUAL', 'COMPLAINED']).default(createSuppressionBodyReasonDefault)
+})
+
+export const CreateSuppressionResponse = zod.object({
+  "created": zod.boolean(),
+  "recipientRef": zod.string(),
+  "reason": zod.enum(['MANUAL', 'COMPLAINED'])
+})
+
+
+/**
  * @summary Get ICP profile
  */
 export const GetIcpProfileResponse = zod.object({
@@ -1069,7 +1114,7 @@ export const FinalizeGmailIntegrationResponse = zod.object({
 
 
 /**
- * @summary Connect an integration (stub OAuth)
+ * @summary Request a direct integration connection
  */
 export const ConnectIntegrationParams = zod.object({
   "provider": zod.coerce.string()

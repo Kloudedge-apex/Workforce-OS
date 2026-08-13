@@ -648,6 +648,62 @@ export interface OrgHealth {
   blockers: string[];
 }
 
+export type SuppressionReason = typeof SuppressionReason[keyof typeof SuppressionReason];
+
+
+export const SuppressionReason = {
+  USER_UNSUBSCRIBED: 'USER_UNSUBSCRIBED',
+  BOUNCED: 'BOUNCED',
+  COMPLAINED: 'COMPLAINED',
+  MANUAL: 'MANUAL',
+} as const;
+
+export interface SuppressionEntry {
+  id: string;
+  recipientRef: string;
+  reason: SuppressionReason;
+  /** @nullable */
+  source: string | null;
+  createdAt: string;
+}
+
+export interface SuppressionPage {
+  rows: SuppressionEntry[];
+  /** @nullable */
+  nextCursor: string | null;
+}
+
+export type CreateSuppressionInputReason = typeof CreateSuppressionInputReason[keyof typeof CreateSuppressionInputReason];
+
+
+export const CreateSuppressionInputReason = {
+  MANUAL: 'MANUAL',
+  COMPLAINED: 'COMPLAINED',
+} as const;
+
+export interface CreateSuppressionInput {
+  /**
+     * @minLength 1
+     * @maxLength 512
+     */
+  recipientRef: string;
+  reason?: CreateSuppressionInputReason;
+}
+
+export type CreateSuppressionResultReason = typeof CreateSuppressionResultReason[keyof typeof CreateSuppressionResultReason];
+
+
+export const CreateSuppressionResultReason = {
+  MANUAL: 'MANUAL',
+  COMPLAINED: 'COMPLAINED',
+} as const;
+
+export interface CreateSuppressionResult {
+  created: boolean;
+  recipientRef: string;
+  reason: CreateSuppressionResultReason;
+}
+
 export interface IcpProfile {
   industries: string[];
   titles: string[];
@@ -1069,4 +1125,16 @@ export const ListRunsStatus = {
   FAILED: 'FAILED',
   CANCELLED: 'CANCELLED',
 } as const;
+
+export type ListSuppressionsParams = {
+/**
+ * @minimum 1
+ * @maximum 200
+ */
+limit?: number;
+/**
+ * @minLength 1
+ */
+cursor?: string;
+};
 

@@ -7,11 +7,7 @@ import {
 } from "wouter";
 import { AnimatePresence } from "framer-motion";
 import { ClerkProvider, SignedIn, SignedOut } from "@clerk/clerk-react";
-import {
-  QueryClient,
-  QueryClientProvider,
-  QueryErrorResetBoundary,
-} from "@tanstack/react-query";
+import { QueryErrorResetBoundary } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Shell } from "@/components/layout/Shell";
@@ -20,6 +16,7 @@ import { PageTransition } from "@/components/motion/PageTransition";
 import { ErrorBoundary } from "@/components/states/ErrorBoundary";
 import { ApiAuthBridge } from "@/lib/api-auth";
 import { requireClerkPublishableKey } from "@/lib/clerkConfig";
+import { ClerkQueryClientProvider } from "@/lib/queryClientScope";
 import { homePathForWelcome } from "@/lib/onboarding";
 import { useGetWelcomeStatus } from "@workspace/api-client-react";
 import SignInPage from "@/pages/SignIn";
@@ -34,15 +31,6 @@ import Runs from "@/pages/Runs";
 import RunDetail from "@/pages/RunDetail";
 import Settings from "@/pages/Settings";
 import NotFound from "@/pages/not-found";
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      refetchOnWindowFocus: false,
-      staleTime: 5000,
-    },
-  },
-});
 
 function Router() {
   const [location] = useLocation();
@@ -99,7 +87,7 @@ function App() {
   return (
     <ClerkProvider publishableKey={PUBLISHABLE_KEY}>
       <ThemeProvider>
-        <QueryClientProvider client={queryClient}>
+        <ClerkQueryClientProvider>
           <TooltipProvider>
             <ApiAuthBridge />
             <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
@@ -121,7 +109,7 @@ function App() {
               className="bg-ink-900 text-paper-50 border-none font-sans font-medium"
             />
           </TooltipProvider>
-        </QueryClientProvider>
+        </ClerkQueryClientProvider>
       </ThemeProvider>
     </ClerkProvider>
   );

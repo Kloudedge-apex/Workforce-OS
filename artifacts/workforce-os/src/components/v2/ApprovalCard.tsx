@@ -47,7 +47,6 @@ import {
   approvalSavedFromError,
   decisionErrorMessage,
 } from "@/lib/decisionError";
-import { EvidenceTimeline } from "./EvidenceTimeline";
 import { Skeleton } from "../ui/skeleton";
 
 interface ApprovalCardProps {
@@ -165,7 +164,6 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
   const [rejectMode, setRejectMode] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [bodyExpanded, setBodyExpanded] = useState(false);
-  const [timelineOpen, setTimelineOpen] = useState(false);
 
   // The server is the source of truth: polling refetches update the artifact
   // prop, and the rendered status must follow it (e.g. APPROVED → SENDING →
@@ -477,14 +475,6 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
               Evaluator scores not available
             </Badge>
           )}
-          {artifact.graphRunId && (
-            <button
-              onClick={() => setTimelineOpen(true)}
-              className="text-[10px] text-ink-400 hover:text-ink-900 uppercase tracking-wider ml-auto font-semibold rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            >
-              View Trace
-            </button>
-          )}
         </div>
 
         {/* Action Bar */}
@@ -595,14 +585,6 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
           </div>
         )}
       </Card>
-
-      {artifact.graphRunId && (
-        <EvidenceTimeline
-          runId={artifact.graphRunId}
-          open={timelineOpen}
-          onOpenChange={setTimelineOpen}
-        />
-      )}
     </>
   );
 }

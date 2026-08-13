@@ -1,4 +1,10 @@
 import { Router, type Request } from "express";
+import {
+  CreateSuppressionBody,
+  CreateSuppressionResponse,
+  ListSuppressionsQueryParams,
+  ListSuppressionsResponse,
+} from "@workspace/api-zod";
 import { apex, UpstreamError } from "../upstream/apex-client";
 import { gapResponse } from "../lib/unavailable";
 
@@ -362,5 +368,80 @@ router.put("/settings/org", async (req, res, next) => {
 router.get("/settings/org/health", (_req, res) => {
   return gapResponse(res, "org-health");
 });
+
+// ─── Authoritative suppression registry ────────────────────────────────────
+
+type SuppressionUpstream = Pick<typeof apex, "get" | "post">;
+
+/**
+ * Owner/admin suppression boundary. The upstream derives both tenant and
+ * actor from the authenticated request. This BFF intentionally exposes no
+ * delete operation: opt-out removal needs a separate, durable re-consent
+ * contract before it can be a customer-facing action.
+ */
+export function createSuppressionSettingsRouter(
+  client: SuppressionUpstream = apex,
+): Router {
+  const suppressionRouter = Router();
+
+  suppressionRouter.get("/settings/suppressions", async (req, res, next) => {
+    const parsed = ListSuppressionsQueryParams.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid suppression-list query" });
+      return;
+    }
+
+    const query = new URLSearchParams({ limit: String(parsed.data.limit) });
+    if (parsed.data.cursor) query.set("cursor", parsed.data.cursor);
+
+    try {
+      const upstream = await client.get(
+        `/outreach/suppression?${query.toString()}`,
+        { req },
+      );
+      const shaped = ListSuppressionsResponse.safeParse(upstream);
+      if (!shaped.success) {
+        res.status(502).json({
+          error: "The backend returned an invalid suppression registry",
+        });
+        return;
+      }
+      res.json(shaped.data);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  suppressionRouter.post("/settings/suppressions", async (req, res, next) => {
+    const parsed = CreateSuppressionBody.safeParse(req.body);
+    const recipientRef = parsed.success ? parsed.data.recipientRef.trim() : "";
+    if (!parsed.success || recipientRef.length === 0) {
+      res.status(400).json({ error: "Invalid suppression request" });
+      return;
+    }
+
+    try {
+      const upstream = await client.post(
+        "/outreach/suppression",
+        { req },
+        { ...parsed.data, recipientRef },
+      );
+      const shaped = CreateSuppressionResponse.safeParse(upstream);
+      if (!shaped.success) {
+        res.status(502).json({
+          error: "The backend returned an invalid suppression result",
+        });
+        return;
+      }
+      res.status(shaped.data.created ? 201 : 200).json(shaped.data);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  return suppressionRouter;
+}
+
+router.use(createSuppressionSettingsRouter());
 
 export default router;

@@ -6,7 +6,6 @@ import {
 } from "@workspace/api-client-react";
 import { ConversationThread } from "@/components/v2/ConversationThread";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/states/EmptyState";
@@ -17,6 +16,7 @@ import { cardEnter, useReducedMotionSafe } from "@/lib/motion";
 import { Search, Inbox, SearchX, MessageSquareText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isUnavailable, UnavailableState } from "@/lib/unavailable";
+import { CONVERSATION_REFRESH_INTERVAL_MS } from "@/lib/conversationRefresh";
 import { useLocation } from "wouter";
 
 const FILTERS = [
@@ -68,7 +68,7 @@ export default function Conversations() {
     refetch: refetchList,
   } = useListConversations(queryParams, {
     query: {
-      refetchInterval: 15000,
+      refetchInterval: CONVERSATION_REFRESH_INTERVAL_MS,
       queryKey: [
         "listConversations",
         activeFilter,
@@ -93,15 +93,18 @@ export default function Conversations() {
     }
   }, [listData, listLoading, page, totalPages]);
 
-  const { data: detailData, isLoading: detailLoading } = useGetConversation(
-    selectedId || "",
-    {
-      query: {
-        enabled: !!selectedId,
-        queryKey: ["getConversation", selectedId],
-      },
+  const {
+    data: detailData,
+    isLoading: detailLoading,
+    isError: detailError,
+    refetch: refetchDetail,
+  } = useGetConversation(selectedId || "", {
+    query: {
+      enabled: !!selectedId,
+      queryKey: ["getConversation", selectedId],
+      refetchInterval: CONVERSATION_REFRESH_INTERVAL_MS,
     },
-  );
+  });
 
   // Retain compatibility with older BFF deployments during a staggered rollout.
   if (isUnavailable(listData)) {
@@ -132,11 +135,12 @@ export default function Conversations() {
           </div>
           <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
             {FILTERS.map((f) => (
-              <Badge
+              <button
+                type="button"
                 key={f.value}
-                variant="secondary"
+                aria-pressed={activeFilter === f.value}
                 className={cn(
-                  "cursor-pointer whitespace-nowrap hover:bg-paper-200",
+                  "inline-flex items-center whitespace-nowrap rounded-md border border-transparent px-2.5 py-0.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 hover:bg-paper-200",
                   activeFilter === f.value
                     ? "bg-ink-900 text-white hover:bg-ink-800"
                     : "bg-paper-100 text-ink-700",
@@ -147,7 +151,7 @@ export default function Conversations() {
                 }}
               >
                 {f.label}
-              </Badge>
+              </button>
             ))}
           </div>
         </div>
@@ -242,6 +246,12 @@ export default function Conversations() {
             icon={MessageSquareText}
             title="No conversation selected"
             description="Select a thread from the list to view the full message history and AI analysis."
+          />
+        ) : detailError && !detailData ? (
+          <ErrorState
+            title="Couldn't load this conversation"
+            description="The conversation service didn't respond. Your data is safe — try again."
+            onRetry={() => refetchDetail()}
           />
         ) : detailUnavailable ? (
           <UnavailableState feature="conversation detail" />

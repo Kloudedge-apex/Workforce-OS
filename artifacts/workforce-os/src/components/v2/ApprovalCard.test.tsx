@@ -119,4 +119,10 @@ describe("ApprovalCard review contract", () => {
     expect(html).not.toContain(">Approve<");
     expect(html).not.toContain(">Reject<");
   });
+
+  it("does not advertise the deferred reasoning trace", () => {
+    const html = renderCard(artifact({ graphRunId: "run_1" }));
+    expect(html).not.toContain("View Trace");
+    expect(html).not.toContain("Reasoning Trace");
+  });
 });

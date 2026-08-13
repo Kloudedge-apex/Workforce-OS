@@ -636,6 +636,49 @@ paths:
               schema:
                 $ref: "#/components/schemas/OrgHealth"
 
+  /settings/suppressions:
+    get:
+      operationId: listSuppressions
+      tags: [settings]
+      summary: List the authoritative outreach suppression registry
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: cursor
+          in: query
+          schema: { type: string, minLength: 1 }
+      responses:
+        "200":
+          description: One cursor page of suppression rows
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuppressionPage"
+    post:
+      operationId: createSuppression
+      tags: [settings]
+      summary: Record an operator-observed opt-out or complaint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSuppressionInput"
+      responses:
+        "200":
+          description: Suppression already existed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateSuppressionResult"
+        "201":
+          description: Suppression recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateSuppressionResult"
+
   /settings/icp:
     get:
       operationId: getIcpProfile
@@ -704,7 +747,7 @@ paths:
     post:
       operationId: connectIntegration
       tags: [settings]
-      summary: Connect an integration (stub OAuth)
+      summary: Request a direct integration connection
       parameters:
         - name: provider
           in: path
@@ -1746,6 +1789,52 @@ components:
           suppressionCount,
           blockers,
         ]
+
+    SuppressionReason:
+      type: string
+      enum: [USER_UNSUBSCRIBED, BOUNCED, COMPLAINED, MANUAL]
+
+    SuppressionEntry:
+      type: object
+      properties:
+        id: { type: string }
+        recipientRef: { type: string }
+        reason:
+          $ref: "#/components/schemas/SuppressionReason"
+        source: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+      required: [id, recipientRef, reason, source, createdAt]
+
+    SuppressionPage:
+      type: object
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/SuppressionEntry"
+        nextCursor: { type: [string, "null"] }
+      required: [rows, nextCursor]
+
+    CreateSuppressionInput:
+      type: object
+      additionalProperties: false
+      properties:
+        recipientRef: { type: string, minLength: 1, maxLength: 512 }
+        reason:
+          type: string
+          enum: [MANUAL, COMPLAINED]
+          default: MANUAL
+      required: [recipientRef]
+
+    CreateSuppressionResult:
+      type: object
+      properties:
+        created: { type: boolean }
+        recipientRef: { type: string }
+        reason:
+          type: string
+          enum: [MANUAL, COMPLAINED]
+      required: [created, recipientRef, reason]
 
     IcpProfile:
       type: object

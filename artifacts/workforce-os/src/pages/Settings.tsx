@@ -13,7 +13,10 @@ import {
   useListApiKeys, useCreateApiKey, useRevokeApiKey,
   useGetNotificationPrefs, useUpdateNotificationPrefs,
   useGetWelcomeStatus,
+  useListSuppressions, useCreateSuppression,
+  getListSuppressionsQueryKey,
   type CadenceStage, type NotificationPrefs, type OrgSettings,
+  type CreateSuppressionInputReason,
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,6 +52,7 @@ const TABS = [
   { id: "org",           label: "General",       icon: Building },
   { id: "icp",           label: "ICP",            icon: Map },
   { id: "integrations",  label: "Integrations",   icon: LinkIcon },
+  { id: "suppressions",  label: "Suppressions",   icon: Shield },
 ] as const;
 
 type TabId = typeof TABS[number]["id"];
@@ -1067,6 +1071,250 @@ function IntegrationsTab() {
   );
 }
 
+// ─── Suppressions Tab ────────────────────────────────────────────────────────
+const SUPPRESSION_REASON_LABELS: Record<string, string> = {
+  USER_UNSUBSCRIBED: "Unsubscribed",
+  BOUNCED: "Bounced",
+  COMPLAINED: "Complaint",
+  MANUAL: "Manual suppression",
+};
+
+function SuppressionsTab() {
+  const queryClient = useQueryClient();
+  const [recipientRef, setRecipientRef] = useState("");
+  const [reason, setReason] = useState<CreateSuppressionInputReason>("MANUAL");
+  const [cursorStack, setCursorStack] = useState<Array<string | undefined>>([
+    undefined,
+  ]);
+  const cursor = cursorStack[cursorStack.length - 1];
+
+  const orgQuery = useGetOrgSettings({
+    query: { queryKey: ["getOrgSettings", "suppression-capability"] },
+  });
+  const canManage = orgQuery.data?.canManageSuppressions;
+  const suppressionParams = { limit: 50, ...(cursor ? { cursor } : {}) };
+  const listQuery = useListSuppressions(suppressionParams, {
+    query: {
+      queryKey: getListSuppressionsQueryKey(suppressionParams),
+      enabled: canManage === true,
+      refetchInterval: 30_000,
+    },
+  });
+
+  const createMutation = useCreateSuppression({
+    mutation: {
+      onSuccess: async (result) => {
+        toast.success(
+          result.created
+            ? "Recipient added to the suppression registry"
+            : "Recipient was already protected",
+        );
+        setRecipientRef("");
+        setCursorStack([undefined]);
+        await queryClient.invalidateQueries({
+          queryKey: ["/api/settings/suppressions"],
+        });
+      },
+      onError: (error) => toast.error(saveErrorMessage(error)),
+    },
+  });
+
+  if (orgQuery.isLoading) return <FormSkeleton rows={3} />;
+  if (orgQuery.isError || !orgQuery.data) {
+    return (
+      <ErrorState
+        title="Couldn't verify suppression access"
+        description="The registry stays hidden until your workspace role can be verified."
+        onRetry={() => orgQuery.refetch()}
+      />
+    );
+  }
+  if (canManage !== true) {
+    return (
+      <SettingsCard className="p-6">
+        <div className="flex gap-3">
+          <Shield className="mt-0.5 h-5 w-5 shrink-0 text-ink-500" />
+          <div>
+            <h2 className="font-serif text-lg font-semibold text-ink-900">
+              Suppression registry restricted
+            </h2>
+            <p className="mt-1 text-sm text-ink-500">
+              {canManage === false
+                ? "Only a workspace owner or administrator can view recipient opt-outs and complaints."
+                : "Your suppression-management permission could not be verified, so the registry remains hidden."}
+            </p>
+          </div>
+        </div>
+      </SettingsCard>
+    );
+  }
+
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    const normalized = recipientRef.trim();
+    if (!normalized) return;
+    createMutation.mutate({ data: { recipientRef: normalized, reason } });
+  };
+
+  return (
+    <>
+      <SectionHeader
+        title="Suppression registry"
+        description="Authoritative recipient stops enforced before every outbound provider attempt."
+      />
+
+      <SettingsCard className="p-5">
+        <form className="space-y-4" onSubmit={submit}>
+          <div>
+            <h3 className="text-sm font-semibold text-ink-900">
+              Record an out-of-band stop
+            </h3>
+            <p className="mt-1 text-xs leading-relaxed text-ink-500">
+              Use this only when a recipient opted out or complained through a
+              channel that Workforce OS could not ingest automatically.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_220px_auto] sm:items-end">
+            <Field label="Recipient email">
+              <Input
+                type="email"
+                autoComplete="off"
+                value={recipientRef}
+                onChange={(event) => setRecipientRef(event.target.value)}
+                placeholder="recipient@example.com"
+                maxLength={512}
+              />
+            </Field>
+            <Field label="Observed stop reason">
+              <select
+                value={reason}
+                onChange={(event) =>
+                  setReason(event.target.value as CreateSuppressionInputReason)
+                }
+                className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <option value="MANUAL">Manual opt-out</option>
+                <option value="COMPLAINED">Complaint received elsewhere</option>
+              </select>
+            </Field>
+            <Button
+              type="submit"
+              disabled={!recipientRef.trim() || createMutation.isPending}
+              className="bg-rust-500 text-white hover:bg-rust-600"
+            >
+              {createMutation.isPending ? "Recording…" : "Record stop"}
+            </Button>
+          </div>
+          {reason === "COMPLAINED" ? (
+            <p className="rounded-md border border-ember-300 bg-ember-50 px-3 py-2 text-xs text-ember-700">
+              This records an operator-observed complaint. It does not claim
+              that Gmail supplied a complaint event.
+            </p>
+          ) : null}
+        </form>
+      </SettingsCard>
+
+      <SettingsCard className="overflow-hidden">
+        <div className="border-b border-paper-200 px-5 py-4">
+          <h3 className="text-sm font-semibold text-ink-900">
+            Protected recipients
+          </h3>
+          <p className="mt-0.5 text-xs text-ink-500">
+            No total is estimated; pages show only rows confirmed by the
+            backend.
+          </p>
+        </div>
+        {listQuery.isLoading ? (
+          <div className="space-y-3 p-5">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <Skeleton key={index} className="h-12 w-full" />
+            ))}
+          </div>
+        ) : listQuery.isError || !listQuery.data ? (
+          <ErrorState
+            title="Couldn't load protected recipients"
+            description="The registry could not be verified. No recipient state has been inferred."
+            onRetry={() => listQuery.refetch()}
+          />
+        ) : listQuery.data.rows.length === 0 ? (
+          <EmptyState
+            icon={Shield}
+            title="No suppression rows on this page"
+            description="Recorded opt-outs, bounces, and complaints will appear here."
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[680px] text-left text-sm">
+              <thead className="bg-paper-50 text-xs uppercase tracking-wide text-ink-500">
+                <tr>
+                  <th className="px-5 py-3 font-semibold">Recipient</th>
+                  <th className="px-5 py-3 font-semibold">Reason</th>
+                  <th className="px-5 py-3 font-semibold">Source</th>
+                  <th className="px-5 py-3 font-semibold">Recorded</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-paper-100">
+                {listQuery.data.rows.map((row) => (
+                  <tr key={row.id}>
+                    <td className="px-5 py-3 font-mono text-xs text-ink-800">
+                      {row.recipientRef}
+                    </td>
+                    <td className="px-5 py-3 text-ink-700">
+                      {SUPPRESSION_REASON_LABELS[row.reason] ?? row.reason}
+                    </td>
+                    <td className="px-5 py-3 text-ink-500">
+                      {row.source ?? "Not recorded"}
+                    </td>
+                    <td className="px-5 py-3 text-xs text-ink-500">
+                      {new Date(row.createdAt).toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {!listQuery.isLoading && !listQuery.isError && listQuery.data ? (
+          <div className="flex items-center justify-between border-t border-paper-200 px-5 py-3">
+            <span className="text-xs text-ink-500">
+              Page {cursorStack.length}
+            </span>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={cursorStack.length === 1 || listQuery.isFetching}
+                onClick={() =>
+                  setCursorStack((current) => current.slice(0, -1))
+                }
+              >
+                Previous
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!listQuery.data.nextCursor || listQuery.isFetching}
+                onClick={() => {
+                  if (listQuery.data?.nextCursor) {
+                    setCursorStack((current) => [
+                      ...current,
+                      listQuery.data!.nextCursor!,
+                    ]);
+                  }
+                }}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </SettingsCard>
+    </>
+  );
+}
+
 // ─── Team Tab ─────────────────────────────────────────────────────────────────
 const ROLE_STYLES: Record<string, string> = {
   OWNER: "bg-ink-900 text-white",
@@ -1447,6 +1695,7 @@ function TabPanel({ tabId }: { tabId: TabId }) {
       {tabId === "org"           && <OrgTab />}
       {tabId === "icp"           && <IcpTab />}
       {tabId === "integrations"  && <IntegrationsTab />}
+      {tabId === "suppressions"  && <SuppressionsTab />}
     </div>
   );
 

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";
 import { useListRuns, useTriggerRun } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -215,7 +215,18 @@ export default function Runs() {
                       {new Date(run.startedAt).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-3 text-ink-300">
-                      <ChevronRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-rust-500" />
+                      <Link
+                        href={`/runs/${encodeURIComponent(run.id)}`}
+                        aria-label={`Open run ${run.id}`}
+                        title="Open run"
+                        onClick={(event) => event.stopPropagation()}
+                        className="inline-flex rounded p-1 transition-colors hover:text-rust-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rust-500/40"
+                      >
+                        <ChevronRight
+                          aria-hidden="true"
+                          className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-rust-500"
+                        />
+                      </Link>
                     </td>
                   </motion.tr>
                 ))}
