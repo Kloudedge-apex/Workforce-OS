@@ -49,6 +49,7 @@ import {
   decisionErrorMessage,
 } from "@/lib/decisionError";
 import { workspaceLiveAuthorization } from "@/lib/sendReadiness";
+import { suppressionAccess } from "@/lib/capabilities";
 
 /**
  * Quality score row. `null`/`undefined`/non-finite means the score is NOT
@@ -128,6 +129,9 @@ export default function ArtifactDetail() {
   const reviewAccess = artifactReviewAccess(
     orgSettings?.canReviewArtifacts,
   );
+  const suppression = suppressionAccess(
+    orgSettings?.canManageSuppressions,
+  );
 
   React.useEffect(() => {
     if (!reviewAccess.allowed) setRejectOpen(false);
@@ -176,6 +180,10 @@ export default function ArtifactDetail() {
     useSuppressArtifact();
 
   const handleSuppress = async () => {
+    if (!suppression.allowed) {
+      toast.error(suppression.reason);
+      return;
+    }
     try {
       const result = await suppress({ id });
       if (result.artifact.statusChanged) {
@@ -485,15 +493,24 @@ export default function ArtifactDetail() {
                 </>
               )}
               {data.channel === "EMAIL" && (
-                <Button
-                  variant="ghost"
-                  className="w-full text-ink-500 hover-elevate active-elevate-2"
-                  onClick={handleSuppress}
-                  disabled={isSuppressing}
-                >
-                  <ShieldOff className="h-4 w-4 mr-2" />{" "}
-                  {isSuppressing ? "Suppressing…" : "Suppress"}
-                </Button>
+                suppression.allowed ? (
+                  <Button
+                    variant="ghost"
+                    className="w-full text-ink-500 hover-elevate active-elevate-2"
+                    onClick={handleSuppress}
+                    disabled={isSuppressing}
+                  >
+                    <ShieldOff className="h-4 w-4 mr-2" />{" "}
+                    {isSuppressing ? "Suppressing…" : "Suppress"}
+                  </Button>
+                ) : (
+                  <p
+                    className="rounded-md border border-paper-200 bg-paper-100 px-3 py-2 text-xs text-ink-500"
+                    data-testid="artifact-suppression-read-only"
+                  >
+                    {suppression.reason}
+                  </p>
+                )
               )}
             </div>
           )}
@@ -506,15 +523,24 @@ export default function ArtifactDetail() {
                   Block this recipient from all future outreach. This does not
                   alter an in-flight or historical delivery record.
                 </p>
-                <Button
-                  variant="outline"
-                  className="w-full border-paper-300"
-                  onClick={handleSuppress}
-                  disabled={isSuppressing}
-                >
-                  <ShieldOff className="h-4 w-4 mr-2" />
-                  {isSuppressing ? "Suppressing…" : "Suppress future sends"}
-                </Button>
+                {suppression.allowed ? (
+                  <Button
+                    variant="outline"
+                    className="w-full border-paper-300"
+                    onClick={handleSuppress}
+                    disabled={isSuppressing}
+                  >
+                    <ShieldOff className="h-4 w-4 mr-2" />
+                    {isSuppressing ? "Suppressing…" : "Suppress future sends"}
+                  </Button>
+                ) : (
+                  <p
+                    className="rounded-md border border-paper-200 bg-paper-100 px-3 py-2 text-xs text-ink-500"
+                    data-testid="artifact-suppression-read-only"
+                  >
+                    {suppression.reason}
+                  </p>
+                )}
               </div>
             )}
 

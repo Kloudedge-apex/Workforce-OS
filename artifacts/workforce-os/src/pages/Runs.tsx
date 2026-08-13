@@ -17,6 +17,7 @@ import {
 import { CountUp } from "@/components/motion/CountUp";
 import { EmptyState } from "@/components/states/EmptyState";
 import { ErrorState } from "@/components/states/ErrorState";
+import { showTriggerError } from "@/lib/runTrigger";
 
 const STATUS_STYLES: Record<string, string> = {
   COMPLETED: "bg-green-100 text-green-800 border-green-200",
@@ -46,75 +47,6 @@ export function runStatusBadge(status: string): RunStatusBadge {
   return {
     label: status.replace(/_/g, " "),
     className: STATUS_STYLES[status] ?? "bg-paper-100 text-ink-600",
-  };
-}
-
-/** What the trigger-failure toast should say, plus the blocking run to point at. */
-export interface TriggerErrorToast {
-  title: string;
-  description?: string;
-  /** When set, the toast gets a "Review run" action linking to /runs/<id>. */
-  goToRunId: string | null;
-}
-
-interface RunRowLike {
-  id: string;
-  status: string;
-}
-
-/**
- * PURE: map a failed POST /runs/trigger into actionable toast copy.
- *
- * The BFF passes the upstream single-flight 409 through as
- * `409 { runId: "", queued: false, message }` where `message` is the verbatim
- * upstream line "A pipeline graph is already <status> for this org
- * (runId=<id>)" — distinguishable, so we parse the blocking run's id and
- * whether it is awaiting approval straight out of it, falling back to the
- * already-loaded runs list when the message shape ever changes. Anything
- * else degrades to generic-but-honest copy that still surfaces the error's
- * own message.
- */
-export function describeTriggerError(
-  err: unknown,
-  items: readonly RunRowLike[],
-): TriggerErrorToast {
-  const rec = err && typeof err === "object" ? (err as Record<string, unknown>) : null;
-  const status = rec && typeof rec["status"] === "number" ? (rec["status"] as number) : null;
-  const data =
-    rec && typeof rec["data"] === "object" && rec["data"] !== null
-      ? (rec["data"] as Record<string, unknown>)
-      : null;
-  const message =
-    data && typeof data["message"] === "string" && (data["message"] as string).trim() !== ""
-      ? (data["message"] as string)
-      : null;
-
-  if (status === 409) {
-    const runIdMatch = message ? /runId=([A-Za-z0-9_-]+)/.exec(message) : null;
-    const awaitingRow = items.find((r) => r.status === "AWAITING_APPROVAL");
-    // Trust the upstream message first; fall back to the loaded list window.
-    const awaiting =
-      (message?.includes("awaiting_approval") ?? false) ||
-      (!(message?.includes("running") ?? false) && awaitingRow != null);
-    if (awaiting) {
-      return {
-        title: "A run is awaiting your approval",
-        description: "Approve or reject the pending run before starting a new one.",
-        goToRunId: runIdMatch?.[1] ?? awaitingRow?.id ?? null,
-      };
-    }
-    return {
-      title: "A run is already in progress",
-      description:
-        message ?? "Wait for the current run to finish before starting another.",
-      goToRunId: runIdMatch?.[1] ?? null,
-    };
-  }
-
-  return {
-    title: "Failed to start run",
-    description: err instanceof Error && err.message ? err.message : undefined,
-    goToRunId: null,
   };
 }
 
@@ -149,18 +81,7 @@ export default function Runs() {
       // the usual cause is a run sitting in AWAITING_APPROVAL, so the toast
       // says so and links straight to the blocking run.
       onError: (err) => {
-        const t = describeTriggerError(err, data?.items ?? []);
-        toast.error(t.title, {
-          ...(t.description ? { description: t.description } : {}),
-          ...(t.goToRunId
-            ? {
-                action: {
-                  label: "Review run",
-                  onClick: () => navigate(`/runs/${t.goToRunId}`),
-                },
-              }
-            : {}),
-        });
+        showTriggerError(err, data?.items ?? [], navigate);
       },
     },
   });
@@ -168,7 +89,7 @@ export default function Runs() {
   return (
     <div className="flex flex-col h-full overflow-y-auto bg-paper-50 dark:bg-background">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-paper-100 border-b border-paper-200 px-6 py-4 flex items-center justify-between">
+      <div className="sticky top-0 z-10 bg-paper-100 border-b border-paper-200 px-4 sm:px-6 py-4 flex items-center justify-between gap-3">
         <div>
           <h1 className="font-serif font-semibold text-ink-900 dark:text-paper-50 text-lg">Run History</h1>
           <p className="text-xs text-ink-400 mt-0.5">
@@ -198,7 +119,7 @@ export default function Runs() {
         </motion.div>
       </div>
 
-      <div className="p-6">
+      <div className="p-4 sm:p-6">
         {isLoading ? (
           <div className="space-y-3">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -237,8 +158,11 @@ export default function Runs() {
             />
           </div>
         ) : (
-          <div className="bg-white dark:bg-card border border-paper-200 rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
+          <div
+            className="bg-white dark:bg-card border border-paper-200 rounded-lg overflow-x-auto"
+            data-testid="runs-table-scroll-container"
+          >
+            <table className="w-full min-w-[960px] text-sm">
               <thead>
                 <tr className="border-b border-paper-200 text-left">
                   <th className="px-4 py-3 text-xs font-semibold text-ink-500 uppercase tracking-wide">Status</th>
@@ -300,11 +224,11 @@ export default function Runs() {
           </div>
         )}
         {total > 0 && (
-          <div className="mt-4 flex items-center justify-between border-t border-paper-200 pt-4">
+          <div className="mt-4 flex flex-col gap-3 border-t border-paper-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs text-ink-400">
               Showing {Math.min((page - 1) * limit + 1, total)}–{Math.min(page * limit, total)} of {total}
             </p>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 variant="outline"
                 size="sm"

@@ -39,6 +39,7 @@ import type {
   CreateConversationMeetingInput,
   CreateConversationReplyInput,
   GetActivityStreamParams,
+  GmailOAuthFinalizeInput,
   GraphRunDetail,
   HealthStatus,
   IcpProfile,
@@ -2422,6 +2423,76 @@ export function useListIntegrations<TData = Awaited<ReturnType<typeof listIntegr
 
 
 
+
+export const getFinalizeGmailIntegrationUrl = () => {
+
+
+
+
+  return `/api/settings/integrations/gmail/finalize`
+}
+
+/**
+ * @summary Finalize a Gmail OAuth callback with an authenticated session
+ */
+export const finalizeGmailIntegration = async (gmailOAuthFinalizeInput: GmailOAuthFinalizeInput, options?: RequestInit): Promise<Integration> => {
+
+  return customFetch<Integration>(getFinalizeGmailIntegrationUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(gmailOAuthFinalizeInput)
+  }
+);}
+
+
+
+
+export const getFinalizeGmailIntegrationMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof finalizeGmailIntegration>>, TError,{data: BodyType<GmailOAuthFinalizeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof finalizeGmailIntegration>>, TError,{data: BodyType<GmailOAuthFinalizeInput>}, TContext> => {
+
+const mutationKey = ['finalizeGmailIntegration'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof finalizeGmailIntegration>>, {data: BodyType<GmailOAuthFinalizeInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  finalizeGmailIntegration(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type FinalizeGmailIntegrationMutationResult = NonNullable<Awaited<ReturnType<typeof finalizeGmailIntegration>>>
+    export type FinalizeGmailIntegrationMutationBody = BodyType<GmailOAuthFinalizeInput>
+    export type FinalizeGmailIntegrationMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Finalize a Gmail OAuth callback with an authenticated session
+ */
+export const useFinalizeGmailIntegration = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof finalizeGmailIntegration>>, TError,{data: BodyType<GmailOAuthFinalizeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof finalizeGmailIntegration>>,
+        TError,
+        {data: BodyType<GmailOAuthFinalizeInput>},
+        TContext
+      > => {
+      return useMutation(getFinalizeGmailIntegrationMutationOptions(options));
+    }
 
 export const getConnectIntegrationUrl = (provider: string,) => {
 

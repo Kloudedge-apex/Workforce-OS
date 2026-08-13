@@ -14,9 +14,7 @@ export interface Workspace {
 
 export interface CurrentUser {
   name: string;
-  role: string;
-  initials: string;
-  avatarUrl?: string;
+  email: string;
 }
 
 /**
@@ -29,18 +27,9 @@ const FALLBACK_APP_CONTEXT = {
   } satisfies Workspace,
   user: {
     name: "Signed-in user",
-    role: "Role not reported",
-    initials: "?",
+    email: "Account details unavailable",
   } satisfies CurrentUser,
 } as const;
-
-/** Derive 1–2 letter initials from a display name. */
-function deriveInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
-  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
-}
 
 /** Title-case a raw plan slug like "growth" -> "Growth". */
 function formatPlan(plan: string): string {
@@ -68,26 +57,22 @@ export function useWorkspace(): Workspace {
 }
 
 /**
- * The signed-in Clerk user. Role is shown only when Clerk metadata supplies it.
+ * The signed-in Clerk user. Authorization is intentionally not inferred from
+ * mutable public metadata; role-sensitive UI uses server-derived capabilities.
  */
 export function useCurrentUser(): CurrentUser {
   const { user } = useUser();
   if (!user) {
-    const { name, role } = FALLBACK_APP_CONTEXT.user;
-    return { name, role, initials: deriveInitials(name) };
+    return FALLBACK_APP_CONTEXT.user;
   }
   const name =
     user.fullName ||
     user.primaryEmailAddress?.emailAddress ||
     FALLBACK_APP_CONTEXT.user.name;
-  const role =
-    typeof user.publicMetadata?.role === "string"
-      ? user.publicMetadata.role
-      : FALLBACK_APP_CONTEXT.user.role;
+  const email =
+    user.primaryEmailAddress?.emailAddress ?? FALLBACK_APP_CONTEXT.user.email;
   return {
     name,
-    role,
-    initials: deriveInitials(name),
-    avatarUrl: user.imageUrl,
+    email,
   };
 }

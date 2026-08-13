@@ -1,7 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   buildOrgPatchBody,
+  fetchOrgCapabilities,
   fetchReviewCapability,
+  parseOrgCapabilities,
   parseSendReadiness,
   shapeOrgSettings,
   upstreamErrorMessage,
@@ -42,6 +44,9 @@ describe("shapeOrgSettings", () => {
     expect(out.creditsRemaining).toBeNull();
     expect(out.welcomeComplete).toBe(false);
     expect(out.canReviewArtifacts).toBeNull();
+    expect(out.canManageMailbox).toBeNull();
+    expect(out.canManageOrg).toBeNull();
+    expect(out.canManageSuppressions).toBeNull();
     expect(out.suppressionCount).toBeNull();
   });
 
@@ -97,10 +102,16 @@ describe("shapeOrgSettings", () => {
     expect(shapeOrgSettings(upstream, 7).suppressionCount).toBe(7);
   });
 
-  it("threads only the caller-supplied review capability through", () => {
-    expect(shapeOrgSettings(upstream, null, false, true).canReviewArtifacts).toBe(true);
-    expect(shapeOrgSettings(upstream, null, false, false).canReviewArtifacts).toBe(false);
-    expect(shapeOrgSettings(upstream, null, false, null).canReviewArtifacts).toBeNull();
+  it("threads the caller-supplied granular capabilities through", () => {
+    const capabilities = {
+      canReviewArtifacts: true,
+      canManageMailbox: false,
+      canManageOrg: true,
+      canManageSuppressions: false,
+    };
+    expect(shapeOrgSettings(upstream, null, false, capabilities)).toMatchObject(
+      capabilities,
+    );
   });
 
   it("defaults nullable/absent columns safely", () => {
@@ -110,6 +121,46 @@ describe("shapeOrgSettings", () => {
     expect(out.senderName).toBeNull();
     expect(out.postalAddress).toBeNull();
     expect(out.plan).toBeNull();
+  });
+});
+
+describe("parseOrgCapabilities", () => {
+  it("preserves every explicit allow and denial in the capability matrix", () => {
+    expect(
+      parseOrgCapabilities({
+        canReviewArtifacts: true,
+        canManageMailbox: false,
+        canManageOrg: false,
+        canManageSuppressions: true,
+      }),
+    ).toEqual({
+      canReviewArtifacts: true,
+      canManageMailbox: false,
+      canManageOrg: false,
+      canManageSuppressions: true,
+    });
+  });
+
+  it("fails malformed fields closed without discarding valid siblings", () => {
+    expect(
+      parseOrgCapabilities({
+        canReviewArtifacts: "true",
+        canManageMailbox: true,
+        canManageOrg: undefined,
+        canManageSuppressions: 1,
+      }),
+    ).toEqual({
+      canReviewArtifacts: null,
+      canManageMailbox: true,
+      canManageOrg: null,
+      canManageSuppressions: null,
+    });
+    expect(parseOrgCapabilities(null)).toEqual({
+      canReviewArtifacts: null,
+      canManageMailbox: null,
+      canManageOrg: null,
+      canManageSuppressions: null,
+    });
   });
 });
 
@@ -194,6 +245,64 @@ describe("fetchReviewCapability", () => {
         fetchReviewCapability(req, { get: async () => Promise.reject(err) }),
       ).resolves.toBeNull();
     }
+  });
+});
+
+describe("fetchOrgCapabilities", () => {
+  const req = {} as Parameters<typeof fetchOrgCapabilities>[0];
+
+  it("uses the granular endpoint and does not probe the legacy route when review is explicit", async () => {
+    const response = {
+      canReviewArtifacts: false,
+      canManageMailbox: true,
+      canManageOrg: false,
+      canManageSuppressions: true,
+    };
+    const get = vi.fn(async () => response);
+    await expect(fetchOrgCapabilities(req, { get })).resolves.toEqual(response);
+    expect(get).toHaveBeenCalledOnce();
+    expect(get).toHaveBeenCalledWith("/orgs/me/capabilities", { req });
+  });
+
+  it("falls back only the review flag when the granular endpoint is unavailable", async () => {
+    const get = vi.fn(async (path: string) => {
+      if (path === "/orgs/me/capabilities") {
+        throw new UpstreamError(404, { message: "Not found" });
+      }
+      return { canReviewArtifacts: true };
+    });
+    await expect(fetchOrgCapabilities(req, { get })).resolves.toEqual({
+      canReviewArtifacts: true,
+      canManageMailbox: null,
+      canManageOrg: null,
+      canManageSuppressions: null,
+    });
+    expect(get.mock.calls.map(([path]) => path)).toEqual([
+      "/orgs/me/capabilities",
+      "/outreach-artifacts/review-capability",
+    ]);
+  });
+
+  it("keeps management unknown and preserves a legacy role denial", async () => {
+    const get = vi.fn(async (path: string) => {
+      if (path === "/orgs/me/capabilities") return { canManageOrg: true };
+      throw new UpstreamError(403, { message: "Forbidden" });
+    });
+    await expect(fetchOrgCapabilities(req, { get })).resolves.toEqual({
+      canReviewArtifacts: false,
+      canManageMailbox: null,
+      canManageOrg: true,
+      canManageSuppressions: null,
+    });
+  });
+
+  it("propagates authentication failure from the granular endpoint", async () => {
+    const unauthorized = new UpstreamError(401, { message: "Unauthorized" });
+    await expect(
+      fetchOrgCapabilities(req, {
+        get: async () => Promise.reject(unauthorized),
+      }),
+    ).rejects.toBe(unauthorized);
   });
 });
 

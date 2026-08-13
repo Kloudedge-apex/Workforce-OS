@@ -1,4 +1,5 @@
 import React from "react";
+import { UserButton } from "@clerk/clerk-react";
 import { Link, useLocation } from "wouter";
 import { 
   Activity, 
@@ -6,10 +7,8 @@ import {
   Settings, 
   LayoutDashboard, 
   Target, 
-  BarChart2, 
-  MoreHorizontal
+  BarChart2,
 } from "lucide-react";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { CommandPalette } from "@/components/layout/CommandPalette";
 import { NotificationBell } from "@/components/v2/NotificationBell";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
@@ -27,18 +26,19 @@ const NAV_ITEMS = [
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
+export const MOBILE_NAV_ITEMS = [
+  NAV_ITEMS[0], // Today
+  NAV_ITEMS[1], // Pipeline
+  NAV_ITEMS[2], // Outbound
+  NAV_ITEMS[3], // Runs
+  NAV_ITEMS[4], // Conversations
+  NAV_ITEMS[5], // Settings
+];
+
 export function Shell({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const workspace = useWorkspace();
   const user = useCurrentUser();
-
-  const mobileNavItems = [
-    NAV_ITEMS[0], // Today
-    NAV_ITEMS[1], // Pipeline
-    NAV_ITEMS[2], // Outbound
-    NAV_ITEMS[4], // Conversations
-    { href: "/settings", label: "More", icon: MoreHorizontal },
-  ];
 
   return (
     <div className="min-h-[100dvh] flex flex-col md:flex-row bg-paper-50">
@@ -69,13 +69,13 @@ export function Shell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
         <div className="p-4 border-t border-paper-200 flex items-center gap-3">
-          <Avatar className="h-8 w-8 bg-paper-200 border border-paper-200 text-ink-900">
-            {user.avatarUrl && <AvatarImage src={user.avatarUrl} alt={user.name} />}
-            <AvatarFallback className="font-serif bg-transparent text-ink-900 dark:text-paper-50">{user.initials}</AvatarFallback>
-          </Avatar>
+          <UserButton
+            afterSignOutUrl="/sign-in"
+            appearance={{ elements: { avatarBox: "h-8 w-8" } }}
+          />
           <div className="min-w-0">
             <p className="text-sm font-medium text-ink-900 dark:text-paper-50 truncate">{user.name}</p>
-            <p className="text-xs text-ink-400 truncate">{user.role}</p>
+            <p className="text-xs text-ink-400 truncate">{user.email}</p>
           </div>
         </div>
       </aside>
@@ -100,6 +100,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
               <span>Search</span>
               <kbd className="font-mono bg-paper-200 px-1 rounded text-[10px]">⌘K</kbd>
             </button>
+            <div className="md:hidden">
+              <UserButton
+                afterSignOutUrl="/sign-in"
+                appearance={{ elements: { avatarBox: "h-8 w-8" } }}
+              />
+            </div>
             <ThemeToggle />
             <NotificationBell />
           </div>
@@ -115,7 +121,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
       {/* Mobile Bottom Nav */}
       <nav className="md:hidden flex items-center justify-around border-t border-paper-200 bg-paper-100 flex-shrink-0 pb-safe">
-        {mobileNavItems.map((item) => {
+        {MOBILE_NAV_ITEMS.map((item) => {
           const active = location.startsWith(item.href);
           return (
             <Link 

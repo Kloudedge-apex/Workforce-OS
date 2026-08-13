@@ -681,6 +681,25 @@ paths:
                 items:
                   $ref: "#/components/schemas/Integration"
 
+  /settings/integrations/gmail/finalize:
+    post:
+      operationId: finalizeGmailIntegration
+      tags: [settings]
+      summary: Finalize a Gmail OAuth callback with an authenticated session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GmailOAuthFinalizeInput"
+      responses:
+        "200":
+          description: Connected Gmail integration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Integration"
+
   /settings/integrations/{provider}/connect:
     post:
       operationId: connectIntegration
@@ -1668,6 +1687,9 @@ components:
         creditsRemaining: { type: [integer, "null"] }
         welcomeComplete: { type: boolean }
         canReviewArtifacts: { type: [boolean, "null"] }
+        canManageMailbox: { type: [boolean, "null"] }
+        canManageOrg: { type: [boolean, "null"] }
+        canManageSuppressions: { type: [boolean, "null"] }
         sendReadiness:
           anyOf:
             - $ref: "#/components/schemas/SendReadiness"
@@ -1687,6 +1709,9 @@ components:
           creditsRemaining,
           welcomeComplete,
           canReviewArtifacts,
+          canManageMailbox,
+          canManageOrg,
+          canManageSuppressions,
           sendReadiness,
         ]
 
@@ -1771,6 +1796,12 @@ components:
         connectedAt: { type: ["string", "null"] }
         errorMessage: { type: ["string", "null"] }
       required: [id, provider, status]
+
+    GmailOAuthFinalizeInput:
+      type: object
+      properties:
+        attemptId: { type: string, minLength: 1 }
+      required: [attemptId]
 
     CadenceStage:
       type: object

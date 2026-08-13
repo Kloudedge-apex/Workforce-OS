@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { runStatusBadge, describeTriggerError } from "./Runs";
+import { runStatusBadge } from "./Runs";
+import { describeTriggerError } from "@/lib/runTrigger";
 
 describe("runStatusBadge", () => {
   it("gives AWAITING_APPROVAL a distinct filled 'Needs approval' badge", () => {

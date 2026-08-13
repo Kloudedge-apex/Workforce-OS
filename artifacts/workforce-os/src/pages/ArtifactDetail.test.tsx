@@ -7,6 +7,7 @@ import ArtifactDetail from "./ArtifactDetail";
 
 const mockState = vi.hoisted(() => ({
   reviewCapability: false as boolean | null,
+  suppressionCapability: true as boolean | null,
 }));
 
 const pendingArtifact: OutreachArtifact = {
@@ -72,6 +73,7 @@ vi.mock("@workspace/api-client-react", async (importOriginal) => {
     useGetOrgSettings: () => ({
       data: {
         canReviewArtifacts: mockState.reviewCapability,
+        canManageSuppressions: mockState.suppressionCapability,
         sendReadiness: {
           liveSendAllowed: false,
           physicalAddressSet: true,
@@ -100,6 +102,7 @@ function renderPage(): string {
 describe("ArtifactDetail review capability", () => {
   beforeEach(() => {
     mockState.reviewCapability = false;
+    mockState.suppressionCapability = true;
   });
 
   it("hides approve and reject controls for a known role denial", () => {
@@ -115,5 +118,26 @@ describe("ArtifactDetail review capability", () => {
     expect(html).toContain("review capability is unavailable");
     expect(html).not.toContain(">Approve<");
     expect(html).not.toContain(">Reject<");
+  });
+});
+
+describe("ArtifactDetail suppression capability", () => {
+  beforeEach(() => {
+    mockState.reviewCapability = true;
+    mockState.suppressionCapability = false;
+  });
+
+  it("renders a known suppression denial as read-only", () => {
+    const html = renderPage();
+    expect(html).toContain("Suppression controls are read-only");
+    expect(html).not.toContain("Suppressing…");
+    expect(html).not.toContain(">Suppress<");
+  });
+
+  it("fails closed when suppression permission is unavailable", () => {
+    mockState.suppressionCapability = null;
+    const html = renderPage();
+    expect(html).toContain("Suppression permissions could not be verified");
+    expect(html).not.toContain(">Suppress<");
   });
 });

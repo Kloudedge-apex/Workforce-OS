@@ -96,8 +96,51 @@ export interface OrgSettings {
   welcomeComplete: boolean;
   /** true = reviewer guard confirmed; false = guard denied; null = unavailable/unknown. */
   canReviewArtifacts: boolean | null;
+  /** true = mailbox mutation guard confirmed; false = denied; null = unavailable/unknown. */
+  canManageMailbox: boolean | null;
+  /** true = organization mutation guard confirmed; false = denied; null = unavailable/unknown. */
+  canManageOrg: boolean | null;
+  /** true = suppression mutation guard confirmed; false = denied; null = unavailable/unknown. */
+  canManageSuppressions: boolean | null;
   /** GL5: forwarded verbatim from upstream; null = backend didn't report it. */
   sendReadiness: SendReadiness | null;
+}
+
+export interface OrgCapabilities {
+  canReviewArtifacts: boolean | null;
+  canManageMailbox: boolean | null;
+  canManageOrg: boolean | null;
+  canManageSuppressions: boolean | null;
+}
+
+function unknownOrgCapabilities(): OrgCapabilities {
+  return {
+    canReviewArtifacts: null,
+    canManageMailbox: null,
+    canManageOrg: null,
+    canManageSuppressions: null,
+  };
+}
+
+/**
+ * Parse each capability independently and fail closed. Explicit `false` is a
+ * known denial and must never be collapsed into "unknown"; absent, non-boolean,
+ * or malformed fields become null so the corresponding UI control stays
+ * read-only without discarding other valid flags in the same response.
+ */
+export function parseOrgCapabilities(raw: unknown): OrgCapabilities {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return unknownOrgCapabilities();
+  }
+  const rec = raw as Record<string, unknown>;
+  const capability = (key: keyof OrgCapabilities): boolean | null =>
+    typeof rec[key] === "boolean" ? (rec[key] as boolean) : null;
+  return {
+    canReviewArtifacts: capability("canReviewArtifacts"),
+    canManageMailbox: capability("canManageMailbox"),
+    canManageOrg: capability("canManageOrg"),
+    canManageSuppressions: capability("canManageSuppressions"),
+  };
 }
 
 /**
@@ -119,7 +162,7 @@ export function shapeOrgSettings(
   org: ApexOrg,
   suppressionCount: number | null = null,
   welcomeComplete = false,
-  canReviewArtifacts: boolean | null = null,
+  capabilities: OrgCapabilities = unknownOrgCapabilities(),
 ): OrgSettings {
   const sendReadiness = parseSendReadiness(org.sendReadiness);
   return {
@@ -149,7 +192,7 @@ export function shapeOrgSettings(
         : null,
     creditsRemaining: null,
     welcomeComplete,
-    canReviewArtifacts,
+    ...capabilities,
     sendReadiness,
   };
 }
@@ -174,6 +217,33 @@ export async function fetchReviewCapability(
   }
 }
 
+/**
+ * Resolve the granular backend capability envelope. Older deployments may not
+ * have `/orgs/me/capabilities`; in that case only the legacy artifact-review
+ * probe is recoverable. Mailbox, org, and suppression permissions remain null
+ * rather than being inferred from the review role.
+ */
+export async function fetchOrgCapabilities(
+  req: Request,
+  client: Pick<typeof apex, "get"> = apex,
+): Promise<OrgCapabilities> {
+  let parsed = unknownOrgCapabilities();
+  try {
+    parsed = parseOrgCapabilities(
+      await client.get("/orgs/me/capabilities", { req }),
+    );
+  } catch (err) {
+    if (err instanceof UpstreamError && err.status === 401) throw err;
+  }
+
+  if (parsed.canReviewArtifacts !== null) return parsed;
+
+  return {
+    ...parsed,
+    canReviewArtifacts: await fetchReviewCapability(req, client),
+  };
+}
+
 // ─── Org settings ──────────────────────────────────────────────────────────
 
 router.get("/settings/org", async (req, res, next) => {
@@ -186,11 +256,11 @@ router.get("/settings/org", async (req, res, next) => {
       "/orgs/onboarding/status",
       { req },
     )) as ApexOnboardingStatus;
-    const [org, canReviewArtifacts] = await Promise.all([
+    const [org, capabilities] = await Promise.all([
       apex.get("/orgs/me", { req }) as Promise<ApexOrg>,
-      fetchReviewCapability(req),
+      fetchOrgCapabilities(req),
     ]);
-    res.json(shapeOrgSettings(org, null, onboarding?.complete === true, canReviewArtifacts));
+    res.json(shapeOrgSettings(org, null, onboarding?.complete === true, capabilities));
   } catch (err) {
     if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
     next(err);
@@ -262,12 +332,12 @@ router.put("/settings/org", async (req, res, next) => {
     // addition to name — buildOrgPatchBody forwards exactly those.
     const me = (await apex.get("/orgs/me", { req })) as ApexOrg;
     await apex.patch(`/orgs/${me.id}`, { req }, buildOrgPatchBody(req.body));
-    const [updated, onboarding, canReviewArtifacts] = await Promise.all([
+    const [updated, onboarding, capabilities] = await Promise.all([
       apex.get("/orgs/me", { req }) as Promise<ApexOrg>,
       apex.get("/orgs/onboarding/status", { req }) as Promise<ApexOnboardingStatus>,
-      fetchReviewCapability(req),
+      fetchOrgCapabilities(req),
     ]);
-    res.json(shapeOrgSettings(updated, null, onboarding?.complete === true, canReviewArtifacts));
+    res.json(shapeOrgSettings(updated, null, onboarding?.complete === true, capabilities));
   } catch (err) {
     if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
     // Surface upstream validation failures honestly (e.g. country must be

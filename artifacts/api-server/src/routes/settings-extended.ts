@@ -286,6 +286,88 @@ export function shapeAuthUrl(raw: unknown): string | null {
   return trimmed;
 }
 
+export interface GmailFinalizeInput {
+  attemptId: string;
+}
+
+/** Keep the opaque attempt server-side and reject missing/ambiguous bodies. */
+export function parseGmailFinalizeInput(raw: unknown): GmailFinalizeInput | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const attemptId = (raw as Record<string, unknown>)["attemptId"];
+  if (typeof attemptId !== "string" || attemptId.trim() === "") return null;
+  return { attemptId: attemptId.trim() };
+}
+
+export type GmailFinalizeClient = Pick<typeof apex, "post">;
+
+/**
+ * Authenticated second half of Gmail OAuth. The provider callback carries no
+ * Clerk JWT, so it redirects the browser with an opaque one-time attempt ID;
+ * the signed-in SPA posts that ID here and the BFF forwards the caller's
+ * identity before returning only the public integration shape.
+ */
+export function createGmailFinalizeRouter(
+  client: GmailFinalizeClient = apex,
+): Router {
+  const gmailRouter = Router();
+  gmailRouter.post(
+    "/settings/integrations/gmail/finalize",
+    async (req, res, next) => {
+      const input = parseGmailFinalizeInput(req.body);
+      if (!input) {
+        res.status(400).json({
+          error: "validation",
+          message: "A Gmail OAuth attempt ID is required.",
+        });
+        return;
+      }
+      try {
+        const row = (await client.post(
+          "/integrations/gmail/finalize",
+          { req },
+          input,
+        )) as ApexIntegration;
+        if (
+          !row ||
+          typeof row !== "object" ||
+          typeof row.id !== "string" ||
+          row.provider !== "gmail" ||
+          typeof row.status !== "string"
+        ) {
+          res.status(502).json({
+            error: "upstream",
+            message: "The backend returned an invalid Gmail integration.",
+          });
+          return;
+        }
+        res.json(shapeIntegration(row));
+      } catch (err) {
+        if (
+          err instanceof UpstreamError &&
+          (err.status === 401 || err.status === 403)
+        ) {
+          throw err;
+        }
+        if (
+          err instanceof UpstreamError &&
+          err.status >= 400 &&
+          err.status < 500
+        ) {
+          res.status(err.status).json({
+            error: "oauth_finalize_failed",
+            message:
+              upstreamErrorMessage(err.body) ??
+              "The Gmail authorization attempt could not be completed.",
+          });
+          return;
+        }
+        next(err);
+      }
+    },
+  );
+  return gmailRouter;
+}
+
 // ─── Gmail OAuth init ────────────────────────────────────────────────────────
 // OAuth providers cannot use the synchronous POST /:provider/connect (that is
 // the api-key path). Upstream exposes GET /api/integrations/gmail/auth-url
@@ -321,6 +403,8 @@ router.get("/settings/integrations/gmail/auth-url", async (req, res, next) => {
     next(err);
   }
 });
+
+router.use(createGmailFinalizeRouter());
 
 router.post("/settings/integrations/:provider/connect", (req, res) => {
   const { provider } = req.params;

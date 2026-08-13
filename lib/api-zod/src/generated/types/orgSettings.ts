@@ -34,5 +34,11 @@ export interface OrgSettings {
   welcomeComplete: boolean;
   /** @nullable */
   canReviewArtifacts: boolean | null;
+  /** @nullable */
+  canManageMailbox: boolean | null;
+  /** @nullable */
+  canManageOrg: boolean | null;
+  /** @nullable */
+  canManageSuppressions: boolean | null;
   sendReadiness: SendReadiness | null;
 }

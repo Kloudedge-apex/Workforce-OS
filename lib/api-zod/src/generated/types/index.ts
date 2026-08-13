@@ -45,6 +45,7 @@ export * from './evidenceEventSummary';
 export * from './factCitation';
 export * from './getActivityStreamFilter';
 export * from './getActivityStreamParams';
+export * from './gmailOAuthFinalizeInput';
 export * from './graphRun';
 export * from './graphRunDetail';
 export * from './graphRunDetailTimeline';

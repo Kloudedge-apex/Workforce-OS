@@ -920,6 +920,9 @@ export const GetOrgSettingsResponse = zod.object({
   "creditsRemaining": zod.number().nullable(),
   "welcomeComplete": zod.boolean(),
   "canReviewArtifacts": zod.boolean().nullable(),
+  "canManageMailbox": zod.boolean().nullable(),
+  "canManageOrg": zod.boolean().nullable(),
+  "canManageSuppressions": zod.boolean().nullable(),
   "sendReadiness": zod.union([zod.object({
   "liveSendAllowed": zod.boolean(),
   "physicalAddressSet": zod.boolean(),
@@ -964,6 +967,9 @@ export const UpdateOrgSettingsResponse = zod.object({
   "creditsRemaining": zod.number().nullable(),
   "welcomeComplete": zod.boolean(),
   "canReviewArtifacts": zod.boolean().nullable(),
+  "canManageMailbox": zod.boolean().nullable(),
+  "canManageOrg": zod.boolean().nullable(),
+  "canManageSuppressions": zod.boolean().nullable(),
   "sendReadiness": zod.union([zod.object({
   "liveSendAllowed": zod.boolean(),
   "physicalAddressSet": zod.boolean(),
@@ -1040,6 +1046,26 @@ export const ListIntegrationsResponseItem = zod.object({
   "errorMessage": zod.string().nullish()
 })
 export const ListIntegrationsResponse = zod.array(ListIntegrationsResponseItem)
+
+
+/**
+ * @summary Finalize a Gmail OAuth callback with an authenticated session
+ */
+
+
+
+export const FinalizeGmailIntegrationBody = zod.object({
+  "attemptId": zod.string().min(1)
+})
+
+export const FinalizeGmailIntegrationResponse = zod.object({
+  "id": zod.string(),
+  "provider": zod.string(),
+  "status": zod.enum(['connected', 'available', 'errored']),
+  "accountEmail": zod.string().nullish(),
+  "connectedAt": zod.string().nullish(),
+  "errorMessage": zod.string().nullish()
+})
 
 
 /**

@@ -7,7 +7,7 @@ import {
   useGetIcpProfile, useUpdateIcpProfile,
   useGetCadence, useUpdateCadence,
   useGetStyleConfig, useUpdateStyleConfig,
-  useListIntegrations, useDisconnectIntegration,
+  useListIntegrations, useDisconnectIntegration, useFinalizeGmailIntegration,
   useListTeamMembers, useInviteTeamMember, useRemoveTeamMember,
   useGetBilling,
   useListApiKeys, useCreateApiKey, useRevokeApiKey,
@@ -56,7 +56,8 @@ type TabId = typeof TABS[number]["id"];
 // ─── Root ─────────────────────────────────────────────────────────────────────
 export default function Settings() {
   const [location, navigate] = useLocation();
-  const sub = location.replace(/^\/settings\/?/, "") || "setup";
+  const settingsPath = location.split("?", 1)[0] ?? location;
+  const sub = settingsPath.replace(/^\/settings\/?/, "") || "setup";
   const activeTab = (TABS.find(t => t.id === sub)?.id ?? "setup") as TabId;
 
   const setTab = (id: TabId) => navigate(`/settings/${id}`);
@@ -324,9 +325,16 @@ function SetupTab() {
 
 // ─── Org Tab ──────────────────────────────────────────────────────────────────
 function OrgTab() {
+  const queryClient = useQueryClient();
   const { data, isLoading, isError, refetch } = useGetOrgSettings({ query: { queryKey: ["getOrgSettings"] } });
   const { mutate: update, isPending } = useUpdateOrgSettings({
-    mutation: { onSuccess: () => toast.success("Settings saved"), onError: (err) => toast.error(saveErrorMessage(err)) },
+    mutation: {
+      onSuccess: (updated) => {
+        void refreshSetupQueries(queryClient, updated);
+        toast.success("Settings saved");
+      },
+      onError: (err) => toast.error(saveErrorMessage(err)),
+    },
   });
 
   const [form, setForm] = useState({
@@ -342,17 +350,30 @@ function OrgTab() {
       initialized.current = true;
     }
   }, [data]);
+  const orgManagementCapability = data?.canManageOrg ?? null;
+  const orgReadOnly = orgManagementCapability !== true;
 
   return (
     <TabBoundary isLoading={isLoading} isError={isError} onRetry={() => refetch()} skeleton={<FormSkeleton rows={6} />}>
       <SectionHeader title="Organization" description="Persisted workspace identity and sender compliance settings." />
+      {orgReadOnly && (
+        <div
+          className="rounded-md border border-paper-200 bg-paper-50 px-3 py-2 text-xs text-ink-600"
+          data-testid="org-management-read-only"
+          role="status"
+        >
+          {orgManagementCapability === false
+            ? "Organization and compliance settings are read-only. Editing requires an owner or administrator."
+            : "Organization management permissions could not be verified. Editing is disabled."}
+        </div>
+      )}
       <SettingsCard className="p-5 space-y-4">
         <TwoCol>
           <Field label="Organization Name">
-            <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+            <Input disabled={orgReadOnly} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
           </Field>
           <Field label="Company Website (HTTPS)">
-            <Input value={form.website} onChange={e => setForm(f => ({ ...f, website: e.target.value }))} placeholder="https://example.com" />
+            <Input disabled={orgReadOnly} value={form.website} onChange={e => setForm(f => ({ ...f, website: e.target.value }))} placeholder="https://example.com" />
           </Field>
         </TwoCol>
       </SettingsCard>
@@ -364,8 +385,12 @@ function OrgTab() {
       <div className="flex justify-end">
         <Button
           className="bg-rust-500 hover:bg-rust-600 text-white"
-          disabled={isPending}
-          onClick={() => update({ data: { name: form.name, website: form.website } })}
+          disabled={orgReadOnly || isPending}
+          onClick={() => {
+            if (orgManagementCapability === true) {
+              update({ data: { name: form.name, website: form.website } });
+            }
+          }}
         >
           {isPending ? "Saving…" : "Save Changes"}
         </Button>
@@ -462,9 +487,14 @@ function LiveStatusCard({ settings }: { settings: OrgSettings }) {
  * verbatim instead of a generic "Save failed".
  */
 function ComplianceCard({ settings }: { settings: OrgSettings }) {
+  const queryClient = useQueryClient();
+  const orgReadOnly = settings.canManageOrg !== true;
   const { mutate: save, isPending } = useUpdateOrgSettings({
     mutation: {
-      onSuccess: () => toast.success("Compliance settings saved"),
+      onSuccess: (updated) => {
+        void refreshSetupQueries(queryClient, updated);
+        toast.success("Compliance settings saved");
+      },
       onError: (err) => toast.error(saveErrorMessage(err)),
     },
   });
@@ -485,20 +515,24 @@ function ComplianceCard({ settings }: { settings: OrgSettings }) {
       </div>
       <TwoCol>
         <Field label="Sender Name (visible to recipients)">
-          <Input value={form.senderName} onChange={e => setForm(f => ({ ...f, senderName: e.target.value }))} />
+          <Input disabled={orgReadOnly} value={form.senderName} onChange={e => setForm(f => ({ ...f, senderName: e.target.value }))} />
         </Field>
         <Field label="Country (ISO-2)">
-          <Input value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value }))} placeholder="US" className="font-mono uppercase" />
+          <Input disabled={orgReadOnly} value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value }))} placeholder="US" className="font-mono uppercase" />
         </Field>
       </TwoCol>
       <Field label="Physical Address">
-        <Textarea value={form.physicalAddress} onChange={e => setForm(f => ({ ...f, physicalAddress: e.target.value }))} rows={2} className="resize-none" placeholder="Street, city, state, ZIP — appears in every email footer" />
+        <Textarea disabled={orgReadOnly} value={form.physicalAddress} onChange={e => setForm(f => ({ ...f, physicalAddress: e.target.value }))} rows={2} className="resize-none" placeholder="Street, city, state, ZIP — appears in every email footer" />
       </Field>
       <div className="flex justify-end">
         <Button
           className="bg-rust-500 hover:bg-rust-600 text-white"
-          disabled={isPending}
-          onClick={() => save({ data: { senderName: form.senderName, postalAddress: form.physicalAddress, country: form.country } })}
+          disabled={orgReadOnly || isPending}
+          onClick={() => {
+            if (!orgReadOnly) {
+              save({ data: { senderName: form.senderName, postalAddress: form.physicalAddress, country: form.country } });
+            }
+          }}
         >
           {isPending ? "Saving…" : "Save Compliance"}
         </Button>
@@ -509,10 +543,14 @@ function ComplianceCard({ settings }: { settings: OrgSettings }) {
 
 // ─── ICP Tab ──────────────────────────────────────────────────────────────────
 function IcpTab() {
+  const queryClient = useQueryClient();
   const { data, isLoading, isError, refetch } = useGetIcpProfile({ query: { queryKey: ["getIcpProfile"] } });
   const { mutate: update, isPending } = useUpdateIcpProfile({
     mutation: {
-      onSuccess: () => toast.success("Current ICP saved"),
+      onSuccess: () => {
+        void refreshSetupQueries(queryClient);
+        toast.success("Current ICP saved");
+      },
       // Surface the upstream validation message verbatim.
       onError: (err) => toast.error(saveErrorMessage(err)),
     },
@@ -752,7 +790,33 @@ const GMAIL_POLL_INTERVAL_MS = 3_000;
 /** Stop polling after this long without a CONNECTED/ERROR resolution. */
 const GMAIL_POLL_TIMEOUT_MS = 180_000;
 
-function refreshReadinessQueries(queryClient: QueryClient) {
+/** Extract only the callback shape issued by the backend. */
+export function gmailOAuthAttemptFromLocation(location: string): string | null {
+  const queryStart = location.indexOf("?");
+  if (queryStart < 0) return null;
+  const params = new URLSearchParams(location.slice(queryStart + 1));
+  if (params.get("provider") !== "gmail") return null;
+  const attemptId = params.get("oauth_attempt");
+  return attemptId && attemptId.trim() !== "" ? attemptId.trim() : null;
+}
+
+/** Extract the bounded public callback error contract issued by the backend. */
+export function gmailOAuthErrorFromLocation(location: string): string | null {
+  const queryStart = location.indexOf("?");
+  if (queryStart < 0) return null;
+  const params = new URLSearchParams(location.slice(queryStart + 1));
+  if (params.get("provider") !== "gmail") return null;
+  const error = params.get("error");
+  return error === "gmail_denied" || error === "gmail_oauth" ? error : null;
+}
+
+export function refreshSetupQueries(
+  queryClient: QueryClient,
+  orgSettings?: OrgSettings,
+) {
+  if (orgSettings) {
+    queryClient.setQueryData(["getOrgSettings"], orgSettings);
+  }
   return Promise.all([
     queryClient.invalidateQueries({
       queryKey: ["getWelcomeStatus"],
@@ -768,14 +832,25 @@ function refreshReadinessQueries(queryClient: QueryClient) {
 }
 
 function IntegrationsTab() {
-  // GL3: gmail is an OAuth provider — the consent screen happens in a new tab
-  // and the callback lands on the backend, so the FE only learns the outcome
-  // by polling integration status. While waiting, the list refetches on an
-  // interval; the card reflects CONNECTED/errored only when the server says so.
+  // Gmail consent happens in a new tab. The backend callback redirects that
+  // tab here with a one-time attempt ID; this signed-in page finalizes it while
+  // the opener polls integration status. The card reflects CONNECTED/errored
+  // only when the server says so.
   const [gmailWaiting, setGmailWaiting] = useState(false);
   const [gmailLaunching, setGmailLaunching] = useState(false);
   const gmailDeadline = useRef<number | null>(null);
+  const finalizedAttempt = useRef<string | null>(null);
+  const handledCallbackError = useRef<string | null>(null);
   const queryClient = useQueryClient();
+  const [location, navigate] = useLocation();
+  // Wouter's browser location hook returns pathname only. Reattach the real
+  // query string so the provider callback's one-time attempt is not dropped.
+  // Tests may supply a query-bearing mocked location, so preserve that form.
+  const callbackLocation = location.includes("?")
+    ? location
+    : `${location}${typeof window === "undefined" ? "" : window.location.search}`;
+  const oauthAttemptId = gmailOAuthAttemptFromLocation(callbackLocation);
+  const oauthCallbackError = gmailOAuthErrorFromLocation(callbackLocation);
 
   const { data, isLoading, isError, refetch } = useListIntegrations({
     query: {
@@ -783,31 +858,93 @@ function IntegrationsTab() {
       refetchInterval: gmailWaiting ? GMAIL_POLL_INTERVAL_MS : false,
     },
   });
-  // Mailbox management uses the same backend AdminOrManagerGuard as artifact
-  // review. Only an explicit allow enables OAuth or disconnect controls;
+  // Only an explicit granular allow enables OAuth or disconnect controls;
   // denial and unavailable capability state remain read-only.
   const { data: orgSettings } = useGetOrgSettings({
     query: { queryKey: ["getOrgSettings"] },
   });
-  const mailboxManagementCapability = orgSettings?.canReviewArtifacts ?? null;
+  const mailboxManagementCapability = orgSettings?.canManageMailbox ?? null;
   const { mutate: disconnect, isPending: disconnecting } = useDisconnectIntegration({
     mutation: {
       onSuccess: () => {
         toast.success("Disconnected");
-        void refreshReadinessQueries(queryClient);
+        void refreshSetupQueries(queryClient);
         refetch();
       },
       onError: () => toast.error("Disconnect failed"),
     },
   });
+  const { mutate: finalizeGmail, isPending: finalizingGmail } =
+    useFinalizeGmailIntegration({
+      mutation: {
+        onSuccess: (integration) => {
+          queryClient.setQueryData<
+            Awaited<ReturnType<typeof refetch>>["data"]
+          >(["listIntegrations"], (current) => {
+            if (!current) return current;
+            return current.map((item) =>
+              item.provider === "gmail" ? integration : item,
+            );
+          });
+          void refreshSetupQueries(queryClient);
+          void refetch();
+          toast.success("Gmail connected.");
+        },
+        onError: async (err) => {
+          const [, refreshedIntegrations] = await Promise.allSettled([
+            refreshSetupQueries(queryClient),
+            refetch(),
+          ]);
+          const connectedAfterRefresh =
+            refreshedIntegrations.status === "fulfilled" &&
+            refreshedIntegrations.value.data?.some(
+              (item) => item.provider === "gmail" && item.status === "connected",
+            );
+          if (connectedAfterRefresh) {
+            toast.success("Gmail connected.");
+          } else {
+            toast.error(saveErrorMessage(err));
+          }
+        },
+      },
+    });
 
   const visibleIntegrations = (data ?? []).filter((integration) => integration.provider === "gmail");
   const gmailRow = visibleIntegrations.find(i => i.provider === "gmail");
   useEffect(() => {
+    if (!oauthAttemptId || finalizedAttempt.current === oauthAttemptId) return;
+    finalizedAttempt.current = oauthAttemptId;
+    // Remove the one-time opaque ID from browser history before network work.
+    navigate("/settings/integrations", { replace: true });
+    finalizeGmail({ data: { attemptId: oauthAttemptId } });
+  }, [finalizeGmail, navigate, oauthAttemptId]);
+
+  useEffect(() => {
+    if (
+      !oauthCallbackError ||
+      handledCallbackError.current === oauthCallbackError
+    ) {
+      return;
+    }
+    handledCallbackError.current = oauthCallbackError;
+    navigate("/settings/integrations", { replace: true });
+    void Promise.allSettled([
+      refreshSetupQueries(queryClient),
+      refetch(),
+    ]).then(() => {
+      toast.error(
+        oauthCallbackError === "gmail_denied"
+          ? "Google authorization was canceled. Gmail was not changed."
+          : "Google authorization could not be completed. Try connecting again.",
+      );
+    });
+  }, [navigate, oauthCallbackError, queryClient, refetch]);
+
+  useEffect(() => {
     if (!gmailWaiting) return;
     if (gmailRow?.status === "connected") {
       setGmailWaiting(false);
-      void refreshReadinessQueries(queryClient);
+      void refreshSetupQueries(queryClient);
       toast.success("Gmail connected.");
     } else if (gmailRow?.status === "errored") {
       setGmailWaiting(false);
@@ -819,17 +956,24 @@ function IntegrationsTab() {
   }, [gmailWaiting, gmailRow, queryClient]);
 
   const handleConnectGmail = async () => {
+    // Open synchronously inside the click gesture so browser popup blockers do
+    // not race the authenticated auth-url request. Navigating an about:blank
+    // handle after severing `opener` preserves reverse-tabnabbing protection
+    // without relying on `noopener`, whose specified return value is null.
+    const popup = window.open("about:blank", "_blank");
+    if (!popup) {
+      toast.error("Your browser blocked the Google sign-in window — allow popups and try again.");
+      return;
+    }
+    popup.opener = null;
     setGmailLaunching(true);
     try {
       const url = await fetchGmailAuthUrl();
-      const win = window.open(url, "_blank", "noopener,noreferrer");
-      if (!win) {
-        toast.error("Your browser blocked the Google sign-in window — allow popups and try again.");
-        return;
-      }
+      popup.location.replace(url);
       gmailDeadline.current = Date.now() + GMAIL_POLL_TIMEOUT_MS;
       setGmailWaiting(true);
     } catch (err) {
+      popup.close();
       // Surface the BFF/upstream failure verbatim — never a fake success.
       toast.error(saveErrorMessage(err));
     } finally {
@@ -844,6 +988,15 @@ function IntegrationsTab() {
   return (
     <>
       <SectionHeader title="Mailbox" description="Connect Gmail for reviewed outreach and durable reply ingestion." />
+      {finalizingGmail && (
+        <div
+          className="mb-3 rounded-md border border-paper-200 bg-paper-50 px-3 py-2 text-xs text-ink-600"
+          role="status"
+          data-testid="gmail-oauth-finalizing"
+        >
+          Finishing the Google authorization with your signed-in workspace…
+        </div>
+      )}
       {mailboxManagementCapability !== true && (
         <div
           className="mb-3 rounded-md border border-paper-200 bg-paper-50 px-3 py-2 text-xs text-ink-600"
@@ -860,7 +1013,7 @@ function IntegrationsTab() {
           const meta = PROVIDER_META[int.provider] ?? { name: int.provider, description: "" };
           const isConnected = int.status === "connected";
           const isGmail = int.provider === "gmail";
-          const gmailBusy = isGmail && (gmailLaunching || gmailWaiting);
+          const gmailBusy = isGmail && (gmailLaunching || gmailWaiting || finalizingGmail);
           return (
             <SettingsCard key={int.id} className="p-4 flex gap-3 hover-elevate">
               <IntegrationLogo provider={int.provider} size={28} className="mt-0.5" />

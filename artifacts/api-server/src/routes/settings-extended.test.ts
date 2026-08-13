@@ -1,5 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { once } from "node:events";
+import type { AddressInfo } from "node:net";
+import { describe, it, expect, vi } from "vitest";
+import { createApp } from "../app";
 import {
+  createGmailFinalizeRouter,
+  parseGmailFinalizeInput,
   shapeIcpProfile,
   toIcpCreateBody,
   shapeIntegration,
@@ -12,6 +17,39 @@ import {
   type ApexCatalogEntry,
   type ApexUser,
 } from "./settings-extended";
+
+async function requestGmailFinalize(
+  post: (...args: any[]) => Promise<unknown>,
+  body: unknown,
+): Promise<{ status: number; body: unknown }> {
+  const app = createApp({
+    apiRouter: createGmailFinalizeRouter({ post }),
+    clerkGuard: (req, _res, next) => {
+      req.orgId = "org_1";
+      req.clerkToken = "clerk-token";
+      next();
+    },
+  });
+  const server = app.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/api/settings/integrations/gmail/finalize`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    const text = await response.text();
+    return { status: response.status, body: text ? JSON.parse(text) : null };
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+}
 
 describe("shapeIcpProfile", () => {
   it("maps the most-recent profile and renames fields", () => {
@@ -199,6 +237,63 @@ describe("shapeAuthUrl", () => {
     expect(shapeAuthUrl({ authUrl: "javascript:alert(1)" })).toBeNull();
     expect(shapeAuthUrl({ authUrl: "not-a-url" })).toBeNull();
     expect(shapeAuthUrl("https://raw-string.example")).toBeNull();
+  });
+});
+
+describe("Gmail OAuth finalization", () => {
+  it("accepts only a non-empty opaque attempt ID", () => {
+    expect(parseGmailFinalizeInput({ attemptId: " attempt_123 " })).toEqual({
+      attemptId: "attempt_123",
+    });
+    expect(parseGmailFinalizeInput({})).toBeNull();
+    expect(parseGmailFinalizeInput({ attemptId: " " })).toBeNull();
+    expect(parseGmailFinalizeInput({ attemptId: 42 })).toBeNull();
+    expect(parseGmailFinalizeInput(null)).toBeNull();
+  });
+
+  it("forwards the authenticated attempt and returns a public integration", async () => {
+    const post = vi.fn(async (..._args: any[]) => ({
+      id: "int_gmail",
+      provider: "gmail",
+      status: "CONNECTED",
+      createdAt: "2026-08-13T00:00:00.000Z",
+      credentialsEncrypted: "must-not-leak",
+    }));
+    const response = await requestGmailFinalize(post, {
+      attemptId: "attempt_123",
+    });
+
+    expect(response).toEqual({
+      status: 200,
+      body: {
+        id: "int_gmail",
+        provider: "gmail",
+        status: "connected",
+        accountEmail: null,
+        connectedAt: "2026-08-13T00:00:00.000Z",
+        errorMessage: null,
+      },
+    });
+    expect(post).toHaveBeenCalledOnce();
+    expect(post.mock.calls[0]?.[0]).toBe("/integrations/gmail/finalize");
+    expect(post.mock.calls[0]?.[1].req).toMatchObject({
+      orgId: "org_1",
+      clerkToken: "clerk-token",
+    });
+    expect(post.mock.calls[0]?.[2]).toEqual({ attemptId: "attempt_123" });
+  });
+
+  it("rejects a missing attempt before calling upstream", async () => {
+    const post = vi.fn(async () => ({}));
+    const response = await requestGmailFinalize(post, {});
+    expect(response).toEqual({
+      status: 400,
+      body: {
+        error: "validation",
+        message: "A Gmail OAuth attempt ID is required.",
+      },
+    });
+    expect(post).not.toHaveBeenCalled();
   });
 });
 

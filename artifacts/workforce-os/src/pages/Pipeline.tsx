@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useListLeads, useBulkSuppressLeads } from "@workspace/api-client-react";
+import { useListLeads, useBulkSuppressLeads, useGetOrgSettings } from "@workspace/api-client-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -17,6 +17,7 @@ import { CountUp } from "@/components/motion/CountUp";
 import { EmptyState } from "@/components/states/EmptyState";
 import { ErrorState } from "@/components/states/ErrorState";
 import { staggerContainer, staggerItem, useReducedMotionSafe } from "@/lib/motion";
+import { suppressionAccess } from "@/lib/capabilities";
 
 export default function Pipeline() {
   const [, setLocation] = useLocation();
@@ -42,8 +43,13 @@ export default function Pipeline() {
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
   const suppressMut = useBulkSuppressLeads();
+  const { data: orgSettings } = useGetOrgSettings({
+    query: { queryKey: ["getOrgSettings"] },
+  });
+  const suppression = suppressionAccess(orgSettings?.canManageSuppressions);
 
   const handleSelectAll = (checked: boolean) => {
+    if (!suppression.allowed) return;
     if (checked) {
       setSelectedIds(new Set(leads.map(l => l.id)));
     } else {
@@ -52,6 +58,7 @@ export default function Pipeline() {
   };
 
   const handleToggleSelect = (id: string) => {
+    if (!suppression.allowed) return;
     const newSet = new Set(selectedIds);
     if (newSet.has(id)) newSet.delete(id);
     else newSet.add(id);
@@ -59,6 +66,10 @@ export default function Pipeline() {
   };
 
   const handleBulkSuppress = async () => {
+    if (!suppression.allowed) {
+      toast.error(suppression.reason);
+      return;
+    }
     if (selectedIds.size === 0) return;
     toast(`Suppressing ${selectedIds.size} leads...`);
     try {
@@ -166,7 +177,7 @@ export default function Pipeline() {
           </div>
           
           <div className="flex items-center gap-2">
-            {selectedIds.size > 0 && (
+            {selectedIds.size > 0 && suppression.allowed && (
               <Button 
                 variant="destructive" 
                 size="sm" 
@@ -180,6 +191,15 @@ export default function Pipeline() {
             )}
           </div>
         </div>
+        {!suppression.allowed && (
+          <p
+            className="mt-3 rounded-md border border-paper-200 bg-paper-50 px-3 py-2 text-xs text-ink-600"
+            data-testid="pipeline-suppression-read-only"
+            role="status"
+          >
+            {suppression.reason}
+          </p>
+        )}
       </div>
 
       {/* Table Content */}
@@ -191,6 +211,8 @@ export default function Pipeline() {
                 <Checkbox 
                   checked={leads.length > 0 && selectedIds.size === leads.length} 
                   onCheckedChange={handleSelectAll}
+                  disabled={!suppression.allowed}
+                  aria-label="Select all leads for suppression"
                 />
               </th>
               <th className="px-4 py-3 font-semibold text-ink-400 uppercase text-[10px] tracking-wider">Lead</th>
@@ -247,6 +269,8 @@ export default function Pipeline() {
                     <Checkbox 
                       checked={selectedIds.has(lead.id)}
                       onCheckedChange={() => handleToggleSelect(lead.id)}
+                      disabled={!suppression.allowed}
+                      aria-label={`Select ${lead.name} for suppression`}
                     />
                   </td>
                   <td className="px-4 py-3">
