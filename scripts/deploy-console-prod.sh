@@ -375,6 +375,7 @@ require_snapshot_release_file() {
 for release_file in \
   Dockerfile \
   docs/ops/production-api-upstream-url.sha256 \
+  docs/ops/production-clerk-auth.sha256 \
   docs/ops/production-clerk-publishable-key.sha256; do
   require_snapshot_release_file false "${release_file}" || exit 1
 done

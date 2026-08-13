@@ -60,8 +60,14 @@ test_source_contract() {
   assert_excludes "${REPO_ROOT}/Dockerfile" "FROM node:24-slim"
   assert_contains "${REPO_ROOT}/.github/workflows/ci.yml" "Production Console Image Contract"
   assert_contains "${REPO_ROOT}/.github/workflows/ci.yml" "console-release-scripts.test.sh"
+  assert_contains "${REPO_ROOT}/docs/ops/production-clerk-auth.sha256" \
+    "5eddc3f498e16df540776fa025bef86f741fae6815abfb9dd80652026b8956ad"
+  assert_contains "${REPO_ROOT}/scripts/verify-console-containerapp-config.sh" \
+    'CLERK_AUTH_PIN_VERSION="workforce-os-clerk-auth.v1"'
   assert_contains "${REPO_ROOT}/scripts/deploy-console-prod.sh" \
     'protected console releases are noninteractive and require --yes'
+  assert_contains "${REPO_ROOT}/scripts/deploy-console-prod.sh" \
+    'docs/ops/production-clerk-auth.sha256'
   assert_contains "${REPO_ROOT}/scripts/deploy-console-prod.sh" ') </dev/null &'
   assert_contains "${REPO_ROOT}/scripts/deploy-console-prod.sh" 'target_pid="$!"'
   assert_contains "${REPO_ROOT}/scripts/deploy-console-prod.sh" '-c credential.interactive=false'
@@ -69,6 +75,23 @@ test_source_contract() {
   assert_contains "${REPO_ROOT}/scripts/deploy-console-prod.sh" \
     'BASH_FUNC_*%%) controller_environment+=(-u "${environment_name}")'
   assert_contains "${REPO_ROOT}/scripts/deploy-console-prod.sh" '#!/bin/bash -p'
+  pass
+}
+
+test_clerk_auth_pin_vector() {
+  local actual expected
+  expected="5eddc3f498e16df540776fa025bef86f741fae6815abfb9dd80652026b8956ad"
+  actual="$({
+    printf '%s\0' \
+      "workforce-os-clerk-auth.v1" \
+      "CLERK_JWKS_URL=https://clerk.workforceos.xyz/.well-known/jwks.json" \
+      "CLERK_ISSUER=https://clerk.workforceos.xyz" \
+      "CLERK_DOMAIN=" \
+      "CLERK_AUDIENCE=" \
+      "CLERK_AUTHORIZED_PARTIES=https://workforceos.xyz"
+  } | openssl dgst -sha256 -r | awk '{ print $1 }')"
+  [[ "${actual}" == "${expected}" ]] ||
+    fail "Clerk auth canonical test vector changed: ${actual}"
   pass
 }
 
@@ -236,7 +259,9 @@ write_containerapp_fixture() {
             {name: "API_UPSTREAM_URL", value: "https://api.workforceos.xyz"},
             {name: "CLERK_JWKS_URL", value: "https://clerk.workforceos.xyz/.well-known/jwks.json"},
             {name: "CLERK_ISSUER", value: "https://clerk.workforceos.xyz"},
-            {name: "CLERK_AUTHORIZED_PARTIES", value: "https://workforceos.xyz,https://www.workforceos.xyz"}
+            {name: "CLERK_DOMAIN", value: ""},
+            {name: "CLERK_AUDIENCE", value: ""},
+            {name: "CLERK_AUTHORIZED_PARTIES", value: "https://workforceos.xyz"}
           ],
           probes: [{type: "Liveness", httpGet: {path: "/api/healthz", port: 8080, scheme: "HTTP"}}]
         }]
@@ -254,14 +279,20 @@ test_containerapp_verifier() {
   mkdir -p "${harness}/docs/ops"
   printf '%s\n' f6c46487188a7edd8c8d86cac11db16775ce7b2718875ce0b056b77ca614055d \
     >"${harness}/docs/ops/production-api-upstream-url.sha256"
+  printf '%s\n' 5eddc3f498e16df540776fa025bef86f741fae6815abfb9dd80652026b8956ad \
+    >"${harness}/docs/ops/production-clerk-auth.sha256"
   git -C "${harness}" init -q
   git -C "${harness}" config user.name "Release Test"
   git -C "${harness}" config user.email "release-test@example.invalid"
-  git -C "${harness}" add docs/ops/production-api-upstream-url.sha256
-  git -C "${harness}" commit -q -m "fixture: pin production API origin"
+  git -C "${harness}" add \
+    docs/ops/production-api-upstream-url.sha256 \
+    docs/ops/production-clerk-auth.sha256
+  git -C "${harness}" commit -q -m "fixture: pin production release trust configuration"
   commit="$(git -C "${harness}" rev-parse HEAD)"
   printf '%s\n' "$(printf 'a%.0s' {1..64})" \
     >"${harness}/docs/ops/production-api-upstream-url.sha256"
+  printf '%s\n' "$(printf 'b%.0s' {1..64})" \
+    >"${harness}/docs/ops/production-clerk-auth.sha256"
   image="ledgracr.azurecr.io/workforceos-fe@sha256:$(printf 'e%.0s' {1..64})"
   write_containerapp_fixture "${harness}/app.json" "${image}"
   jq -n --arg image "${image}" '{properties: {
@@ -329,6 +360,56 @@ EOF
   fi
   pass
 
+  jq '(.properties.template.containers[0].env[] | select(.name == "CLERK_JWKS_URL").value) = "https://attacker.example/.well-known/jwks.json"' \
+    "${harness}/app.json" >"${harness}/unreviewed-clerk-jwks-app.json"
+  if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/unreviewed-clerk-jwks-app.json" \
+    REVISION_JSON_FILE="${harness}/revision.json" \
+    "${harness}/scripts/verify-console-containerapp-config.sh" \
+    "${image}" "${commit}" >/dev/null 2>&1; then
+    fail "Container App verifier accepted an unreviewed Clerk JWKS URL"
+  fi
+  pass
+
+  jq '(.properties.template.containers[0].env[] | select(.name == "CLERK_ISSUER").value) = "https://attacker.example"' \
+    "${harness}/app.json" >"${harness}/unreviewed-clerk-issuer-app.json"
+  if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/unreviewed-clerk-issuer-app.json" \
+    REVISION_JSON_FILE="${harness}/revision.json" \
+    "${harness}/scripts/verify-console-containerapp-config.sh" \
+    "${image}" "${commit}" >/dev/null 2>&1; then
+    fail "Container App verifier accepted an unreviewed Clerk issuer"
+  fi
+  pass
+
+  jq '(.properties.template.containers[0].env[] | select(.name == "CLERK_DOMAIN").value) = "https://attacker.example"' \
+    "${harness}/app.json" >"${harness}/unreviewed-clerk-domain-app.json"
+  if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/unreviewed-clerk-domain-app.json" \
+    REVISION_JSON_FILE="${harness}/revision.json" \
+    "${harness}/scripts/verify-console-containerapp-config.sh" \
+    "${image}" "${commit}" >/dev/null 2>&1; then
+    fail "Container App verifier accepted an unreviewed Clerk domain"
+  fi
+  pass
+
+  jq '(.properties.template.containers[0].env[] | select(.name == "CLERK_AUDIENCE").value) = "attacker-audience"' \
+    "${harness}/app.json" >"${harness}/unreviewed-clerk-audience-app.json"
+  if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/unreviewed-clerk-audience-app.json" \
+    REVISION_JSON_FILE="${harness}/revision.json" \
+    "${harness}/scripts/verify-console-containerapp-config.sh" \
+    "${image}" "${commit}" >/dev/null 2>&1; then
+    fail "Container App verifier accepted an unreviewed Clerk audience"
+  fi
+  pass
+
+  jq '(.properties.template.containers[0].env[] | select(.name == "CLERK_AUTHORIZED_PARTIES").value) = "https://attacker.example"' \
+    "${harness}/app.json" >"${harness}/unreviewed-clerk-parties-app.json"
+  if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/unreviewed-clerk-parties-app.json" \
+    REVISION_JSON_FILE="${harness}/revision.json" \
+    "${harness}/scripts/verify-console-containerapp-config.sh" \
+    "${image}" "${commit}" >/dev/null 2>&1; then
+    fail "Container App verifier accepted unreviewed Clerk authorized parties"
+  fi
+  pass
+
   jq '.properties.healthState = "Unhealthy"' \
     "${harness}/revision.json" >"${harness}/unhealthy-revision.json"
   if env PATH="${harness}/bin:${PATH}" APP_JSON_FILE="${harness}/app.json" \
@@ -344,6 +425,8 @@ EOF
   cp "${REPO_ROOT}/scripts/verify-console-containerapp-config.sh" "${snapshot_root}/scripts/"
   printf '%s\n' f6c46487188a7edd8c8d86cac11db16775ce7b2718875ce0b056b77ca614055d \
     >"${snapshot_root}/docs/ops/production-api-upstream-url.sha256"
+  printf '%s\n' 5eddc3f498e16df540776fa025bef86f741fae6815abfb9dd80652026b8956ad \
+    >"${snapshot_root}/docs/ops/production-clerk-auth.sha256"
   chmod +x "${snapshot_root}/scripts/verify-console-containerapp-config.sh"
   snapshot_root="$(cd "${snapshot_root}" && pwd -P)"
   wrong_commit="$(printf 'f%.0s' {1..40})"
@@ -593,6 +676,8 @@ EOF
     >"${HARNESS}/repo/docs/ops/production-clerk-publishable-key.sha256"
   printf '%s\n' f6c46487188a7edd8c8d86cac11db16775ce7b2718875ce0b056b77ca614055d \
     >"${HARNESS}/repo/docs/ops/production-api-upstream-url.sha256"
+  printf '%s\n' 5eddc3f498e16df540776fa025bef86f741fae6815abfb9dd80652026b8956ad \
+    >"${HARNESS}/repo/docs/ops/production-clerk-auth.sha256"
   : >"${CALL_LOG}"
   : >"${UPDATE_LOG}"
   : >"${SHOW_LOG}"
@@ -1083,6 +1168,8 @@ test_archive_ignores_uncommitted_attributes() {
   cp "${REPO_ROOT}/Dockerfile" "${repo}/"
   printf '%s\n' "$(printf 'a%.0s' {1..64})" \
     >"${repo}/docs/ops/production-api-upstream-url.sha256"
+  printf '%s\n' "$(printf 'c%.0s' {1..64})" \
+    >"${repo}/docs/ops/production-clerk-auth.sha256"
   printf '%s\n' "$(printf 'b%.0s' {1..64})" \
     >"${repo}/docs/ops/production-clerk-publishable-key.sha256"
   printf '%s\n' 'archive-decoy.txt export-ignore' >"${repo}/.gitattributes"
@@ -1145,6 +1232,8 @@ test_snapshot_pin_component_symlink_rejected() {
   chmod +x "${snapshot_root}/scripts/"*.sh
   printf '%s\n' "$(printf 'c%.0s' {1..64})" \
     >"${harness}/outside-ops/production-api-upstream-url.sha256"
+  printf '%s\n' "$(printf 'f%.0s' {1..64})" \
+    >"${harness}/outside-ops/production-clerk-auth.sha256"
   printf '%s\n' "$(printf 'd%.0s' {1..64})" \
     >"${harness}/outside-ops/production-clerk-publishable-key.sha256"
   ln -s "${harness}/outside-ops" "${snapshot_root}/docs/ops"
@@ -1171,6 +1260,56 @@ test_snapshot_pin_component_symlink_rejected() {
   assert_excludes "${harness}/symlink.stderr" \
     "ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED=true is required"
   [[ -d "${snapshot_root}" ]] || fail "snapshot child deleted the symlink fixture root"
+  pass
+}
+
+test_snapshot_clerk_auth_pin_symlink_rejected() {
+  local commit harness snapshot_root token
+
+  harness="$(mktemp -d)"
+  TEMP_DIRS+=("${harness}")
+  snapshot_root="${harness}/workforce-os-console-release.clerk-pin-symlink"
+  mkdir -p "${snapshot_root}/scripts" "${snapshot_root}/docs/ops" "${harness}/outside-ops"
+  snapshot_root="$(cd "${snapshot_root}" && pwd -P)"
+  cp "${REPO_ROOT}/scripts/deploy-console-prod.sh" \
+    "${REPO_ROOT}/scripts/verify-console-containerapp-config.sh" \
+    "${REPO_ROOT}/scripts/verify-console-image.sh" \
+    "${REPO_ROOT}/scripts/verify-github-console-release-ci.sh" \
+    "${REPO_ROOT}/scripts/verify-registry-console-image.sh" \
+    "${snapshot_root}/scripts/"
+  cp "${REPO_ROOT}/Dockerfile" "${snapshot_root}/"
+  chmod +x "${snapshot_root}/scripts/"*.sh
+  printf '%s\n' "$(printf 'a%.0s' {1..64})" \
+    >"${snapshot_root}/docs/ops/production-api-upstream-url.sha256"
+  printf '%s\n' "$(printf 'b%.0s' {1..64})" \
+    >"${snapshot_root}/docs/ops/production-clerk-publishable-key.sha256"
+  printf '%s\n' "$(printf 'c%.0s' {1..64})" \
+    >"${harness}/outside-ops/production-clerk-auth.sha256"
+  ln -s "${harness}/outside-ops/production-clerk-auth.sha256" \
+    "${snapshot_root}/docs/ops/production-clerk-auth.sha256"
+  token="$(printf 'd%.0s' {1..64})"
+  printf '%s\n' "${token}" >"${harness}/token"
+  commit="$(printf 'e%.0s' {1..40})"
+
+  if env \
+    CONSOLE_RELEASE_STAGE=exact-commit-controller \
+    CONSOLE_RELEASE_SNAPSHOT_ROOT="${snapshot_root}" \
+    CONSOLE_RELEASE_COMMIT="${commit}" \
+    CONSOLE_RELEASE_BRANCH=main \
+    CONSOLE_RELEASE_SNAPSHOT_PARENT_PID="$$" \
+    CONSOLE_RELEASE_SNAPSHOT_TOKEN="${token}" \
+    CONSOLE_RELEASE_SNAPSHOT_TOKEN_FILE="${harness}/token" \
+    VITE_CLERK_PUBLISHABLE_KEY=pk_test_c2FmZS10ZXN0LW9ubHkk \
+    ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED=false \
+    "${snapshot_root}/scripts/deploy-console-prod.sh" --yes \
+    >"${harness}/symlink.stdout" 2>"${harness}/symlink.stderr"; then
+    fail "snapshot controller accepted a symlinked Clerk auth pin"
+  fi
+  assert_contains "${harness}/symlink.stderr" \
+    "private snapshot release file is missing or unsafe: docs/ops/production-clerk-auth.sha256"
+  assert_excludes "${harness}/symlink.stderr" \
+    "ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED=true is required"
+  [[ -d "${snapshot_root}" ]] || fail "snapshot child deleted the Clerk auth pin fixture root"
   pass
 }
 
@@ -1201,6 +1340,7 @@ test_controller_never_deletes_supplied_snapshot_path() {
 }
 
 test_source_contract
+test_clerk_auth_pin_vector
 test_registry_verifier
 test_github_ci_verifier
 test_containerapp_verifier
@@ -1211,6 +1351,7 @@ test_real_git_environment_isolation
 test_real_git_lease_cas_lifecycle
 test_archive_ignores_uncommitted_attributes
 test_snapshot_pin_component_symlink_rejected
+test_snapshot_clerk_auth_pin_symlink_rejected
 test_controller_never_deletes_supplied_snapshot_path
 
 echo "Console release script tests passed: ${TESTS_PASSED}"

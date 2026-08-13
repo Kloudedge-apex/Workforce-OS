@@ -13,7 +13,7 @@ mutable checkout only selects `HEAD`; uncommitted working-tree and index bytes
 are never inspected or released. A parent-owned private Git object view creates
 the snapshot without source-repository config, hooks, info attributes, or
 inherited Git routing. The parent removes that exact temporary path after the
-child exits. The controller, every release helper, both pins, and the ACR build
+child exits. The controller, every release helper, all three pins, and the ACR build
 context all run from that exact-commit snapshot, never from the worktree.
 
 The snapshot-root shape and realpath checks, parent-PID match, and random
@@ -97,7 +97,9 @@ The read-only `scripts/verify-console-containerapp-config.sh` guard requires:
 - a TLS-only ingress and an HTTPS `API_UPSTREAM_URL` whose exact SHA-256 is
   pinned in `docs/ops/production-api-upstream-url.sha256` at the exact candidate
   commit;
-- explicit Clerk JWKS, issuer/domain, and authorized-party configuration;
+- explicit Clerk JWKS, issuer/domain, audience, and authorized-party
+  configuration whose exact versioned tuple is pinned in
+  `docs/ops/production-clerk-auth.sha256` at the exact candidate commit;
 - `DEV_TRUST_X_ORG_ID` unset or `false`; and
 - a healthy, active latest revision running the expected digest.
 
@@ -120,7 +122,38 @@ release path reads that pin from the exact candidate commit with local Git
 replacement objects disabled rather than from the mutable working tree,
 matches the supplied key to it, passes it as a masked ACR
 build argument, and verifies the same digest in the resulting image label. The
-Container App verifier likewise reads the API-upstream pin from that commit.
+Container App verifier likewise reads the API-upstream and Clerk-auth pins from
+that commit.
+
+The BFF's Clerk verifier trust root is independently pinned in
+`docs/ops/production-clerk-auth.sha256`. The hash input is six fields in this
+exact order, with a NUL byte after every field: the version marker
+`workforce-os-clerk-auth.v1`, then five self-describing `NAME=value` fields.
+Empty values retain their field name and equals sign. The reviewed v1 tuple is:
+
+1. `CLERK_JWKS_URL=https://clerk.workforceos.xyz/.well-known/jwks.json`
+2. `CLERK_ISSUER=https://clerk.workforceos.xyz`
+3. `CLERK_DOMAIN=`
+4. `CLERK_AUDIENCE=`
+5. `CLERK_AUTHORIZED_PARTIES=https://workforceos.xyz`
+
+That framing hashes to
+`5eddc3f498e16df540776fa025bef86f741fae6815abfb9dd80652026b8956ad`.
+Any change to one of those five runtime values requires a reviewed source-pin
+change before the Container App can pass release verification.
+
+The legacy Container Apps do not satisfy this tuple. The console and backend
+release controllers verify existing configuration before building an artifact
+or changing an image, so the first release intentionally stops until a
+separately authorized provider configuration change normalizes `nikxius-web`,
+`apex-gtm-api`, and `apex-gtm-worker` to the exact five values above. That
+change must use the future protected OIDC release authority, not a local user
+session. Capture the prior revisions and sanitized non-secret configuration
+evidence, update the API and worker as one coordinated change, apply the same
+tuple to the console, and run both repository verifiers against the active
+immutable image digests. Restore the captured revisions if authentication
+smoke checks fail. Do not weaken or bypass the preflight to admit legacy
+configuration.
 
 The future protected job must inject the reviewed
 `VITE_CLERK_PUBLISHABLE_KEY` and the authority attestation without printing

@@ -22,24 +22,37 @@ for REQUIRED_COMMAND in az git jq openssl realpath; do
   fi
 done
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
 UPSTREAM_PIN_PATH="docs/ops/production-api-upstream-url.sha256"
+CLERK_AUTH_PIN_PATH="docs/ops/production-clerk-auth.sha256"
+CLERK_AUTH_PIN_VERSION="workforce-os-clerk-auth.v1"
 if [[ -n "${CONSOLE_RELEASE_SNAPSHOT_ROOT:-}" ]]; then
   if [[ "${EXPECTED_COMMIT}" != "${CONSOLE_RELEASE_COMMIT:-}" ||
     "${REPO_ROOT}" != "${CONSOLE_RELEASE_SNAPSHOT_ROOT}" ||
-    "$(basename "${REPO_ROOT}")" != workforce-os-console-release.* ||
-    ! -f "${REPO_ROOT}/${UPSTREAM_PIN_PATH}" ||
-    -L "${REPO_ROOT}/${UPSTREAM_PIN_PATH}" ||
-    "$(realpath "${REPO_ROOT}/${UPSTREAM_PIN_PATH}" 2>/dev/null || true)" != "${REPO_ROOT}/${UPSTREAM_PIN_PATH}" ]]; then
+    "$(basename "${REPO_ROOT}")" != workforce-os-console-release.* ]]; then
     echo "ERROR: Container App verification escaped the private release snapshot" >&2
     exit 1
   fi
+  for PIN_PATH in "${UPSTREAM_PIN_PATH}" "${CLERK_AUTH_PIN_PATH}"; do
+    if [[ ! -f "${REPO_ROOT}/${PIN_PATH}" ||
+      -L "${REPO_ROOT}/${PIN_PATH}" ||
+      "$(realpath "${REPO_ROOT}/${PIN_PATH}" 2>/dev/null || true)" != "${REPO_ROOT}/${PIN_PATH}" ]]; then
+      echo "ERROR: Container App verification escaped the private release snapshot" >&2
+      exit 1
+    fi
+  done
   UPSTREAM_PIN_SOURCE="$(<"${REPO_ROOT}/${UPSTREAM_PIN_PATH}")"
+  CLERK_AUTH_PIN_SOURCE="$(<"${REPO_ROOT}/${CLERK_AUTH_PIN_PATH}")"
 else
   if ! UPSTREAM_PIN_SOURCE="$(GIT_NO_REPLACE_OBJECTS=1 git -C "${REPO_ROOT}" show \
     "${EXPECTED_COMMIT}:${UPSTREAM_PIN_PATH}")"; then
     echo "ERROR: reviewed production API upstream pin is missing from ${EXPECTED_COMMIT}" >&2
+    exit 1
+  fi
+  if ! CLERK_AUTH_PIN_SOURCE="$(GIT_NO_REPLACE_OBJECTS=1 git -C "${REPO_ROOT}" show \
+    "${EXPECTED_COMMIT}:${CLERK_AUTH_PIN_PATH}")"; then
+    echo "ERROR: reviewed production Clerk auth pin is missing from ${EXPECTED_COMMIT}" >&2
     exit 1
   fi
 fi
@@ -47,6 +60,12 @@ PINNED_UPSTREAM_SHA256="$(awk '!/^#/ && NF { print $1; exit }' \
   <<<"${UPSTREAM_PIN_SOURCE}")"
 if [[ ! "${PINNED_UPSTREAM_SHA256}" =~ ^[0-9a-f]{64}$ ]]; then
   echo "ERROR: production API upstream is not configured in reviewed source" >&2
+  exit 1
+fi
+PINNED_CLERK_AUTH_SHA256="$(awk '!/^[[:space:]]*#/ && NF { print }' \
+  <<<"${CLERK_AUTH_PIN_SOURCE}")"
+if [[ ! "${PINNED_CLERK_AUTH_SHA256}" =~ ^[0-9a-f]{64}$ ]]; then
+  echo "ERROR: production Clerk auth is not configured in reviewed source" >&2
   exit 1
 fi
 
@@ -135,6 +154,7 @@ fi
 
 CLERK_ISSUER="$(env_value CLERK_ISSUER)"
 CLERK_DOMAIN="$(env_value CLERK_DOMAIN)"
+CLERK_AUDIENCE="$(env_value CLERK_AUDIENCE)"
 if [[ -z "${CLERK_ISSUER}" && -z "${CLERK_DOMAIN}" ]]; then
   echo "ERROR: CLERK_ISSUER or CLERK_DOMAIN is required" >&2
   exit 1
@@ -161,6 +181,20 @@ for PARTY in "${PARTY_VALUES[@]}"; do
     exit 1
   fi
 done
+
+ACTUAL_CLERK_AUTH_SHA256="$({
+  printf '%s\0' \
+    "${CLERK_AUTH_PIN_VERSION}" \
+    "CLERK_JWKS_URL=${CLERK_JWKS_URL}" \
+    "CLERK_ISSUER=${CLERK_ISSUER}" \
+    "CLERK_DOMAIN=${CLERK_DOMAIN}" \
+    "CLERK_AUDIENCE=${CLERK_AUDIENCE}" \
+    "CLERK_AUTHORIZED_PARTIES=${CLERK_PARTIES}"
+} | openssl dgst -sha256 -r | awk '{ print $1 }')"
+if [[ "${ACTUAL_CLERK_AUTH_SHA256}" != "${PINNED_CLERK_AUTH_SHA256}" ]]; then
+  echo "ERROR: Clerk auth configuration does not match reviewed source" >&2
+  exit 1
+fi
 
 require_value "$(probe_path Liveness)" "/api/healthz" "liveness probe"
 
