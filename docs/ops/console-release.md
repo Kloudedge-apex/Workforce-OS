@@ -93,6 +93,26 @@ source-review defense, not runtime authority: only protected reviewed source
 combined with an approved and successfully audited production environment can
 authorize the release job.
 
+## Pre-bootstrap candidate artifact
+
+The initial backend bootstrap requires an immutable console digest before it
+may acquire production controls. Build that digest from the exact protected
+`main` head through the separate manual-only
+`.github/workflows/build-production-candidate.yml` lane. The lane is bound to
+the independently protected `workforce-os-production-build` environment,
+requires exact-commit CI, reads the Clerk publishable key only from that
+environment's reviewed secret, checks it against the committed hash and
+`clerk.workforceos.xyz`, and uploads a private `git archive` context to ACR.
+
+That job may create only the full-source-SHA and ACR-run-ID tags for
+`workforceos-fe`. It refuses an existing source tag, resolves both tags from
+the completed ACR run to one digest, pulls and verifies the Linux/amd64 image,
+and emits sanitized evidence containing hashes rather than the key. Its OIDC
+principal must have ACR build/pull access only and no Container App authority.
+Review and hash the completed evidence before binding its commit, workflow run,
+and digest into the bootstrap request. Adding or merging the workflow does not
+authorize its ACR write, and the candidate lane never deploys `nikxius-web`.
+
 ## Container App mutation authority
 
 The documented stable Azure Container Apps update contract through

@@ -32,6 +32,9 @@ jobs:
       - name: Verify production release workflow source
         run: scripts/verify-production-release-workflow.sh
 
+      - name: Verify production candidate-build workflow source
+        run: scripts/verify-production-candidate-build-workflow.sh
+
       - name: Install pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
@@ -47,7 +50,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Test release scripts
-        run: bash scripts/tests/console-release-scripts.test.sh
+        run: |
+          node --test scripts/tests/production-candidate-build-workflow.test.mjs
+          bash scripts/tests/console-release-scripts.test.sh
 
       - name: Regenerate API clients
         run: pnpm --filter @workspace/api-spec run codegen
