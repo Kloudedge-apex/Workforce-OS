@@ -18,6 +18,9 @@ const mocks = vi.hoisted(() => ({
   orgCapability: true as boolean | null,
   suppressionCapability: true as boolean | null,
   suppressionRows: [] as Array<Record<string, unknown>>,
+  welcomeError: false,
+  welcomeOptions: undefined as any,
+  refetchWelcome: vi.fn(),
   listSuppressionOptions: undefined as any,
   createSuppressionOptions: undefined as any,
   createSuppression: vi.fn(),
@@ -135,6 +138,38 @@ vi.mock("@workspace/api-client-react", async (importOriginal) => {
       isError: false,
       refetch: vi.fn(),
     }),
+    useGetWelcomeStatus: (options: unknown) => {
+      mocks.welcomeOptions = options;
+      return {
+        data: mocks.welcomeError
+          ? undefined
+          : {
+              organization: { nameSet: false, websiteSet: false, complete: false },
+              senderIdentity: {
+                senderNameSet: false,
+                countrySet: false,
+                physicalAddressSet: false,
+                complete: false,
+              },
+              icp: { usable: false, complete: false },
+              mailbox: { connected: false, complete: false },
+              sendReadiness: {
+                liveSendAllowed: false,
+                physicalAddressSet: false,
+                senderNameSet: false,
+                countrySet: false,
+                mailboxConnected: false,
+                dailyCapRemaining: null,
+              },
+              complete: false,
+              currentStep: "organization",
+              readyForLiveSend: false,
+            },
+        isLoading: false,
+        isError: mocks.welcomeError,
+        refetch: mocks.refetchWelcome,
+      };
+    },
     useUpdateOrgSettings: () => ({ mutate: vi.fn(), isPending: false }),
     useDisconnectIntegration: (options: unknown) => {
       mocks.disconnectOptions = options as typeof mocks.disconnectOptions;
@@ -200,6 +235,9 @@ describe("Settings Gmail readiness refresh", () => {
     mocks.integrationStatus = "available";
     mocks.mailboxReady = true;
     mocks.location = "/settings/integrations";
+    mocks.welcomeError = false;
+    mocks.welcomeOptions = undefined;
+    mocks.refetchWelcome.mockReset();
     mocks.mailboxCapability = true;
     mocks.orgCapability = true;
     mocks.disconnectOptions = undefined;
@@ -266,6 +304,17 @@ describe("Settings Gmail readiness refresh", () => {
       expect.arrayContaining(["flex-col", "md:flex-row"]),
     );
     expect(mobileTabs?.className.split(" ")).toContain("w-full");
+  });
+
+  it("shows a bounded setup error without automatically refetching on remount", async () => {
+    mocks.location = "/settings/setup";
+    mocks.welcomeError = true;
+
+    await renderSettings();
+
+    expect(container.textContent).toContain("Couldn't verify setup status");
+    expect(mocks.welcomeOptions?.query?.refetchOnMount).toBe(false);
+    expect(mocks.refetchWelcome).not.toHaveBeenCalled();
   });
 
   it("refreshes readiness with neutral copy when polling confirms Gmail connected", async () => {

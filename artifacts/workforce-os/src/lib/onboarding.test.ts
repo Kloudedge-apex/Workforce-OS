@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { homePathForWelcome } from "./onboarding";
+import {
+  homePathForWelcome,
+  isSetupRoute,
+  shouldHoldForWelcomeStatus,
+} from "./onboarding";
 
 describe("homePathForWelcome", () => {
   const complete = {
@@ -24,6 +28,28 @@ describe("homePathForWelcome", () => {
     currentStep: "complete",
     readyForLiveSend: false,
   };
+
+  it("lets setup render its own loading and error states", () => {
+    for (const route of [
+      "/settings",
+      "/settings/",
+      "/settings/setup",
+      "/settings/org",
+      "/settings/icp/",
+      "/settings/integrations",
+    ]) {
+      expect(isSetupRoute(route)).toBe(true);
+      expect(shouldHoldForWelcomeStatus(route, true)).toBe(false);
+    }
+  });
+
+  it("holds every non-setup route while welcome status is loading", () => {
+    for (const route of ["/", "/today", "/pipeline", "/settings/suppressions"]) {
+      expect(isSetupRoute(route)).toBe(false);
+      expect(shouldHoldForWelcomeStatus(route, true)).toBe(true);
+      expect(shouldHoldForWelcomeStatus(route, false)).toBe(false);
+    }
+  });
 
   it("opens the product only for an explicit backend completion verdict", () => {
     expect(homePathForWelcome(complete)).toBe("/today");
