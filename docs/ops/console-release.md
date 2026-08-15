@@ -126,8 +126,11 @@ all use this one provider-enforced global mutation lease. It is acquired before
 any Git lock or ACR artifact write and released last only after exact-owner Git
 cleanup. Post-mutation uncertainty retains both locks. A controller never
 breaks a lease or deletes the state blob. The protected OIDC identity therefore
-needs exact-blob property/lease data-plane authority, while per-repository blob
-identities and repository/org variable fallbacks are rejected.
+needs ABAC-conditioned exact-container-and-path blob read/write data-plane
+authority with blob deletion excluded, while per-repository blob identities and
+repository/org variable fallbacks are rejected. Azure maps lease acquire,
+renew, release, and break to the same blob-write action, so RBAC cannot deny
+only break; protected source review enforces that controller prohibition.
 
 The documented stable Azure Container Apps update contract through
 `2026-01-01` exposes no ETag/`If-Match` request precondition. This controller
