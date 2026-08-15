@@ -5,10 +5,12 @@
  * Workforce OS v2 API
  * OpenAPI spec version: 0.1.0
  */
+import type { ArtifactApprovalEligibility } from './artifactApprovalEligibility';
 import type { ArtifactRefusal } from './artifactRefusal';
 import type { EvaluatorScores } from './evaluatorScores';
 import type { FactCitation } from './factCitation';
 import type { OutreachArtifactChannel } from './outreachArtifactChannel';
+import type { OutreachArtifactPurpose } from './outreachArtifactPurpose';
 import type { OutreachArtifactStatus } from './outreachArtifactStatus';
 import type { Recipient } from './recipient';
 import type { SendPolicy } from './sendPolicy';
@@ -16,14 +18,18 @@ import type { SendPolicy } from './sendPolicy';
 export interface OutreachArtifact {
   id: string;
   status: OutreachArtifactStatus;
+  purpose: OutreachArtifactPurpose;
   channel: OutreachArtifactChannel;
   recipient: Recipient;
   subject: string;
-  bodyHtml: string;
+  bodyText: string;
+  /** @nullable */
+  bodyHtml: string | null;
   citations: FactCitation[];
   evaluatorScores: EvaluatorScores | null;
   sendPolicy: SendPolicy | null;
   refusal: ArtifactRefusal;
+  approvalEligibility: ArtifactApprovalEligibility;
   /** @nullable */
   langsmithRunId: string | null;
   createdAt: string;
@@ -34,6 +40,10 @@ export interface OutreachArtifact {
   sentAt: string | null;
   /** @nullable */
   rejectionReason: string | null;
+  /** @nullable */
+  failureReason: string | null;
+  /** @nullable */
+  failedAt: string | null;
   /** @nullable */
   statusReason: string | null;
   /** @nullable */

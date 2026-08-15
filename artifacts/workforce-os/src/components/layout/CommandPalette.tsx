@@ -2,17 +2,28 @@ import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useLocation } from "wouter";
 import {
+  useGetWelcomeStatus,
   useTriggerRun,
 } from "@workspace/api-client-react";
 import { toast } from "sonner";
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { LayoutDashboard, Target, Activity, Inbox, Settings, PlayCircle, History } from "lucide-react";
 import { staggerContainer, staggerItem, cardEnter, useReducedMotionSafe } from "@/lib/motion";
+import { isCompleteWelcomeStatus } from "@/lib/onboarding";
+import { showTriggerError } from "@/lib/runTrigger";
+
+export function canTriggerPipelineFromCommand(status: unknown): boolean {
+  return isCompleteWelcomeStatus(status);
+}
 
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [, setLocation] = useLocation();
   const reduce = useReducedMotionSafe();
+  const { data: welcomeStatus } = useGetWelcomeStatus({
+    query: { queryKey: ["getWelcomeStatus"] },
+  });
+  const setupComplete = canTriggerPipelineFromCommand(welcomeStatus);
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -36,7 +47,7 @@ export function CommandPalette() {
           toast.error("Run not started", { description: d.message });
         }
       },
-      onError: () => toast.error("Failed to start run"),
+      onError: (err) => showTriggerError(err, [], setLocation),
     },
   });
 
@@ -127,11 +138,13 @@ export function CommandPalette() {
               <motion.div variants={reduce ? undefined : staggerItem}>
                 <CommandItem
                   className="hover-elevate active-elevate-2"
-                  disabled={triggering}
-                  onSelect={() => runCommand(() => triggerRun())}
+                  disabled={triggering || !setupComplete}
+                  onSelect={() => {
+                    if (setupComplete) runCommand(() => triggerRun());
+                  }}
                 >
                   <PlayCircle className="mr-2 h-4 w-4 text-rust-500" />
-                  <span>Trigger Pipeline</span>
+                  <span>{setupComplete ? "Trigger Pipeline" : "Complete setup to trigger"}</span>
                   {triggering && <span className="ml-auto text-xs text-ink-400">Starting…</span>}
                 </CommandItem>
               </motion.div>

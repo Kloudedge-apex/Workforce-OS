@@ -1,7 +1,11 @@
 import React from "react";
 import { useRoute, useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
-import { useGetRun, customFetch } from "@workspace/api-client-react";
+import {
+  useGetOrgSettings,
+  useGetRun,
+  customFetch,
+} from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +19,7 @@ import { cardEnter, springHover, useReducedMotionSafe } from "@/lib/motion";
 import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 import { CountUp } from "@/components/motion/CountUp";
 import { isUnavailable, UnavailableState } from "@/lib/unavailable";
+import { decisionErrorMessage } from "@/lib/decisionError";
 
 const STATUS_STYLES: Record<string, string> = {
   COMPLETED: "bg-signal-positive/10 text-signal-positive border-signal-positive/20",
@@ -23,6 +28,65 @@ const STATUS_STYLES: Record<string, string> = {
   FAILED: "bg-rust-500/10 text-rust-500 border-rust-500/20",
   CANCELLED: "bg-paper-100 text-ink-600 border-paper-200",
 };
+
+type RunReviewAccess =
+  | { allowed: true; reason: null }
+  | { allowed: false; reason: string };
+
+export const RUN_DETAIL_POLL_INTERVAL_MS = 2_000;
+
+function runStatusFromData(data: unknown): string | null {
+  if (typeof data !== "object" || data === null || !("run" in data)) {
+    return null;
+  }
+
+  const run = (data as { run?: unknown }).run;
+  if (typeof run !== "object" || run === null || !("status" in run)) {
+    return null;
+  }
+
+  return typeof (run as { status?: unknown }).status === "string"
+    ? (run as { status: string }).status
+    : null;
+}
+
+/**
+ * Poll only while the view can still change without another user action.
+ * AWAITING_APPROVAL is otherwise stable, while RUNNING is worker-owned async
+ * progress and a submitted decision must be observed until that status moves.
+ */
+export function runDetailRefetchInterval(
+  data: unknown,
+  decisionSettling: boolean,
+): number | false {
+  const status = runStatusFromData(data);
+  if (status === "RUNNING") return RUN_DETAIL_POLL_INTERVAL_MS;
+  if (status === "AWAITING_APPROVAL" && decisionSettling) {
+    return RUN_DETAIL_POLL_INTERVAL_MS;
+  }
+  return false;
+}
+
+/**
+ * The existing `canReviewArtifacts` field is backed by the same upstream
+ * AdminOrManagerGuard that protects run approve/reject. Treat every value other
+ * than an explicit true as read-only so a missing or failed capability probe
+ * can never expose run decision controls.
+ */
+export function runReviewAccess(value: unknown): RunReviewAccess {
+  if (value === true) return { allowed: true, reason: null };
+  if (value === false) {
+    return {
+      allowed: false,
+      reason: "Read-only: your workspace role cannot approve or reject runs.",
+    };
+  }
+  return {
+    allowed: false,
+    reason:
+      "Read-only: review capability is unavailable, so run approve and reject actions are disabled.",
+  };
+}
 
 const NODE_ICONS: Record<string, React.ReactNode> = {
   agent_run: <Bot className="h-3.5 w-3.5" />,
@@ -44,31 +108,6 @@ const NODE_DOT_COLORS: Record<string, string> = {
 // ── Run-level HITL (approve / reject) ────────────────────────────────────────
 
 /**
- * PURE: turn a failed run-decision call into the message we toast. customFetch
- * throws an ApiError carrying the parsed BFF body in `.data`; we surface the
- * BFF/upstream `message` VERBATIM when one exists (e.g. the 409 "Graph run is
- * COMPLETED, not AWAITING_APPROVAL" when someone else already decided), then
- * the `error` marker the BFF uses ("Not found" / "upstream" / "internal"),
- * then the error's own message. Never hides the real reason behind a generic
- * line.
- */
-export function decisionErrorMessage(err: unknown): string {
-  if (err && typeof err === "object" && "data" in err) {
-    const data = (err as { data?: unknown }).data;
-    if (data && typeof data === "object") {
-      const rec = data as Record<string, unknown>;
-      if (typeof rec.message === "string" && rec.message.trim() !== "") return rec.message;
-      if (typeof rec.error === "string" && rec.error.trim() !== "") {
-        const status = (err as { status?: unknown }).status;
-        return typeof status === "number" ? `${rec.error} (HTTP ${status})` : rec.error;
-      }
-    }
-  }
-  if (err instanceof Error && err.message) return err.message;
-  return "Request failed — please try again.";
-}
-
-/**
  * POST the reviewer's decision to the BFF run-HITL proxy
  * (POST /api/runs/:id/approve | /reject). These routes are not in the
  * generated client yet (openapi spec regen pending), so we go through the
@@ -78,7 +117,16 @@ export function decisionErrorMessage(err: unknown): string {
  * No optimistic flips: the run row (refetched via `onSettled`) is the only
  * source of truth for whether the decision actually applied.
  */
-function useRunDecision(id: string, decision: "approve" | "reject", onSettled: () => void) {
+interface RunDecisionLifecycle {
+  onError: () => void;
+  onSettled: () => void;
+}
+
+function useRunDecision(
+  id: string,
+  decision: "approve" | "reject",
+  lifecycle: RunDecisionLifecycle,
+) {
   return useMutation({
     mutationFn: () =>
       customFetch<{ status?: string }>(
@@ -94,8 +142,11 @@ function useRunDecision(id: string, decision: "approve" | "reject", onSettled: (
           : "Rejected — the run will wind down without drafting",
       );
     },
-    onError: (err: unknown) => toast.error(decisionErrorMessage(err)),
-    onSettled,
+    onError: (err: unknown) => {
+      lifecycle.onError();
+      toast.error(decisionErrorMessage(err));
+    },
+    onSettled: lifecycle.onSettled,
   });
 }
 
@@ -196,13 +247,68 @@ export default function RunDetail() {
   const [, navigate] = useLocation();
   const id = params?.id ?? "";
 
-  const { data, isLoading, isError, refetch } = useGetRun(id, {
-    query: { queryKey: ["getRun", id], enabled: !!id },
-  });
+  const [decisionSettling, setDecisionSettling] = React.useState(false);
+  const decisionLock = React.useRef(false);
 
-  const approve = useRunDecision(id, "approve", () => void refetch());
-  const reject = useRunDecision(id, "reject", () => void refetch());
-  const deciding = approve.isPending || reject.isPending;
+  const { data, isLoading, isError, refetch } = useGetRun(id, {
+    query: {
+      queryKey: ["getRun", id],
+      enabled: !!id,
+      refetchInterval: (query) =>
+        runDetailRefetchInterval(query.state.data, decisionSettling),
+    },
+  });
+  const { data: orgSettings } = useGetOrgSettings({
+    query: { queryKey: ["getOrgSettings"] },
+  });
+  const reviewAccess = runReviewAccess(orgSettings?.canReviewArtifacts);
+
+  const releaseDecisionLock = React.useCallback(() => {
+    decisionLock.current = false;
+    setDecisionSettling(false);
+  }, []);
+
+  React.useEffect(() => {
+    releaseDecisionLock();
+  }, [id, releaseDecisionLock]);
+
+  const runStatus = runStatusFromData(data);
+  React.useEffect(() => {
+    // Unknown data during a refetch must not reopen the controls. Release only
+    // after the server reports a concrete status transition (or on error/id
+    // change through the explicit lifecycle handlers above).
+    if (runStatus !== null && runStatus !== "AWAITING_APPROVAL") {
+      releaseDecisionLock();
+    }
+  }, [releaseDecisionLock, runStatus]);
+
+  const decisionLifecycle: RunDecisionLifecycle = {
+    onError: releaseDecisionLock,
+    onSettled: () => void refetch(),
+  };
+  const approve = useRunDecision(id, "approve", decisionLifecycle);
+  const reject = useRunDecision(id, "reject", decisionLifecycle);
+  const deciding = decisionSettling || approve.isPending || reject.isPending;
+  const handleApprove = () => {
+    if (!reviewAccess.allowed) {
+      toast.error(reviewAccess.reason);
+      return;
+    }
+    if (decisionLock.current || deciding) return;
+    decisionLock.current = true;
+    setDecisionSettling(true);
+    approve.mutate();
+  };
+  const handleReject = () => {
+    if (!reviewAccess.allowed) {
+      toast.error(reviewAccess.reason);
+      return;
+    }
+    if (decisionLock.current || deciding) return;
+    decisionLock.current = true;
+    setDecisionSettling(true);
+    reject.mutate();
+  };
 
   if (isLoading) return (
     <div className="p-6 space-y-4 max-w-3xl mx-auto">
@@ -299,35 +405,55 @@ export default function RunDetail() {
               drafting — every draft still gets its own individual review before anything can
               send. Rejecting ends the run here without drafting anything.
             </p>
-            <div className="flex flex-wrap gap-2 mt-4">
-              <Button
-                className="bg-rust-500 hover:bg-rust-600 text-white shadow-sm active-elevate-2"
-                onClick={() => approve.mutate()}
-                disabled={deciding}
-                data-testid="approve-run"
+            {decisionSettling && (
+              <p
+                className="mt-4 rounded-md border border-rust-200 bg-white/70 px-3 py-2 text-xs text-ink-600"
+                role="status"
+                data-testid="run-decision-settling"
               >
-                {approve.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <CheckCircle2 className="h-4 w-4 mr-2" />
-                )}
-                Approve & Continue
-              </Button>
-              <Button
-                variant="outline"
-                className="border-rust-300 text-rust-700 dark:text-rust-300 hover-elevate active-elevate-2"
-                onClick={() => reject.mutate()}
-                disabled={deciding}
-                data-testid="reject-run"
+                {approve.isPending || reject.isPending
+                  ? "Submitting the decision…"
+                  : "Decision submitted — waiting for the run status to update."}
+              </p>
+            )}
+            {!reviewAccess.allowed ? (
+              <p
+                className="mt-4 rounded-md border border-paper-200 bg-paper-100 px-3 py-2 text-xs text-ink-500"
+                data-testid="run-review-read-only"
               >
-                {reject.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <XCircle className="h-4 w-4 mr-2" />
-                )}
-                Reject run
-              </Button>
-            </div>
+                {reviewAccess.reason}
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2 mt-4">
+                <Button
+                  className="bg-rust-500 hover:bg-rust-600 text-white shadow-sm active-elevate-2"
+                  onClick={handleApprove}
+                  disabled={deciding}
+                  data-testid="approve-run"
+                >
+                  {approve.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                  )}
+                  Approve & Continue
+                </Button>
+                <Button
+                  variant="outline"
+                  className="border-rust-300 text-rust-700 dark:text-rust-300 hover-elevate active-elevate-2"
+                  onClick={handleReject}
+                  disabled={deciding}
+                  data-testid="reject-run"
+                >
+                  {reject.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <XCircle className="h-4 w-4 mr-2" />
+                  )}
+                  Reject run
+                </Button>
+              </div>
+            )}
           </div>
         )}
 

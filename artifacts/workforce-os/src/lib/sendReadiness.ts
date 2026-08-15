@@ -10,7 +10,7 @@
  *    treat unknown as dry-run and SAY it doesn't know — never fabricate a
  *    "live" or a confident per-precondition verdict.
  *  - `liveSendAllowed` is the operator allowlist gate, not sufficient by
- *    itself. Actual readiness also requires mailbox, sender, address, and
+ *    itself. Actual readiness also requires mailbox, sender, address, country, and
  *    positive daily capacity.
  *  - `dailyCapRemaining` is null when the backend reports no cap.
  */
@@ -19,6 +19,7 @@ export interface SendReadiness {
   liveSendAllowed: boolean;
   physicalAddressSet: boolean;
   senderNameSet: boolean;
+  countrySet: boolean;
   mailboxConnected: boolean;
   dailyCapRemaining: number | null;
 }
@@ -35,6 +36,7 @@ export function parseSendReadiness(raw: unknown): SendReadiness | null {
     typeof r["liveSendAllowed"] !== "boolean" ||
     typeof r["physicalAddressSet"] !== "boolean" ||
     typeof r["senderNameSet"] !== "boolean" ||
+    typeof r["countrySet"] !== "boolean" ||
     typeof r["mailboxConnected"] !== "boolean"
   ) {
     return null;
@@ -44,6 +46,7 @@ export function parseSendReadiness(raw: unknown): SendReadiness | null {
     liveSendAllowed: r["liveSendAllowed"],
     physicalAddressSet: r["physicalAddressSet"],
     senderNameSet: r["senderNameSet"],
+    countrySet: r["countrySet"],
     mailboxConnected: r["mailboxConnected"],
     dailyCapRemaining: typeof cap === "number" && Number.isFinite(cap) ? cap : null,
   };
@@ -73,6 +76,7 @@ export function workspaceLiveState(settings: unknown): boolean | null {
     readiness.liveSendAllowed &&
     readiness.physicalAddressSet &&
     readiness.senderNameSet &&
+    readiness.countrySet &&
     readiness.mailboxConnected &&
     readiness.dailyCapRemaining !== null &&
     readiness.dailyCapRemaining > 0
@@ -81,12 +85,17 @@ export function workspaceLiveState(settings: unknown): boolean | null {
 
 /**
  * Tri-state authorization for eventual live dispatch. Unlike
- * `workspaceLiveState`, this intentionally ignores temporary blockers such as
- * daily capacity or a disconnected mailbox: an APPROVED row can remain queued
- * and send after those gates clear, so the review UI must warn whenever the
- * durable operator allowlist is on.
+ * `workspaceLiveState`, this ignores temporary blockers such as daily capacity
+ * or a disconnected mailbox, but still requires every durable sender-identity
+ * gate. The console must never label a workspace live-authorized while its
+ * country, address, or sender name is invalid.
  */
 export function workspaceLiveAuthorization(settings: unknown): boolean | null {
   const readiness = getSendReadiness(settings);
-  return readiness ? readiness.liveSendAllowed : null;
+  return readiness
+    ? readiness.liveSendAllowed &&
+        readiness.physicalAddressSet &&
+        readiness.senderNameSet &&
+        readiness.countrySet
+    : null;
 }

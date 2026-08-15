@@ -41,6 +41,7 @@ export function isWelcomeStatusPayload(value: unknown): boolean {
       typeof readiness["liveSendAllowed"] === "boolean" &&
       typeof readiness["physicalAddressSet"] === "boolean" &&
       typeof readiness["senderNameSet"] === "boolean" &&
+      typeof readiness["countrySet"] === "boolean" &&
       typeof readiness["mailboxConnected"] === "boolean" &&
       (cap === null || (typeof cap === "number" && Number.isFinite(cap))) &&
       typeof root["complete"] === "boolean" &&

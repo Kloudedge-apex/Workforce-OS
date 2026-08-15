@@ -9,11 +9,17 @@ import type { Invoice } from './invoice';
 
 export interface BillingInfo {
   plan: string;
-  creditsRemaining: number;
-  creditsTotal: number;
-  sendsThisMonth: number;
-  sendsLimit: number;
+  /** @nullable */
+  creditsRemaining: number | null;
+  /** @nullable */
+  creditsTotal: number | null;
+  /** @nullable */
+  sendsThisMonth: number | null;
+  /** @nullable */
+  sendsLimit: number | null;
   seats: number;
-  seatsLimit: number;
-  invoices: Invoice[];
+  /** @nullable */
+  seatsLimit: number | null;
+  /** @nullable */
+  invoices: Invoice[] | null;
 }

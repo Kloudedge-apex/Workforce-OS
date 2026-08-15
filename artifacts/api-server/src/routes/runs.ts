@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { NextFunction, Request, Response } from "express";
 import { ListRunsQueryParams } from "@workspace/api-zod";
+import { requireAuthenticatedReviewer } from "../lib/authenticated-reviewer";
 import { apex, UpstreamError } from "../upstream/apex-client";
 
 const router = Router();
@@ -84,6 +85,8 @@ export interface UpstreamTrigger {
 export interface UpstreamResumeResult {
   status: string;
 }
+
+export type RunDecisionUpstreamClient = Pick<typeof apex, "post">;
 
 /**
  * The GraphRunDetail envelope this BFF can honestly serve today: a REAL run
@@ -300,33 +303,45 @@ router.get("/runs/:id", async (req, res, next) => {
 //  - 409 → 409 { message } VERBATIM ("Graph run is <STATUS>, not
 //    AWAITING_APPROVAL") so the FE can tell the reviewer exactly why the
 //    decision didn't apply (e.g. someone else already decided).
-function resumeDecisionHandler(decision: "approve" | "reject") {
-  return async (req: Request<{ id: string }>, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const upstream = (await apex.post(
-        `/graph/runs/${encodeURIComponent(req.params["id"]!)}/${decision}`,
-        { req },
-        { approvedBy: req.clerkUserId ?? "bff" },
-      )) as UpstreamResumeResult;
-      res.json(upstream);
-    } catch (err) {
-      if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
-      if (err instanceof UpstreamError && err.status === 404) {
-        res.status(404).json({ error: "Not found" });
-        return;
+export function createRunDecisionRouter(
+  upstreamClient: RunDecisionUpstreamClient = apex,
+) {
+  const decisionRouter = Router();
+
+  function resumeDecisionHandler(decision: "approve" | "reject") {
+    return async (req: Request<{ id: string }>, res: Response, next: NextFunction): Promise<void> => {
+      const reviewerId = requireAuthenticatedReviewer(req, res);
+      if (reviewerId === null) return;
+
+      try {
+        const upstream = (await upstreamClient.post(
+          `/graph/runs/${encodeURIComponent(req.params["id"]!)}/${decision}`,
+          { req },
+          { approvedBy: reviewerId },
+        )) as UpstreamResumeResult;
+        res.json(upstream);
+      } catch (err) {
+        if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
+        if (err instanceof UpstreamError && err.status === 404) {
+          res.status(404).json({ error: "Not found" });
+          return;
+        }
+        if (err instanceof UpstreamError && err.status === 409) {
+          res.status(409).json({
+            message: upstreamMessage(err.body, "Run is no longer awaiting approval"),
+          });
+          return;
+        }
+        next(err);
       }
-      if (err instanceof UpstreamError && err.status === 409) {
-        res.status(409).json({
-          message: upstreamMessage(err.body, "Run is no longer awaiting approval"),
-        });
-        return;
-      }
-      next(err);
-    }
-  };
+    };
+  }
+
+  decisionRouter.post("/runs/:id/approve", resumeDecisionHandler("approve"));
+  decisionRouter.post("/runs/:id/reject", resumeDecisionHandler("reject"));
+  return decisionRouter;
 }
 
-router.post("/runs/:id/approve", resumeDecisionHandler("approve"));
-router.post("/runs/:id/reject", resumeDecisionHandler("reject"));
+router.use(createRunDecisionRouter());
 
 export default router;

@@ -54,6 +54,17 @@ export const OutreachArtifactStatus = {
   SENDING: 'SENDING',
   SIMULATED: 'SIMULATED',
   DELIVERY_UNKNOWN: 'DELIVERY_UNKNOWN',
+  FAILED: 'FAILED',
+  RECONCILIATION_REQUIRED: 'RECONCILIATION_REQUIRED',
+} as const;
+
+export type OutreachArtifactPurpose = typeof OutreachArtifactPurpose[keyof typeof OutreachArtifactPurpose];
+
+
+export const OutreachArtifactPurpose = {
+  OUTBOUND: 'OUTBOUND',
+  REPLY: 'REPLY',
+  FOLLOW_UP: 'FOLLOW_UP',
 } as const;
 
 export type OutreachArtifactChannel = typeof OutreachArtifactChannel[keyof typeof OutreachArtifactChannel];
@@ -72,17 +83,27 @@ export interface ArtifactRefusal {
   reason: string | null;
 }
 
+export interface ArtifactApprovalEligibility {
+  eligible: boolean;
+  /** @nullable */
+  reason: string | null;
+}
+
 export interface OutreachArtifact {
   id: string;
   status: OutreachArtifactStatus;
+  purpose: OutreachArtifactPurpose;
   channel: OutreachArtifactChannel;
   recipient: Recipient;
   subject: string;
-  bodyHtml: string;
+  bodyText: string;
+  /** @nullable */
+  bodyHtml: string | null;
   citations: FactCitation[];
   evaluatorScores: EvaluatorScores | null;
   sendPolicy: SendPolicy | null;
   refusal: ArtifactRefusal;
+  approvalEligibility: ArtifactApprovalEligibility;
   /** @nullable */
   langsmithRunId: string | null;
   createdAt: string;
@@ -94,6 +115,10 @@ export interface OutreachArtifact {
   /** @nullable */
   rejectionReason: string | null;
   /** @nullable */
+  failureReason: string | null;
+  /** @nullable */
+  failedAt: string | null;
+  /** @nullable */
   statusReason: string | null;
   /** @nullable */
   sendReceiptId: string | null;
@@ -101,6 +126,20 @@ export interface OutreachArtifact {
   graphRunId: string | null;
   /** @nullable */
   cohort: string | null;
+}
+
+export type ArtifactApprovalFailureStatus = typeof ArtifactApprovalFailureStatus[keyof typeof ArtifactApprovalFailureStatus];
+
+
+export const ArtifactApprovalFailureStatus = {
+  APPROVED: 'APPROVED',
+} as const;
+
+export interface ArtifactApprovalFailure {
+  message: string;
+  approvalSaved: boolean;
+  artifactId: string;
+  status?: ArtifactApprovalFailureStatus;
 }
 
 export interface PaginatedArtifacts {
@@ -147,6 +186,7 @@ export const ArtifactSuppressionResultArtifactStatus = {
   SENDING: 'SENDING',
   SIMULATED: 'SIMULATED',
   DELIVERY_UNKNOWN: 'DELIVERY_UNKNOWN',
+  FAILED: 'FAILED',
 } as const;
 
 export type ArtifactSuppressionResultArtifact = {
@@ -177,6 +217,7 @@ export const ActivityEventKind = {
   draft_created: 'draft_created',
   draft_approved: 'draft_approved',
   draft_rejected: 'draft_rejected',
+  draft_failed: 'draft_failed',
   draft_sent: 'draft_sent',
   delivery_unknown: 'delivery_unknown',
   meeting_proposed: 'meeting_proposed',
@@ -553,6 +594,7 @@ export interface SendReadiness {
   liveSendAllowed: boolean;
   physicalAddressSet: boolean;
   senderNameSet: boolean;
+  countrySet: boolean;
   mailboxConnected: boolean;
   /** @nullable */
   dailyCapRemaining: number | null;
@@ -575,11 +617,22 @@ export interface OrgSettings {
   postalAddress?: string | null;
   /** @nullable */
   unsubscribeUrl?: string | null;
-  suppressionCount: number;
+  /** @nullable */
+  suppressionCount: number | null;
   allowlistedDomains: string[];
-  plan?: string;
-  creditsRemaining: number;
+  /** @nullable */
+  plan: string | null;
+  /** @nullable */
+  creditsRemaining: number | null;
   welcomeComplete: boolean;
+  /** @nullable */
+  canReviewArtifacts: boolean | null;
+  /** @nullable */
+  canManageMailbox: boolean | null;
+  /** @nullable */
+  canManageOrg: boolean | null;
+  /** @nullable */
+  canManageSuppressions: boolean | null;
   sendReadiness: SendReadiness | null;
 }
 
@@ -601,6 +654,62 @@ export interface OrgHealth {
   unsubscribeConfigured: boolean;
   suppressionCount: number;
   blockers: string[];
+}
+
+export type SuppressionReason = typeof SuppressionReason[keyof typeof SuppressionReason];
+
+
+export const SuppressionReason = {
+  USER_UNSUBSCRIBED: 'USER_UNSUBSCRIBED',
+  BOUNCED: 'BOUNCED',
+  COMPLAINED: 'COMPLAINED',
+  MANUAL: 'MANUAL',
+} as const;
+
+export interface SuppressionEntry {
+  id: string;
+  recipientRef: string;
+  reason: SuppressionReason;
+  /** @nullable */
+  source: string | null;
+  createdAt: string;
+}
+
+export interface SuppressionPage {
+  rows: SuppressionEntry[];
+  /** @nullable */
+  nextCursor: string | null;
+}
+
+export type CreateSuppressionInputReason = typeof CreateSuppressionInputReason[keyof typeof CreateSuppressionInputReason];
+
+
+export const CreateSuppressionInputReason = {
+  MANUAL: 'MANUAL',
+  COMPLAINED: 'COMPLAINED',
+} as const;
+
+export interface CreateSuppressionInput {
+  /**
+     * @minLength 1
+     * @maxLength 512
+     */
+  recipientRef: string;
+  reason?: CreateSuppressionInputReason;
+}
+
+export type CreateSuppressionResultReason = typeof CreateSuppressionResultReason[keyof typeof CreateSuppressionResultReason];
+
+
+export const CreateSuppressionResultReason = {
+  MANUAL: 'MANUAL',
+  COMPLAINED: 'COMPLAINED',
+} as const;
+
+export interface CreateSuppressionResult {
+  created: boolean;
+  recipientRef: string;
+  reason: CreateSuppressionResultReason;
 }
 
 export interface IcpProfile {
@@ -633,6 +742,11 @@ export interface Integration {
   connectedAt?: string | null;
   /** @nullable */
   errorMessage?: string | null;
+}
+
+export interface GmailOAuthFinalizeInput {
+  /** @minLength 1 */
+  attemptId: string;
 }
 
 export interface CadenceStage {
@@ -694,13 +808,19 @@ export interface Invoice {
 
 export interface BillingInfo {
   plan: string;
-  creditsRemaining: number;
-  creditsTotal: number;
-  sendsThisMonth: number;
-  sendsLimit: number;
+  /** @nullable */
+  creditsRemaining: number | null;
+  /** @nullable */
+  creditsTotal: number | null;
+  /** @nullable */
+  sendsThisMonth: number | null;
+  /** @nullable */
+  sendsLimit: number | null;
   seats: number;
-  seatsLimit: number;
-  invoices: Invoice[];
+  /** @nullable */
+  seatsLimit: number | null;
+  /** @nullable */
+  invoices: Invoice[] | null;
 }
 
 export interface ApiKey {
@@ -933,6 +1053,7 @@ export const ListArtifactsStatus = {
   SENDING: 'SENDING',
   SIMULATED: 'SIMULATED',
   DELIVERY_UNKNOWN: 'DELIVERY_UNKNOWN',
+  FAILED: 'FAILED',
 } as const;
 
 export type GetActivityStreamParams = {
@@ -1013,4 +1134,16 @@ export const ListRunsStatus = {
   FAILED: 'FAILED',
   CANCELLED: 'CANCELLED',
 } as const;
+
+export type ListSuppressionsParams = {
+/**
+ * @minimum 1
+ * @maximum 200
+ */
+limit?: number;
+/**
+ * @minLength 1
+ */
+cursor?: string;
+};
 

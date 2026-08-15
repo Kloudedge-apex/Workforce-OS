@@ -17,6 +17,7 @@ export const ActivityEventKind = {
   draft_created: 'draft_created',
   draft_approved: 'draft_approved',
   draft_rejected: 'draft_rejected',
+  draft_failed: 'draft_failed',
   draft_sent: 'draft_sent',
   delivery_unknown: 'delivery_unknown',
   meeting_proposed: 'meeting_proposed',

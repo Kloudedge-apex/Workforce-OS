@@ -1,0 +1,5 @@
+# SHA-256 of the exact production API_UPSTREAM_URL bytes.
+# This binds the bearer-token forwarding destination to reviewed source.
+# Reviewed 2026-08-14 from the nikxius-web Container App configuration:
+# https://apex-gtm-api.ashysmoke-fd2f7a7f.eastus.azurecontainerapps.io
+aa40c9486ae64a02da1f3d6e379dfa64aecc68b9671f76f9d5d2f7daef4fecdd

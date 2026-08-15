@@ -25,6 +25,7 @@ import { CountUp } from "@/components/motion/CountUp";
 import { motion } from "framer-motion";
 import { cardEnter, springHover, useReducedMotionSafe } from "@/lib/motion";
 import { ConversationActions } from "@/components/v2/ConversationActions";
+import { CONVERSATION_REFRESH_INTERVAL_MS } from "@/lib/conversationRefresh";
 
 const SENTIMENT_STYLES = {
   positive: "bg-green-100 text-green-800 border-green-200",
@@ -40,7 +41,11 @@ export default function ConversationThread() {
   const id = params?.id ?? "";
 
   const { data, isLoading, isError, refetch } = useGetConversation(id, {
-    query: { queryKey: ["getConversation", id], enabled: !!id },
+    query: {
+      queryKey: ["getConversation", id],
+      enabled: !!id,
+      refetchInterval: CONVERSATION_REFRESH_INTERVAL_MS,
+    },
   });
 
   const { mutate: draftReply, isPending: drafting } = useDraftReply({
@@ -79,7 +84,7 @@ export default function ConversationThread() {
       </div>
     );
 
-  if (isError)
+  if (isError && !data)
     return (
       <div className="flex h-full items-center justify-center bg-paper-50">
         <ErrorState

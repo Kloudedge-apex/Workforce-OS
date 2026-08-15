@@ -10,6 +10,7 @@ export interface SendReadiness {
   liveSendAllowed: boolean;
   physicalAddressSet: boolean;
   senderNameSet: boolean;
+  countrySet: boolean;
   mailboxConnected: boolean;
   /** @nullable */
   dailyCapRemaining: number | null;

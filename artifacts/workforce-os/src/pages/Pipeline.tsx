@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useListLeads, useBulkSuppressLeads } from "@workspace/api-client-react";
+import { useListLeads, useBulkSuppressLeads, useGetOrgSettings } from "@workspace/api-client-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -8,6 +8,16 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Search, Filter, Ban, ChevronLeft, ChevronRight, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -17,6 +27,7 @@ import { CountUp } from "@/components/motion/CountUp";
 import { EmptyState } from "@/components/states/EmptyState";
 import { ErrorState } from "@/components/states/ErrorState";
 import { staggerContainer, staggerItem, useReducedMotionSafe } from "@/lib/motion";
+import { suppressionAccess } from "@/lib/capabilities";
 
 export default function Pipeline() {
   const [, setLocation] = useLocation();
@@ -25,6 +36,7 @@ export default function Pipeline() {
   const [search, setSearch] = useState("");
   const [minScore, setMinScore] = useState<string>("0");
   const [page, setPage] = useState(1);
+  const [suppressConfirmOpen, setSuppressConfirmOpen] = useState(false);
   const limit = 20;
 
   const { data: leadsData, isLoading: listLoading, isError, refetch } = useListLeads(
@@ -40,10 +52,41 @@ export default function Pipeline() {
   const leads = leadsData?.items || [];
   const total = leadsData?.total || 0;
   const totalPages = Math.max(1, Math.ceil(total / limit));
+  const visibleLeadIds = new Set(leads.map((lead) => lead.id));
+  const visibleSelectedIds = Array.from(selectedIds).filter((id) =>
+    visibleLeadIds.has(id),
+  );
 
   const suppressMut = useBulkSuppressLeads();
+  const { data: orgSettings } = useGetOrgSettings({
+    query: { queryKey: ["getOrgSettings"] },
+  });
+  const suppression = suppressionAccess(orgSettings?.canManageSuppressions);
+
+  const clearScopedSelection = () => {
+    setSelectedIds(new Set());
+    setSuppressConfirmOpen(false);
+  };
+
+  const changeSearch = (value: string) => {
+    clearScopedSelection();
+    setSearch(value);
+    setPage(1);
+  };
+
+  const changeMinScore = (value: string) => {
+    clearScopedSelection();
+    setMinScore(value);
+    setPage(1);
+  };
+
+  const changePage = (nextPage: number) => {
+    clearScopedSelection();
+    setPage(nextPage);
+  };
 
   const handleSelectAll = (checked: boolean) => {
+    if (!suppression.allowed) return;
     if (checked) {
       setSelectedIds(new Set(leads.map(l => l.id)));
     } else {
@@ -52,6 +95,7 @@ export default function Pipeline() {
   };
 
   const handleToggleSelect = (id: string) => {
+    if (!suppression.allowed) return;
     const newSet = new Set(selectedIds);
     if (newSet.has(id)) newSet.delete(id);
     else newSet.add(id);
@@ -59,10 +103,18 @@ export default function Pipeline() {
   };
 
   const handleBulkSuppress = async () => {
-    if (selectedIds.size === 0) return;
-    toast(`Suppressing ${selectedIds.size} leads...`);
+    if (!suppression.allowed) {
+      toast.error(suppression.reason);
+      return;
+    }
+    // Defense in depth: even if a refetch swaps the rendered page after rows
+    // were selected, never submit an ID the operator cannot currently see.
+    const personIds = visibleSelectedIds;
+    if (personIds.length === 0) return;
+    setSuppressConfirmOpen(false);
+    toast(`Suppressing ${personIds.length} leads...`);
     try {
-      const res = await suppressMut.mutateAsync({ data: { personIds: Array.from(selectedIds) } });
+      const res = await suppressMut.mutateAsync({ data: { personIds } });
       const baseSummary = [
         `${res.affectedCount} newly suppressed`,
         res.alreadySuppressedCount > 0 ? `${res.alreadySuppressedCount} already suppressed` : null,
@@ -108,10 +160,7 @@ export default function Pipeline() {
                 placeholder="Search leads..." 
                 className="pl-9 bg-paper-50 border-paper-200"
                 value={search}
-                onChange={e => {
-                  setSearch(e.target.value);
-                  setPage(1);
-                }}
+                onChange={e => changeSearch(e.target.value)}
               />
             </div>
             <Popover>
@@ -135,7 +184,7 @@ export default function Pipeline() {
                     </Label>
                     <RadioGroup
                       value={minScore}
-                      onValueChange={(v) => { setMinScore(v); setPage(1); }}
+                      onValueChange={changeMinScore}
                       className="grid grid-cols-2 gap-2"
                     >
                       {[["0", "Any"], ["80", "80+"], ["90", "90+"], ["95", "95+"]].map(([val, label]) => (
@@ -154,7 +203,7 @@ export default function Pipeline() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => { setMinScore("0"); setPage(1); }}
+                      onClick={() => changeMinScore("0")}
                       className="w-full text-ink-400 hover:text-ink-900 dark:hover:text-paper-50"
                     >
                       Clear filters
@@ -166,20 +215,54 @@ export default function Pipeline() {
           </div>
           
           <div className="flex items-center gap-2">
-            {selectedIds.size > 0 && (
+            {visibleSelectedIds.length > 0 && suppression.allowed && (
               <Button 
                 variant="destructive" 
                 size="sm" 
-                onClick={handleBulkSuppress}
+                onClick={() => setSuppressConfirmOpen(true)}
                 disabled={suppressMut.isPending}
                 className="h-9 px-4"
               >
                 <Ban className="h-4 w-4 mr-2" />
-                Suppress {selectedIds.size}
+                Suppress {visibleSelectedIds.length}
               </Button>
             )}
           </div>
         </div>
+        <AlertDialog
+          open={suppressConfirmOpen && visibleSelectedIds.length > 0}
+          onOpenChange={setSuppressConfirmOpen}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Suppress selected leads?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This blocks {visibleSelectedIds.length} currently visible
+                {visibleSelectedIds.length === 1 ? " lead" : " leads"} from all
+                future outreach. Review the current table before confirming.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={suppressMut.isPending}
+                onClick={() => void handleBulkSuppress()}
+              >
+                {suppressMut.isPending ? "Suppressing…" : "Suppress leads"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        {!suppression.allowed && (
+          <p
+            className="mt-3 rounded-md border border-paper-200 bg-paper-50 px-3 py-2 text-xs text-ink-600"
+            data-testid="pipeline-suppression-read-only"
+            role="status"
+          >
+            {suppression.reason}
+          </p>
+        )}
       </div>
 
       {/* Table Content */}
@@ -189,8 +272,10 @@ export default function Pipeline() {
             <tr>
               <th className="p-4 w-10">
                 <Checkbox 
-                  checked={leads.length > 0 && selectedIds.size === leads.length} 
+                  checked={leads.length > 0 && visibleSelectedIds.length === leads.length}
                   onCheckedChange={handleSelectAll}
+                  disabled={!suppression.allowed}
+                  aria-label="Select all leads for suppression"
                 />
               </th>
               <th className="px-4 py-3 font-semibold text-ink-400 uppercase text-[10px] tracking-wider">Lead</th>
@@ -247,6 +332,8 @@ export default function Pipeline() {
                     <Checkbox 
                       checked={selectedIds.has(lead.id)}
                       onCheckedChange={() => handleToggleSelect(lead.id)}
+                      disabled={!suppression.allowed}
+                      aria-label={`Select ${lead.name} for suppression`}
                     />
                   </td>
                   <td className="px-4 py-3">
@@ -301,7 +388,7 @@ export default function Pipeline() {
             variant="outline" 
             size="sm" 
             disabled={page === 1} 
-            onClick={() => setPage(p => p - 1)}
+            onClick={() => changePage(Math.max(1, page - 1))}
             className="h-8 w-8 p-0 bg-paper-50 border-paper-200"
           >
             <ChevronLeft className="h-4 w-4" />
@@ -314,7 +401,7 @@ export default function Pipeline() {
                   key={p}
                   variant={p === page ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setPage(p)}
+                  onClick={() => changePage(p)}
                   className={cn(
                     "h-8 w-8 p-0 text-xs font-tabular",
                     p === page ? "bg-rust-500 hover:bg-rust-600" : "bg-paper-50 border-paper-200 text-ink-700"
@@ -329,7 +416,7 @@ export default function Pipeline() {
             variant="outline" 
             size="sm" 
             disabled={page >= totalPages}
-            onClick={() => setPage(p => p + 1)}
+            onClick={() => changePage(Math.min(totalPages, page + 1))}
             className="h-8 w-8 p-0 bg-paper-50 border-paper-200"
           >
             <ChevronRight className="h-4 w-4" />

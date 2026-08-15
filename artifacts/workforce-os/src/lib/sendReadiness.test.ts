@@ -5,6 +5,7 @@ const FULL = {
   liveSendAllowed: true,
   physicalAddressSet: true,
   senderNameSet: true,
+  countrySet: true,
   mailboxConnected: true,
   dailyCapRemaining: 25,
 };
@@ -28,6 +29,8 @@ describe("parseSendReadiness", () => {
     expect(parseSendReadiness("live")).toBeNull();
     expect(parseSendReadiness([])).toBeNull();
     expect(parseSendReadiness({})).toBeNull();
+    const { countrySet: _omitCountry, ...withoutCountry } = FULL;
+    expect(parseSendReadiness(withoutCountry)).toBeNull();
     expect(parseSendReadiness({ ...FULL, liveSendAllowed: "true" })).toBeNull();
     expect(parseSendReadiness({ ...FULL, senderNameSet: undefined })).toBeNull();
   });
@@ -53,6 +56,7 @@ describe("workspaceLiveState", () => {
       { liveSendAllowed: false },
       { physicalAddressSet: false },
       { senderNameSet: false },
+      { countrySet: false },
       { mailboxConnected: false },
       { dailyCapRemaining: 0 },
       { dailyCapRemaining: null },
@@ -76,10 +80,17 @@ describe("workspaceLiveAuthorization", () => {
     ).toBe(true);
   });
 
-  it("is false only when the operator allowlist is explicitly off", () => {
-    expect(
-      workspaceLiveAuthorization({ sendReadiness: { ...FULL, liveSendAllowed: false } }),
-    ).toBe(false);
+  it("is false when the allowlist or any durable sender-identity gate is off", () => {
+    for (const blocked of [
+      { liveSendAllowed: false },
+      { physicalAddressSet: false },
+      { senderNameSet: false },
+      { countrySet: false },
+    ]) {
+      expect(
+        workspaceLiveAuthorization({ sendReadiness: { ...FULL, ...blocked } }),
+      ).toBe(false);
+    }
     expect(workspaceLiveAuthorization(undefined)).toBeNull();
   });
 });

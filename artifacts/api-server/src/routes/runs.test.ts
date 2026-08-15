@@ -1,13 +1,128 @@
-import { describe, it, expect } from "vitest";
+import { once } from "node:events";
+import type { AddressInfo } from "node:net";
+import type { Router } from "express";
+import { describe, it, expect, vi } from "vitest";
+import { createApp } from "../app";
+import { UpstreamError } from "../upstream/apex-client";
 import {
+  createRunDecisionRouter,
   shapeRun,
   shapeRunsList,
   shapeRunDetail,
   shapeTrigger,
   upstreamMessage,
+  type RunDecisionUpstreamClient,
   type UpstreamGraphRun,
   type UpstreamTrigger,
 } from "./runs";
+
+async function requestDecision(
+  router: Router,
+  path: string,
+  actor?: string,
+): Promise<{ status: number; body: unknown }> {
+  const app = createApp({
+    apiRouter: router,
+    clerkGuard: (req, _res, next) => {
+      if (actor !== undefined) {
+        req.clerkUserId = actor;
+      }
+      next();
+    },
+  });
+
+  const server = app.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${address.port}/api${path}`, {
+      method: "POST",
+    });
+    const text = await response.text();
+    return {
+      status: response.status,
+      body: text === "" ? null : JSON.parse(text),
+    };
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+}
+
+describe("run decision routes", () => {
+  it.each(["approve", "reject"] as const)(
+    "rejects %s without an authenticated reviewer before calling upstream",
+    async (decision) => {
+      const post = vi.fn(
+        async (..._args: Parameters<RunDecisionUpstreamClient["post"]>) => ({
+          status: "resuming",
+        }),
+      );
+      const client = { post } as RunDecisionUpstreamClient;
+
+      const result = await requestDecision(
+        createRunDecisionRouter(client),
+        `/runs/run_1/${decision}`,
+      );
+
+      expect(result).toEqual({
+        status: 401,
+        body: { error: "authenticated reviewer identity required" },
+      });
+      expect(post).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["approve", "reject"] as const)(
+    "forwards the authenticated reviewer for run %s",
+    async (decision) => {
+      const post = vi.fn(
+        async (..._args: Parameters<RunDecisionUpstreamClient["post"]>) => ({
+          status: "resuming",
+        }),
+      );
+      const client = { post } as RunDecisionUpstreamClient;
+
+      const result = await requestDecision(
+        createRunDecisionRouter(client),
+        `/runs/run_1/${decision}`,
+        "user_reviewer",
+      );
+
+      expect(result).toEqual({ status: 200, body: { status: "resuming" } });
+      expect(post).toHaveBeenCalledOnce();
+      expect(post.mock.calls[0]?.[2]).toEqual({ approvedBy: "user_reviewer" });
+    },
+  );
+
+  it.each(["approve", "reject"] as const)(
+    "preserves an upstream role denial for run %s",
+    async (decision) => {
+      const post = vi.fn(
+        async (..._args: Parameters<RunDecisionUpstreamClient["post"]>) => {
+          throw new UpstreamError(403, {
+            message: "Requires admin or manager role",
+          });
+        },
+      );
+      const client = { post } as RunDecisionUpstreamClient;
+
+      const result = await requestDecision(
+        createRunDecisionRouter(client),
+        `/runs/run_1/${decision}`,
+        "user_member",
+      );
+
+      expect(result).toEqual({
+        status: 403,
+        body: { error: "upstream", status: 403 },
+      });
+      expect(post).toHaveBeenCalledOnce();
+    },
+  );
+});
 
 // A GraphRun row shaped exactly like apex-gtm-api GET /api/graph/runs returns
 // (GraphService.listGraphRuns → GraphRun[] with the snapshotPublicState `state`).

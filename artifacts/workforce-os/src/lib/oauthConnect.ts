@@ -13,18 +13,31 @@ export const GMAIL_AUTH_URL_ENDPOINT = "/api/settings/integrations/gmail/auth-ur
 
 /**
  * PURE: extract the authorization URL from the BFF `{ authUrl }` response.
- * Returns null unless the payload carries a non-empty http(s) URL — callers
- * must surface an honest error rather than open garbage.
+ * Returns null unless the payload carries a Google HTTPS authorization URL —
+ * callers must surface an honest error rather than open an arbitrary origin.
  */
 export function parseAuthUrlResponse(data: unknown): string | null {
   const rec = data && typeof data === "object" ? (data as Record<string, unknown>) : null;
   const authUrl = rec?.["authUrl"];
   if (typeof authUrl !== "string") return null;
   const trimmed = authUrl.trim();
-  if (!/^https?:\/\//i.test(trimmed)) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  if (
+    parsed.protocol !== "https:" ||
+    parsed.hostname !== "accounts.google.com" ||
+    parsed.port !== "" ||
+    parsed.username !== "" ||
+    parsed.password !== ""
+  ) {
+    return null;
+  }
   return trimmed;
 }
-
 /**
  * Fetch the Gmail authorization URL through the shared client (same base URL
  * + Clerk bearer as every generated call). Throws on transport/HTTP errors

@@ -8,7 +8,7 @@ export interface DashboardStatsUpstream {
   leadsSourced: number;
   leadsQualified: number;
   emailsSent: number;
-  replyRate: number;
+  replyRate: number | null;
   meetingsBooked: number;
 }
 
@@ -42,7 +42,7 @@ export interface TodayKpis {
  * - artifactsSentToday <- kpis.quality.outreach_artifacts.sent (windowDays=1 ~= "today")
  * - qualifiedMeetingsBooked <- dashboard.stats.meetingsBooked
  * - leadsScored <- sum of the all-time lead-score distribution
- * - replyRate7d <- null: the dashboard upstream hardcodes zero, which is not evidence
+ * - replyRate7d <- null: no durable time-windowed reply metric exists yet
  * - leadsSourcedToday <- null: no calendar-day sourcing query exists
  */
 export function shapeTodayKpis(

@@ -220,10 +220,10 @@ export function shapeIntegration(i: ApexIntegration): Integration {
 /**
  * Pure mapper: apex Integration rows + catalog → FE Integration[].
  *
- * Left-joins the catalog so every known provider appears: connected rows map to
- * their real status; un-connected catalog providers surface as 'available' with
- * a synthetic `cat_<provider>` id (audit endpoint 5). accountEmail is always null
- * (no backend column; credentials are encrypted and must not be exposed).
+ * Left-joins only catalog providers explicitly marked available for this
+ * release. Deferred and unknown providers never become synthetic "available"
+ * cards merely because the backend knows their names or retains a legacy row.
+ * accountEmail remains null because encrypted credentials must not be exposed.
  */
 export function shapeIntegrations(
   rows: ApexIntegration[],
@@ -234,7 +234,7 @@ export function shapeIntegrations(
 
   const out: Integration[] = [];
   const seen = new Set<string>();
-  for (const c of catalog) {
+  for (const c of catalog.filter((entry) => entry.status === "available")) {
     seen.add(c.provider);
     const row = byProvider.get(c.provider);
     if (row) {
@@ -249,10 +249,6 @@ export function shapeIntegrations(
         errorMessage: null,
       });
     }
-  }
-  // Connected rows for providers not in the catalog still surface.
-  for (const r of rows) {
-    if (!seen.has(r.provider)) out.push(shapeIntegration(r));
   }
   return out;
 }
@@ -278,16 +274,112 @@ router.get("/settings/integrations", async (req, res, next) => {
 /**
  * PURE: extract the OAuth authorization URL from the upstream auth-url
  * response ({ authUrl: string }). Returns null when the body carries no
- * usable http(s) URL — the route then answers 502 honestly instead of
- * handing the FE a garbage value to open.
+ * usable Google HTTPS authorization URL — the route then answers 502 honestly
+ * instead of handing the FE an attacker-controlled location to open.
  */
 export function shapeAuthUrl(raw: unknown): string | null {
   const rec = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
   const authUrl = rec?.["authUrl"];
   if (typeof authUrl !== "string") return null;
   const trimmed = authUrl.trim();
-  if (!/^https?:\/\//i.test(trimmed)) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  if (
+    parsed.protocol !== "https:" ||
+    parsed.hostname !== "accounts.google.com" ||
+    parsed.port !== "" ||
+    parsed.username !== "" ||
+    parsed.password !== ""
+  ) {
+    return null;
+  }
   return trimmed;
+}
+
+export interface GmailFinalizeInput {
+  attemptId: string;
+}
+
+/** Keep the opaque attempt server-side and reject missing/ambiguous bodies. */
+export function parseGmailFinalizeInput(raw: unknown): GmailFinalizeInput | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const attemptId = (raw as Record<string, unknown>)["attemptId"];
+  if (typeof attemptId !== "string" || attemptId.trim() === "") return null;
+  return { attemptId: attemptId.trim() };
+}
+
+export type GmailFinalizeClient = Pick<typeof apex, "post">;
+
+/**
+ * Authenticated second half of Gmail OAuth. The provider callback carries no
+ * Clerk JWT, so it redirects the browser with an opaque one-time attempt ID;
+ * the signed-in SPA posts that ID here and the BFF forwards the caller's
+ * identity before returning only the public integration shape.
+ */
+export function createGmailFinalizeRouter(
+  client: GmailFinalizeClient = apex,
+): Router {
+  const gmailRouter = Router();
+  gmailRouter.post(
+    "/settings/integrations/gmail/finalize",
+    async (req, res, next) => {
+      const input = parseGmailFinalizeInput(req.body);
+      if (!input) {
+        res.status(400).json({
+          error: "validation",
+          message: "A Gmail OAuth attempt ID is required.",
+        });
+        return;
+      }
+      try {
+        const row = (await client.post(
+          "/integrations/gmail/finalize",
+          { req },
+          input,
+        )) as ApexIntegration;
+        if (
+          !row ||
+          typeof row !== "object" ||
+          typeof row.id !== "string" ||
+          row.provider !== "gmail" ||
+          typeof row.status !== "string"
+        ) {
+          res.status(502).json({
+            error: "upstream",
+            message: "The backend returned an invalid Gmail integration.",
+          });
+          return;
+        }
+        res.json(shapeIntegration(row));
+      } catch (err) {
+        if (
+          err instanceof UpstreamError &&
+          (err.status === 401 || err.status === 403)
+        ) {
+          throw err;
+        }
+        if (
+          err instanceof UpstreamError &&
+          err.status >= 400 &&
+          err.status < 500
+        ) {
+          res.status(err.status).json({
+            error: "oauth_finalize_failed",
+            message:
+              upstreamErrorMessage(err.body) ??
+              "The Gmail authorization attempt could not be completed.",
+          });
+          return;
+        }
+        next(err);
+      }
+    },
+  );
+  return gmailRouter;
 }
 
 // ─── Gmail OAuth init ────────────────────────────────────────────────────────
@@ -326,30 +418,32 @@ router.get("/settings/integrations/gmail/auth-url", async (req, res, next) => {
   }
 });
 
-router.post("/settings/integrations/:provider/connect", async (req, res, next) => {
+router.use(createGmailFinalizeRouter());
+
+router.post("/settings/integrations/:provider/connect", (req, res) => {
   const { provider } = req.params;
-  const body = req.body as { apiKey?: string };
-  try {
-    // api-key providers (apollo/clay/elevenlabs) connect synchronously and return
-    // the upserted Integration row. OAuth providers (gmail/outlook/hubspot) need a
-    // redirect+callback dance the FE drives via the auth-url route above (gmail is
-    // wired; outlook/hubspot still need their proxies), so a synchronous "connect
-    // returns a connected Integration" is only FULL for api-key providers
-    // (audit endpoint 6).
-    const row = (await apex.post(
-      `/integrations/${provider}/connect`,
-      { req },
-      { apiKey: body.apiKey ?? "" },
-    )) as ApexIntegration;
-    res.json(shapeIntegration(row));
-  } catch (err) {
-    if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
-    next(err);
+  if (provider === "gmail") {
+    res.status(409).json({
+      error: "oauth_required",
+      message: "Gmail must be connected through the Google authorization flow.",
+    });
+    return;
   }
+  res.status(404).json({
+    error: "unsupported_provider",
+    message: "This release supports Gmail only.",
+  });
 });
 
 router.post("/settings/integrations/:provider/disconnect", async (req, res, next) => {
   const { provider } = req.params;
+  if (provider !== "gmail") {
+    res.status(404).json({
+      error: "unsupported_provider",
+      message: "This release supports Gmail only.",
+    });
+    return;
+  }
   try {
     // Upstream hard-deletes the row and returns it; the integration no longer
     // exists, so force status='available' for the FE (audit endpoint 7, FULL).
@@ -451,9 +545,9 @@ router.delete("/settings/team/:userId", (_req, res) => gapResponse(res, "team-re
 
 // ─── Billing ──────────────────────────────────────────────────────────────
 //
-// Only `plan` is real (GET /api/billing returns { plan, subscription:Razorpay|null }).
-// Usage/credits/seats/invoices have no backend source, so they are synthesized from
-// a static per-plan limits table + the org's user count (audit endpoint 15).
+// `plan` is real (GET /api/billing returns { plan, subscription:Razorpay|null })
+// and `seats` is the real org user count. Usage, credit, seat-limit, and invoice
+// accounting have no backend source, so the BFF reports them as unknown.
 
 export interface Invoice {
   id: string;
@@ -465,42 +559,38 @@ export interface Invoice {
 
 export interface BillingInfo {
   plan: string;
-  creditsRemaining: number;
-  creditsTotal: number;
-  sendsThisMonth: number;
-  sendsLimit: number;
+  creditsRemaining: number | null;
+  creditsTotal: number | null;
+  sendsThisMonth: number | null;
+  sendsLimit: number | null;
   seats: number;
-  seatsLimit: number;
-  invoices: Invoice[];
+  seatsLimit: number | null;
+  invoices: Invoice[] | null;
 }
-
-const PLAN_LIMITS: Record<string, { creditsTotal: number; sendsLimit: number; seatsLimit: number }> = {
-  TRIAL: { creditsTotal: 100, sendsLimit: 100, seatsLimit: 3 },
-  STARTER: { creditsTotal: 1000, sendsLimit: 500, seatsLimit: 5 },
-  GROWTH: { creditsTotal: 5000, sendsLimit: 5000, seatsLimit: 20 },
-  ENTERPRISE: { creditsTotal: 50000, sendsLimit: 50000, seatsLimit: 100 },
-};
 
 /**
  * Pure mapper: apex billing { plan } + org seat count → FE BillingInfo.
  *
- * SYNTHESIZED (no backend source): creditsTotal/sendsLimit/seatsLimit from a static
- * per-plan table; creditsRemaining defaults to creditsTotal; sendsThisMonth=0 (no
- * usage count endpoint); invoices=[] (no invoice listing). seats = caller-supplied
- * user count (audit endpoint 15).
+ * UNKNOWN (no backend source): creditsRemaining, creditsTotal, sendsThisMonth,
+ * sendsLimit, seatsLimit, and invoices are null. `seats` is the caller-supplied
+ * real org user count (audit endpoint 15).
  */
-export function shapeBilling(billing: { plan?: string }, seats = 0): BillingInfo {
-  const plan = billing.plan ?? "TRIAL";
-  const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS["TRIAL"]!;
+export function shapeBilling(billing: { plan: string }, seats: number): BillingInfo {
+  if (typeof billing.plan !== "string" || billing.plan.trim() === "") {
+    throw new TypeError("Billing plan is missing from the upstream response");
+  }
+  if (!Number.isInteger(seats) || seats < 0) {
+    throw new TypeError("Seat count is invalid");
+  }
   return {
-    plan,
-    creditsRemaining: limits.creditsTotal,
-    creditsTotal: limits.creditsTotal,
-    sendsThisMonth: 0,
-    sendsLimit: limits.sendsLimit,
+    plan: billing.plan,
+    creditsRemaining: null,
+    creditsTotal: null,
+    sendsThisMonth: null,
+    sendsLimit: null,
     seats,
-    seatsLimit: limits.seatsLimit,
-    invoices: [],
+    seatsLimit: null,
+    invoices: null,
   };
 }
 
@@ -508,11 +598,27 @@ router.get("/settings/billing", async (req, res, next) => {
   try {
     const me = (await apex.get("/orgs/me", { req })) as { id: string };
     const [billing, org] = await Promise.all([
-      apex.get("/billing", { req }) as Promise<{ plan?: string }>,
-      apex.get(`/orgs/${me.id}`, { req }) as Promise<{ users?: ApexUser[] }>,
+      apex.get("/billing", { req }) as Promise<unknown>,
+      apex.get(`/orgs/${me.id}`, { req }) as Promise<unknown>,
     ]);
-    const seats = Array.isArray(org.users) ? org.users.length : 0;
-    res.json(shapeBilling(billing, seats));
+    const billingRecord =
+      billing && typeof billing === "object" && !Array.isArray(billing)
+        ? (billing as Record<string, unknown>)
+        : null;
+    const orgRecord =
+      org && typeof org === "object" && !Array.isArray(org)
+        ? (org as Record<string, unknown>)
+        : null;
+    const plan = billingRecord?.["plan"];
+    const users = orgRecord?.["users"];
+    if (typeof plan !== "string" || plan.trim() === "" || !Array.isArray(users)) {
+      res.status(502).json({
+        error: "upstream",
+        message: "The backend did not return a valid billing plan and seat count",
+      });
+      return;
+    }
+    res.json(shapeBilling({ plan }, users.length));
   } catch (err) {
     if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
     next(err);

@@ -1,5 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { once } from "node:events";
+import type { AddressInfo } from "node:net";
+import { describe, it, expect, vi } from "vitest";
+import { createApp } from "../app";
 import {
+  createGmailFinalizeRouter,
+  parseGmailFinalizeInput,
   shapeIcpProfile,
   toIcpCreateBody,
   shapeIntegration,
@@ -12,6 +17,39 @@ import {
   type ApexCatalogEntry,
   type ApexUser,
 } from "./settings-extended";
+
+async function requestGmailFinalize(
+  post: (...args: any[]) => Promise<unknown>,
+  body: unknown,
+): Promise<{ status: number; body: unknown }> {
+  const app = createApp({
+    apiRouter: createGmailFinalizeRouter({ post }),
+    clerkGuard: (req, _res, next) => {
+      req.orgId = "org_1";
+      req.clerkToken = "clerk-token";
+      next();
+    },
+  });
+  const server = app.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/api/settings/integrations/gmail/finalize`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    const text = await response.text();
+    return { status: response.status, body: text ? JSON.parse(text) : null };
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+}
 
 describe("shapeIcpProfile", () => {
   it("maps the most-recent profile and renames fields", () => {
@@ -63,7 +101,6 @@ describe("shapeIcpProfile", () => {
     ).toEqual([]);
   });
 });
-
 describe("toIcpCreateBody", () => {
   it("renames FE fields and parses sizeBand into employee bounds", () => {
     const body = toIcpCreateBody({
@@ -154,30 +191,30 @@ describe("shapeIntegration", () => {
 describe("shapeIntegrations", () => {
   const catalog: ApexCatalogEntry[] = [
     { provider: "gmail", name: "Gmail", category: "email", authType: "oauth", status: "available" },
-    { provider: "apollo", name: "Apollo", category: "enrichment", authType: "api_key", status: "available" },
+    { provider: "apollo", name: "Apollo", category: "enrichment", authType: "api_key", status: "coming_soon" },
   ];
 
-  it("left-joins catalog so unconnected providers appear as available", () => {
+  it("left-joins only providers explicitly available in this release", () => {
     const rows: ApexIntegration[] = [{ id: "int_g", provider: "gmail", status: "CONNECTED" }];
     const out = shapeIntegrations(rows, catalog);
-    expect(out).toHaveLength(2);
+    expect(out).toHaveLength(1);
     const gmail = out.find((i) => i.provider === "gmail")!;
-    const apollo = out.find((i) => i.provider === "apollo")!;
     expect(gmail.status).toBe("connected");
     expect(gmail.id).toBe("int_g");
-    expect(apollo.status).toBe("available");
-    expect(apollo.id).toBe("cat_apollo");
+    expect(out.find((i) => i.provider === "apollo")).toBeUndefined();
   });
 
-  it("surfaces connected rows whose provider is not in the catalog", () => {
+  it("does not surface a legacy row for an unsupported provider", () => {
     const rows: ApexIntegration[] = [{ id: "int_z", provider: "zoho", status: "CONNECTED" }];
     const out = shapeIntegrations(rows, catalog);
-    expect(out.find((i) => i.provider === "zoho")?.id).toBe("int_z");
-    expect(out).toHaveLength(3);
+    expect(out.find((i) => i.provider === "zoho")).toBeUndefined();
+    expect(out).toHaveLength(1);
   });
 
-  it("returns only catalog entries when there are no connected rows", () => {
+  it("filters coming-soon catalog entries when there are no connected rows", () => {
     const out = shapeIntegrations([], catalog);
+    expect(out).toHaveLength(1);
+    expect(out[0]?.provider).toBe("gmail");
     expect(out.every((i) => i.status === "available")).toBe(true);
   });
 });
@@ -187,7 +224,9 @@ describe("shapeAuthUrl", () => {
     expect(shapeAuthUrl({ authUrl: "https://accounts.google.com/o/oauth2/v2/auth?x=1" })).toBe(
       "https://accounts.google.com/o/oauth2/v2/auth?x=1",
     );
-    expect(shapeAuthUrl({ authUrl: "  https://a.example/path " })).toBe("https://a.example/path");
+    expect(shapeAuthUrl({ authUrl: "  https://accounts.google.com/o/oauth2/auth " })).toBe(
+      "https://accounts.google.com/o/oauth2/auth",
+    );
   });
 
   it("returns null for missing/garbage payloads — the route must 502, not fake a URL", () => {
@@ -197,8 +236,69 @@ describe("shapeAuthUrl", () => {
     expect(shapeAuthUrl({ authUrl: "" })).toBeNull();
     expect(shapeAuthUrl({ authUrl: 42 })).toBeNull();
     expect(shapeAuthUrl({ authUrl: "javascript:alert(1)" })).toBeNull();
+    expect(shapeAuthUrl({ authUrl: "http://accounts.google.com/o/oauth2/v2/auth" })).toBeNull();
+    expect(shapeAuthUrl({ authUrl: "https://a.example/path" })).toBeNull();
+    expect(shapeAuthUrl({ authUrl: "https://accounts.google.com.evil.example/path" })).toBeNull();
+    expect(shapeAuthUrl({ authUrl: "https://accounts.google.com:8443/path" })).toBeNull();
     expect(shapeAuthUrl({ authUrl: "not-a-url" })).toBeNull();
     expect(shapeAuthUrl("https://raw-string.example")).toBeNull();
+  });
+});
+
+describe("Gmail OAuth finalization", () => {
+  it("accepts only a non-empty opaque attempt ID", () => {
+    expect(parseGmailFinalizeInput({ attemptId: " attempt_123 " })).toEqual({
+      attemptId: "attempt_123",
+    });
+    expect(parseGmailFinalizeInput({})).toBeNull();
+    expect(parseGmailFinalizeInput({ attemptId: " " })).toBeNull();
+    expect(parseGmailFinalizeInput({ attemptId: 42 })).toBeNull();
+    expect(parseGmailFinalizeInput(null)).toBeNull();
+  });
+
+  it("forwards the authenticated attempt and returns a public integration", async () => {
+    const post = vi.fn(async (..._args: any[]) => ({
+      id: "int_gmail",
+      provider: "gmail",
+      status: "CONNECTED",
+      createdAt: "2026-08-13T00:00:00.000Z",
+      credentialsEncrypted: "must-not-leak",
+    }));
+    const response = await requestGmailFinalize(post, {
+      attemptId: "attempt_123",
+    });
+
+    expect(response).toEqual({
+      status: 200,
+      body: {
+        id: "int_gmail",
+        provider: "gmail",
+        status: "connected",
+        accountEmail: null,
+        connectedAt: "2026-08-13T00:00:00.000Z",
+        errorMessage: null,
+      },
+    });
+    expect(post).toHaveBeenCalledOnce();
+    expect(post.mock.calls[0]?.[0]).toBe("/integrations/gmail/finalize");
+    expect(post.mock.calls[0]?.[1].req).toMatchObject({
+      orgId: "org_1",
+      clerkToken: "clerk-token",
+    });
+    expect(post.mock.calls[0]?.[2]).toEqual({ attemptId: "attempt_123" });
+  });
+
+  it("rejects a missing attempt before calling upstream", async () => {
+    const post = vi.fn(async () => ({}));
+    const response = await requestGmailFinalize(post, {});
+    expect(response).toEqual({
+      status: 400,
+      body: {
+        error: "validation",
+        message: "A Gmail OAuth attempt ID is required.",
+      },
+    });
+    expect(post).not.toHaveBeenCalled();
   });
 });
 
@@ -228,22 +328,23 @@ describe("shapeTeamMembers", () => {
 });
 
 describe("shapeBilling", () => {
-  it("maps real plan and synthesizes limits from the plan table", () => {
+  it("maps the real plan and seat count without fabricating accounting data", () => {
     const out = shapeBilling({ plan: "GROWTH" }, 4);
     expect(out.plan).toBe("GROWTH");
-    expect(out.creditsTotal).toBe(5000);
-    expect(out.creditsRemaining).toBe(5000);
-    expect(out.sendsLimit).toBe(5000);
-    expect(out.seatsLimit).toBe(20);
     expect(out.seats).toBe(4);
-    expect(out.sendsThisMonth).toBe(0);
-    expect(out.invoices).toEqual([]);
+    expect(out.creditsTotal).toBeNull();
+    expect(out.creditsRemaining).toBeNull();
+    expect(out.sendsLimit).toBeNull();
+    expect(out.seatsLimit).toBeNull();
+    expect(out.sendsThisMonth).toBeNull();
+    expect(out.invoices).toBeNull();
   });
 
-  it("defaults unknown/absent plan to TRIAL limits", () => {
-    const out = shapeBilling({}, 1);
-    expect(out.plan).toBe("TRIAL");
-    expect(out.seatsLimit).toBe(3);
-    expect(shapeBilling({ plan: "MYSTERY" }, 0).seatsLimit).toBe(3);
+  it("preserves an upstream plan value exactly and refuses synthesized sources", () => {
+    expect(shapeBilling({ plan: "MYSTERY" }, 0).plan).toBe("MYSTERY");
+    expect(() => shapeBilling({} as { plan: string }, 1)).toThrow(
+      "Billing plan is missing",
+    );
+    expect(() => shapeBilling({ plan: "GROWTH" }, -1)).toThrow("Seat count is invalid");
   });
 });

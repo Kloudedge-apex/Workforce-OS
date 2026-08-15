@@ -24,10 +24,21 @@ export interface OrgSettings {
   postalAddress?: string | null;
   /** @nullable */
   unsubscribeUrl?: string | null;
-  suppressionCount: number;
+  /** @nullable */
+  suppressionCount: number | null;
   allowlistedDomains: string[];
-  plan?: string;
-  creditsRemaining: number;
+  /** @nullable */
+  plan: string | null;
+  /** @nullable */
+  creditsRemaining: number | null;
   welcomeComplete: boolean;
+  /** @nullable */
+  canReviewArtifacts: boolean | null;
+  /** @nullable */
+  canManageMailbox: boolean | null;
+  /** @nullable */
+  canManageOrg: boolean | null;
+  /** @nullable */
+  canManageSuppressions: boolean | null;
   sendReadiness: SendReadiness | null;
 }

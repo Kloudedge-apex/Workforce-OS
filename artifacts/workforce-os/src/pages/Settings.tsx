@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -6,13 +7,16 @@ import {
   useGetIcpProfile, useUpdateIcpProfile,
   useGetCadence, useUpdateCadence,
   useGetStyleConfig, useUpdateStyleConfig,
-  useListIntegrations, useConnectIntegration, useDisconnectIntegration,
+  useListIntegrations, useDisconnectIntegration, useFinalizeGmailIntegration,
   useListTeamMembers, useInviteTeamMember, useRemoveTeamMember,
   useGetBilling,
   useListApiKeys, useCreateApiKey, useRevokeApiKey,
   useGetNotificationPrefs, useUpdateNotificationPrefs,
   useGetWelcomeStatus,
+  useListSuppressions, useCreateSuppression,
+  getListSuppressionsQueryKey,
   type CadenceStage, type NotificationPrefs, type OrgSettings,
+  type CreateSuppressionInputReason,
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,7 +38,7 @@ import {
 import { toast } from "sonner";
 import { IntegrationLogo } from "@/components/brand/IntegrationLogo";
 import { fadeSlideUp, useReducedMotionSafe } from "@/lib/motion";
-import { CountUp } from "@/components/motion/CountUp";
+import { BillingUsageSummary } from "@/components/settings/BillingUsageSummary";
 import { EmptyState } from "@/components/states/EmptyState";
 import { ErrorState } from "@/components/states/ErrorState";
 import { isUnavailable, UnavailableState } from "@/lib/unavailable";
@@ -48,6 +52,7 @@ const TABS = [
   { id: "org",           label: "General",       icon: Building },
   { id: "icp",           label: "ICP",            icon: Map },
   { id: "integrations",  label: "Integrations",   icon: LinkIcon },
+  { id: "suppressions",  label: "Suppressions",   icon: Shield },
 ] as const;
 
 type TabId = typeof TABS[number]["id"];
@@ -55,7 +60,8 @@ type TabId = typeof TABS[number]["id"];
 // ─── Root ─────────────────────────────────────────────────────────────────────
 export default function Settings() {
   const [location, navigate] = useLocation();
-  const sub = location.replace(/^\/settings\/?/, "") || "setup";
+  const settingsPath = location.split("?", 1)[0] ?? location;
+  const sub = settingsPath.replace(/^\/settings\/?/, "") || "setup";
   const activeTab = (TABS.find(t => t.id === sub)?.id ?? "setup") as TabId;
 
   const setTab = (id: TabId) => navigate(`/settings/${id}`);
@@ -65,7 +71,10 @@ export default function Settings() {
       {/* Health bar */}
       <HealthBar />
 
-      <div className="flex flex-1 min-h-0">
+      <div
+        className="flex flex-1 min-h-0 flex-col md:flex-row"
+        data-testid="settings-layout"
+      >
         {/* Desktop sidebar */}
         <aside className="hidden md:flex w-44 shrink-0 flex-col border-r border-paper-200 bg-paper-100 p-2 gap-0.5 overflow-y-auto">
           <p className="text-[10px] font-bold text-ink-400 uppercase tracking-widest px-3 pt-2 pb-1">Settings</p>
@@ -88,7 +97,10 @@ export default function Settings() {
         </aside>
 
         {/* Mobile horizontal tabs */}
-        <div className="md:hidden overflow-x-auto flex border-b border-paper-200 bg-paper-100 no-scrollbar shrink-0">
+        <div
+          className="md:hidden w-full overflow-x-auto flex border-b border-paper-200 bg-paper-100 no-scrollbar shrink-0"
+          data-testid="settings-mobile-tabs"
+        >
           {TABS.map(({ id, label }) => (
             <button
               key={id}
@@ -226,12 +238,16 @@ function SetupTab() {
     ["Workspace allowlisted", data.sendReadiness.liveSendAllowed],
     ["Mailbox connected", data.sendReadiness.mailboxConnected],
     ["Sender name set", data.sendReadiness.senderNameSet],
+    ["Country set", data.sendReadiness.countrySet],
     ["Physical address set", data.sendReadiness.physicalAddressSet],
     [
       "Daily capacity available",
       data.sendReadiness.dailyCapRemaining !== null && data.sendReadiness.dailyCapRemaining > 0,
     ],
   ] as const;
+  const readyForLiveSend =
+    data.readyForLiveSend &&
+    workspaceLiveState({ sendReadiness: data.sendReadiness }) === true;
 
   return (
     <>
@@ -247,7 +263,7 @@ function SetupTab() {
               {data.complete ? "Customer setup complete" : "Setup still required"}
             </p>
             <p className="text-sm text-ink-500 mt-1">
-              {data.readyForLiveSend
+              {readyForLiveSend
                 ? "The backend confirms every setup and live-send gate."
                 : data.complete
                   ? "Customer setup is complete, but server policy or send capacity still keeps live delivery off."
@@ -258,12 +274,12 @@ function SetupTab() {
             data-testid="setup-status"
             className={cn(
               "border",
-              data.readyForLiveSend
+              readyForLiveSend
                 ? "bg-signal-positive/10 text-signal-positive border-signal-positive/30"
                 : "bg-paper-100 text-ink-600 border-paper-300",
             )}
           >
-            {data.readyForLiveSend ? "Ready for live send" : "Live send off"}
+            {readyForLiveSend ? "Ready for live send" : "Live send off"}
           </Badge>
         </div>
       </SettingsCard>
@@ -319,9 +335,16 @@ function SetupTab() {
 
 // ─── Org Tab ──────────────────────────────────────────────────────────────────
 function OrgTab() {
+  const queryClient = useQueryClient();
   const { data, isLoading, isError, refetch } = useGetOrgSettings({ query: { queryKey: ["getOrgSettings"] } });
   const { mutate: update, isPending } = useUpdateOrgSettings({
-    mutation: { onSuccess: () => toast.success("Settings saved"), onError: (err) => toast.error(saveErrorMessage(err)) },
+    mutation: {
+      onSuccess: (updated) => {
+        void refreshSetupQueries(queryClient, updated);
+        toast.success("Settings saved");
+      },
+      onError: (err) => toast.error(saveErrorMessage(err)),
+    },
   });
 
   const [form, setForm] = useState({
@@ -337,17 +360,30 @@ function OrgTab() {
       initialized.current = true;
     }
   }, [data]);
+  const orgManagementCapability = data?.canManageOrg ?? null;
+  const orgReadOnly = orgManagementCapability !== true;
 
   return (
     <TabBoundary isLoading={isLoading} isError={isError} onRetry={() => refetch()} skeleton={<FormSkeleton rows={6} />}>
       <SectionHeader title="Organization" description="Persisted workspace identity and sender compliance settings." />
+      {orgReadOnly && (
+        <div
+          className="rounded-md border border-paper-200 bg-paper-50 px-3 py-2 text-xs text-ink-600"
+          data-testid="org-management-read-only"
+          role="status"
+        >
+          {orgManagementCapability === false
+            ? "Organization and compliance settings are read-only. Editing requires an owner or administrator."
+            : "Organization management permissions could not be verified. Editing is disabled."}
+        </div>
+      )}
       <SettingsCard className="p-5 space-y-4">
         <TwoCol>
           <Field label="Organization Name">
-            <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+            <Input disabled={orgReadOnly} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
           </Field>
           <Field label="Company Website (HTTPS)">
-            <Input value={form.website} onChange={e => setForm(f => ({ ...f, website: e.target.value }))} placeholder="https://example.com" />
+            <Input disabled={orgReadOnly} value={form.website} onChange={e => setForm(f => ({ ...f, website: e.target.value }))} placeholder="https://example.com" />
           </Field>
         </TwoCol>
       </SettingsCard>
@@ -359,8 +395,12 @@ function OrgTab() {
       <div className="flex justify-end">
         <Button
           className="bg-rust-500 hover:bg-rust-600 text-white"
-          disabled={isPending}
-          onClick={() => update({ data: { name: form.name, website: form.website } })}
+          disabled={orgReadOnly || isPending}
+          onClick={() => {
+            if (orgManagementCapability === true) {
+              update({ data: { name: form.name, website: form.website } });
+            }
+          }}
         >
           {isPending ? "Saving…" : "Save Changes"}
         </Button>
@@ -386,6 +426,7 @@ function LiveStatusCard({ settings }: { settings: OrgSettings }) {
     { label: "Workspace allowlisted", ok: readiness ? readiness.liveSendAllowed : null },
     { label: "Mailbox connected", ok: readiness ? readiness.mailboxConnected : null },
     { label: "Sender name set", ok: readiness ? readiness.senderNameSet : null },
+    { label: "Country set", ok: readiness ? readiness.countrySet : null },
     { label: "Physical address set", ok: readiness ? readiness.physicalAddressSet : null },
   ];
 
@@ -456,9 +497,14 @@ function LiveStatusCard({ settings }: { settings: OrgSettings }) {
  * verbatim instead of a generic "Save failed".
  */
 function ComplianceCard({ settings }: { settings: OrgSettings }) {
+  const queryClient = useQueryClient();
+  const orgReadOnly = settings.canManageOrg !== true;
   const { mutate: save, isPending } = useUpdateOrgSettings({
     mutation: {
-      onSuccess: () => toast.success("Compliance settings saved"),
+      onSuccess: (updated) => {
+        void refreshSetupQueries(queryClient, updated);
+        toast.success("Compliance settings saved");
+      },
       onError: (err) => toast.error(saveErrorMessage(err)),
     },
   });
@@ -479,20 +525,24 @@ function ComplianceCard({ settings }: { settings: OrgSettings }) {
       </div>
       <TwoCol>
         <Field label="Sender Name (visible to recipients)">
-          <Input value={form.senderName} onChange={e => setForm(f => ({ ...f, senderName: e.target.value }))} />
+          <Input disabled={orgReadOnly} value={form.senderName} onChange={e => setForm(f => ({ ...f, senderName: e.target.value }))} />
         </Field>
         <Field label="Country (ISO-2)">
-          <Input value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value }))} placeholder="US" className="font-mono uppercase" />
+          <Input disabled={orgReadOnly} value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value }))} placeholder="US" className="font-mono uppercase" />
         </Field>
       </TwoCol>
       <Field label="Physical Address">
-        <Textarea value={form.physicalAddress} onChange={e => setForm(f => ({ ...f, physicalAddress: e.target.value }))} rows={2} className="resize-none" placeholder="Street, city, state, ZIP — appears in every email footer" />
+        <Textarea disabled={orgReadOnly} value={form.physicalAddress} onChange={e => setForm(f => ({ ...f, physicalAddress: e.target.value }))} rows={2} className="resize-none" placeholder="Street, city, state, ZIP — appears in every email footer" />
       </Field>
       <div className="flex justify-end">
         <Button
           className="bg-rust-500 hover:bg-rust-600 text-white"
-          disabled={isPending}
-          onClick={() => save({ data: { senderName: form.senderName, postalAddress: form.physicalAddress, country: form.country } })}
+          disabled={orgReadOnly || isPending}
+          onClick={() => {
+            if (!orgReadOnly) {
+              save({ data: { senderName: form.senderName, postalAddress: form.physicalAddress, country: form.country } });
+            }
+          }}
         >
           {isPending ? "Saving…" : "Save Compliance"}
         </Button>
@@ -503,10 +553,14 @@ function ComplianceCard({ settings }: { settings: OrgSettings }) {
 
 // ─── ICP Tab ──────────────────────────────────────────────────────────────────
 function IcpTab() {
+  const queryClient = useQueryClient();
   const { data, isLoading, isError, refetch } = useGetIcpProfile({ query: { queryKey: ["getIcpProfile"] } });
   const { mutate: update, isPending } = useUpdateIcpProfile({
     mutation: {
-      onSuccess: () => toast.success("Current ICP saved"),
+      onSuccess: () => {
+        void refreshSetupQueries(queryClient);
+        toast.success("Current ICP saved");
+      },
       // Surface the upstream validation message verbatim.
       onError: (err) => toast.error(saveErrorMessage(err)),
     },
@@ -746,14 +800,68 @@ const GMAIL_POLL_INTERVAL_MS = 3_000;
 /** Stop polling after this long without a CONNECTED/ERROR resolution. */
 const GMAIL_POLL_TIMEOUT_MS = 180_000;
 
+/** Extract only the callback shape issued by the backend. */
+export function gmailOAuthAttemptFromLocation(location: string): string | null {
+  const queryStart = location.indexOf("?");
+  if (queryStart < 0) return null;
+  const params = new URLSearchParams(location.slice(queryStart + 1));
+  if (params.get("provider") !== "gmail") return null;
+  const attemptId = params.get("oauth_attempt");
+  return attemptId && attemptId.trim() !== "" ? attemptId.trim() : null;
+}
+
+/** Extract the bounded public callback error contract issued by the backend. */
+export function gmailOAuthErrorFromLocation(location: string): string | null {
+  const queryStart = location.indexOf("?");
+  if (queryStart < 0) return null;
+  const params = new URLSearchParams(location.slice(queryStart + 1));
+  if (params.get("provider") !== "gmail") return null;
+  const error = params.get("error");
+  return error === "gmail_denied" || error === "gmail_oauth" ? error : null;
+}
+
+export function refreshSetupQueries(
+  queryClient: QueryClient,
+  orgSettings?: OrgSettings,
+) {
+  if (orgSettings) {
+    queryClient.setQueryData(["getOrgSettings"], orgSettings);
+  }
+  return Promise.all([
+    queryClient.invalidateQueries({
+      queryKey: ["getWelcomeStatus"],
+      exact: true,
+      refetchType: "all",
+    }),
+    queryClient.invalidateQueries({
+      queryKey: ["getOrgSettings"],
+      exact: true,
+      refetchType: "all",
+    }),
+  ]);
+}
+
 function IntegrationsTab() {
-  // GL3: gmail is an OAuth provider — the consent screen happens in a new tab
-  // and the callback lands on the backend, so the FE only learns the outcome
-  // by polling integration status. While waiting, the list refetches on an
-  // interval; the card reflects CONNECTED/errored only when the server says so.
+  // Gmail consent happens in a new tab. The backend callback redirects that
+  // tab here with a one-time attempt ID; this signed-in page finalizes it while
+  // the opener polls integration status. The card reflects CONNECTED/errored
+  // only when the server says so.
   const [gmailWaiting, setGmailWaiting] = useState(false);
   const [gmailLaunching, setGmailLaunching] = useState(false);
   const gmailDeadline = useRef<number | null>(null);
+  const gmailReadinessRefreshRequested = useRef(false);
+  const finalizedAttempt = useRef<string | null>(null);
+  const handledCallbackError = useRef<string | null>(null);
+  const queryClient = useQueryClient();
+  const [location, navigate] = useLocation();
+  // Wouter's browser location hook returns pathname only. Reattach the real
+  // query string so the provider callback's one-time attempt is not dropped.
+  // Tests may supply a query-bearing mocked location, so preserve that form.
+  const callbackLocation = location.includes("?")
+    ? location
+    : `${location}${typeof window === "undefined" ? "" : window.location.search}`;
+  const oauthAttemptId = gmailOAuthAttemptFromLocation(callbackLocation);
+  const oauthCallbackError = gmailOAuthErrorFromLocation(callbackLocation);
 
   const { data, isLoading, isError, refetch } = useListIntegrations({
     query: {
@@ -761,20 +869,103 @@ function IntegrationsTab() {
       refetchInterval: gmailWaiting ? GMAIL_POLL_INTERVAL_MS : false,
     },
   });
-  const { mutate: connect, isPending: connecting } = useConnectIntegration({
-    mutation: { onSuccess: () => { toast.success("Connected"); refetch(); }, onError: () => toast.error("Connection failed") },
+  // Only an explicit granular allow enables OAuth or disconnect controls;
+  // denial and unavailable capability state remain read-only.
+  const { data: orgSettings } = useGetOrgSettings({
+    query: { queryKey: ["getOrgSettings"] },
   });
+  const mailboxManagementCapability = orgSettings?.canManageMailbox ?? null;
+  const mailboxReadiness = getSendReadiness(orgSettings)?.mailboxConnected ?? null;
   const { mutate: disconnect, isPending: disconnecting } = useDisconnectIntegration({
-    mutation: { onSuccess: () => { toast.success("Disconnected"); refetch(); }, onError: () => toast.error("Disconnect failed") },
+    mutation: {
+      onSuccess: () => {
+        toast.success("Disconnected");
+        void refreshSetupQueries(queryClient);
+        refetch();
+      },
+      onError: () => toast.error("Disconnect failed"),
+    },
   });
+  const { mutate: finalizeGmail, isPending: finalizingGmail } =
+    useFinalizeGmailIntegration({
+      mutation: {
+        onSuccess: (integration) => {
+          queryClient.setQueryData<
+            Awaited<ReturnType<typeof refetch>>["data"]
+          >(["listIntegrations"], (current) => {
+            if (!current) return current;
+            return current.map((item) =>
+              item.provider === "gmail" ? integration : item,
+            );
+          });
+          void refreshSetupQueries(queryClient);
+          void refetch();
+          toast.success("Gmail connected.");
+        },
+        onError: async (err) => {
+          const [, refreshedIntegrations] = await Promise.allSettled([
+            refreshSetupQueries(queryClient),
+            refetch(),
+          ]);
+          const connectedAfterRefresh =
+            refreshedIntegrations.status === "fulfilled" &&
+            refreshedIntegrations.value.data?.some(
+              (item) => item.provider === "gmail" && item.status === "connected",
+            );
+          if (connectedAfterRefresh) {
+            toast.success("Gmail connected.");
+          } else {
+            toast.error(saveErrorMessage(err));
+          }
+        },
+      },
+    });
 
   const visibleIntegrations = (data ?? []).filter((integration) => integration.provider === "gmail");
   const gmailRow = visibleIntegrations.find(i => i.provider === "gmail");
   useEffect(() => {
+    if (!oauthAttemptId || finalizedAttempt.current === oauthAttemptId) return;
+    finalizedAttempt.current = oauthAttemptId;
+    // Remove the one-time opaque ID from browser history before network work.
+    navigate("/settings/integrations", { replace: true });
+    finalizeGmail({ data: { attemptId: oauthAttemptId } });
+  }, [finalizeGmail, navigate, oauthAttemptId]);
+
+  useEffect(() => {
+    if (
+      !oauthCallbackError ||
+      handledCallbackError.current === oauthCallbackError
+    ) {
+      return;
+    }
+    handledCallbackError.current = oauthCallbackError;
+    navigate("/settings/integrations", { replace: true });
+    void Promise.allSettled([
+      refreshSetupQueries(queryClient),
+      refetch(),
+    ]).then(() => {
+      toast.error(
+        oauthCallbackError === "gmail_denied"
+          ? "Google authorization was canceled. Gmail was not changed."
+          : "Google authorization could not be completed. Try connecting again.",
+      );
+    });
+  }, [navigate, oauthCallbackError, queryClient, refetch]);
+
+  useEffect(() => {
     if (!gmailWaiting) return;
-    if (gmailRow?.status === "connected") {
+    if (gmailRow?.status === "connected" && mailboxReadiness === true) {
       setGmailWaiting(false);
-      toast.success("Gmail connected — this workspace can now send from your mailbox.");
+      void refreshSetupQueries(queryClient);
+      toast.success("Gmail connected.");
+    } else if (
+      gmailRow?.status === "connected" &&
+      !gmailReadinessRefreshRequested.current
+    ) {
+      // A provider row alone is insufficient: refresh the backend's stronger
+      // mailbox-readiness verdict before reporting connection success.
+      gmailReadinessRefreshRequested.current = true;
+      void refreshSetupQueries(queryClient);
     } else if (gmailRow?.status === "errored") {
       setGmailWaiting(false);
       toast.error(gmailRow.errorMessage ?? "Gmail connection failed.");
@@ -782,20 +973,28 @@ function IntegrationsTab() {
       setGmailWaiting(false);
       toast("Gmail still isn't connected — finish the Google consent screen, then check back here.");
     }
-  }, [gmailWaiting, gmailRow]);
+  }, [gmailWaiting, gmailRow, mailboxReadiness, queryClient]);
 
   const handleConnectGmail = async () => {
+    // Open synchronously inside the click gesture so browser popup blockers do
+    // not race the authenticated auth-url request. Navigating an about:blank
+    // handle after severing `opener` preserves reverse-tabnabbing protection
+    // without relying on `noopener`, whose specified return value is null.
+    const popup = window.open("about:blank", "_blank");
+    if (!popup) {
+      toast.error("Your browser blocked the Google sign-in window — allow popups and try again.");
+      return;
+    }
+    popup.opener = null;
+    gmailReadinessRefreshRequested.current = false;
     setGmailLaunching(true);
     try {
       const url = await fetchGmailAuthUrl();
-      const win = window.open(url, "_blank", "noopener,noreferrer");
-      if (!win) {
-        toast.error("Your browser blocked the Google sign-in window — allow popups and try again.");
-        return;
-      }
+      popup.location.replace(url);
       gmailDeadline.current = Date.now() + GMAIL_POLL_TIMEOUT_MS;
       setGmailWaiting(true);
     } catch (err) {
+      popup.close();
       // Surface the BFF/upstream failure verbatim — never a fake success.
       toast.error(saveErrorMessage(err));
     } finally {
@@ -810,55 +1009,337 @@ function IntegrationsTab() {
   return (
     <>
       <SectionHeader title="Mailbox" description="Connect Gmail for reviewed outreach and durable reply ingestion." />
+      {finalizingGmail && (
+        <div
+          className="mb-3 rounded-md border border-paper-200 bg-paper-50 px-3 py-2 text-xs text-ink-600"
+          role="status"
+          data-testid="gmail-oauth-finalizing"
+        >
+          Finishing the Google authorization with your signed-in workspace…
+        </div>
+      )}
+      {mailboxManagementCapability !== true && (
+        <div
+          className="mb-3 rounded-md border border-paper-200 bg-paper-50 px-3 py-2 text-xs text-ink-600"
+          data-testid="mailbox-management-read-only"
+          role="status"
+        >
+          {mailboxManagementCapability === false
+            ? "Mailbox status is read-only. Connecting or disconnecting Gmail requires an administrator or manager."
+            : "Mailbox management permissions could not be verified. Connecting and disconnecting are disabled."}
+        </div>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {visibleIntegrations.map(int => {
           const meta = PROVIDER_META[int.provider] ?? { name: int.provider, description: "" };
-          const isConnected = int.status === "connected";
           const isGmail = int.provider === "gmail";
-          const gmailBusy = isGmail && (gmailLaunching || gmailWaiting);
+          const hasConnectedRow = int.status === "connected";
+          const isConnected = hasConnectedRow && (!isGmail || mailboxReadiness === true);
+          const displayedStatus = isConnected
+            ? "connected"
+            : hasConnectedRow
+              ? mailboxReadiness === false
+                ? "needs attention"
+                : "unverified"
+              : int.status;
+          const gmailBusy = isGmail && (gmailLaunching || gmailWaiting || finalizingGmail);
           return (
             <SettingsCard key={int.id} className="p-4 flex gap-3 hover-elevate">
               <IntegrationLogo provider={int.provider} size={28} className="mt-0.5" />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-0.5">
                   <span className="text-sm font-semibold text-ink-900 dark:text-paper-50">{meta.name}</span>
-                  <Badge className={cn("text-[10px] h-4 px-1.5 border", isConnected ? "bg-green-50 text-green-700 border-green-200" : int.status === "errored" ? "bg-red-50 text-red-600 border-red-200" : "bg-paper-100 text-ink-500 border-paper-200")}>
-                    {int.status}
+                  <Badge
+                    data-testid={isGmail ? "gmail-integration-status" : undefined}
+                    className={cn("text-[10px] h-4 px-1.5 border", isConnected ? "bg-green-50 text-green-700 border-green-200" : int.status === "errored" ? "bg-red-50 text-red-600 border-red-200" : hasConnectedRow ? "bg-ember-400/10 text-ember-700 border-ember-400/30" : "bg-paper-100 text-ink-500 border-paper-200")}
+                  >
+                    {displayedStatus}
                   </Badge>
                 </div>
                 <p className="text-xs text-ink-500 leading-relaxed mb-2">{meta.description}</p>
                 {int.accountEmail && <p className="text-xs font-mono text-ink-400 mb-2 truncate">{int.accountEmail}</p>}
                 {int.errorMessage && <p className="text-xs text-red-500 mb-2">{int.errorMessage}</p>}
+                {isGmail && hasConnectedRow && mailboxReadiness !== true && (
+                  <p className="text-xs text-ember-700 mb-2" role="status">
+                    {mailboxReadiness === false
+                      ? "Google authorization exists, but the backend reports that this mailbox is not operational. Disconnect and reconnect Gmail before sending."
+                      : "Google authorization exists, but mailbox readiness could not be verified. Sending remains unavailable."}
+                  </p>
+                )}
                 {isGmail && gmailWaiting && !isConnected && (
                   <p className="text-xs text-ink-500 mb-2">
                     Waiting for Google authorization — complete the consent screen in the other tab.
                     This card updates when the mailbox is actually connected.
                   </p>
                 )}
-                <Button
-                  size="sm"
-                  variant={isConnected ? "outline" : "default"}
-                  className={cn("h-7 text-xs", isConnected ? "border-paper-300 text-ink-600" : "bg-rust-500 hover:bg-rust-600 text-white")}
-                  disabled={connecting || disconnecting || gmailBusy}
-                  onClick={() =>
-                    isConnected
-                      ? disconnect({ provider: int.provider })
+                {mailboxManagementCapability === true && (
+                  <Button
+                    size="sm"
+                    variant={hasConnectedRow ? "outline" : "default"}
+                    className={cn("h-7 text-xs", hasConnectedRow ? "border-paper-300 text-ink-600" : "bg-rust-500 hover:bg-rust-600 text-white")}
+                    disabled={disconnecting || gmailBusy}
+                    onClick={() =>
+                      hasConnectedRow
+                        ? disconnect({ provider: int.provider })
+                        : handleConnectGmail()
+                    }
+                  >
+                    {hasConnectedRow
+                      ? "Disconnect"
                       : isGmail
-                        ? handleConnectGmail()
-                        : connect({ provider: int.provider })
-                  }
-                >
-                  {isConnected
-                    ? "Disconnect"
-                    : isGmail
-                      ? (gmailWaiting ? "Waiting for Google…" : gmailLaunching ? "Opening Google…" : "Connect with Google")
-                      : "Connect"}
-                </Button>
+                        ? (gmailWaiting ? "Waiting for Google…" : gmailLaunching ? "Opening Google…" : "Connect with Google")
+                        : "Connect"}
+                  </Button>
+                )}
               </div>
             </SettingsCard>
           );
         })}
       </div>
+    </>
+  );
+}
+
+// ─── Suppressions Tab ────────────────────────────────────────────────────────
+const SUPPRESSION_REASON_LABELS: Record<string, string> = {
+  USER_UNSUBSCRIBED: "Unsubscribed",
+  BOUNCED: "Bounced",
+  COMPLAINED: "Complaint",
+  MANUAL: "Manual suppression",
+};
+
+function SuppressionsTab() {
+  const queryClient = useQueryClient();
+  const [recipientRef, setRecipientRef] = useState("");
+  const [reason, setReason] = useState<CreateSuppressionInputReason>("MANUAL");
+  const [cursorStack, setCursorStack] = useState<Array<string | undefined>>([
+    undefined,
+  ]);
+  const cursor = cursorStack[cursorStack.length - 1];
+
+  const orgQuery = useGetOrgSettings({
+    query: { queryKey: ["getOrgSettings", "suppression-capability"] },
+  });
+  const canManage = orgQuery.data?.canManageSuppressions;
+  const suppressionParams = { limit: 50, ...(cursor ? { cursor } : {}) };
+  const listQuery = useListSuppressions(suppressionParams, {
+    query: {
+      queryKey: getListSuppressionsQueryKey(suppressionParams),
+      enabled: canManage === true,
+      refetchInterval: 30_000,
+    },
+  });
+
+  const createMutation = useCreateSuppression({
+    mutation: {
+      onSuccess: async (result) => {
+        toast.success(
+          result.created
+            ? "Recipient added to the suppression registry"
+            : "Recipient was already protected",
+        );
+        setRecipientRef("");
+        setCursorStack([undefined]);
+        await queryClient.invalidateQueries({
+          queryKey: ["/api/settings/suppressions"],
+        });
+      },
+      onError: (error) => toast.error(saveErrorMessage(error)),
+    },
+  });
+
+  if (orgQuery.isLoading) return <FormSkeleton rows={3} />;
+  if (orgQuery.isError || !orgQuery.data) {
+    return (
+      <ErrorState
+        title="Couldn't verify suppression access"
+        description="The registry stays hidden until your workspace role can be verified."
+        onRetry={() => orgQuery.refetch()}
+      />
+    );
+  }
+  if (canManage !== true) {
+    return (
+      <SettingsCard className="p-6">
+        <div className="flex gap-3">
+          <Shield className="mt-0.5 h-5 w-5 shrink-0 text-ink-500" />
+          <div>
+            <h2 className="font-serif text-lg font-semibold text-ink-900">
+              Suppression registry restricted
+            </h2>
+            <p className="mt-1 text-sm text-ink-500">
+              {canManage === false
+                ? "Only a workspace owner or administrator can view recipient opt-outs and complaints."
+                : "Your suppression-management permission could not be verified, so the registry remains hidden."}
+            </p>
+          </div>
+        </div>
+      </SettingsCard>
+    );
+  }
+
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    const normalized = recipientRef.trim();
+    if (!normalized) return;
+    createMutation.mutate({ data: { recipientRef: normalized, reason } });
+  };
+
+  return (
+    <>
+      <SectionHeader
+        title="Suppression registry"
+        description="Authoritative recipient stops enforced before every outbound provider attempt."
+      />
+
+      <SettingsCard className="p-5">
+        <form className="space-y-4" onSubmit={submit}>
+          <div>
+            <h3 className="text-sm font-semibold text-ink-900">
+              Record an out-of-band stop
+            </h3>
+            <p className="mt-1 text-xs leading-relaxed text-ink-500">
+              Use this only when a recipient opted out or complained through a
+              channel that Workforce OS could not ingest automatically.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_220px_auto] sm:items-end">
+            <Field label="Recipient email">
+              <Input
+                type="email"
+                autoComplete="off"
+                value={recipientRef}
+                onChange={(event) => setRecipientRef(event.target.value)}
+                placeholder="recipient@example.com"
+                maxLength={512}
+              />
+            </Field>
+            <Field label="Observed stop reason">
+              <select
+                value={reason}
+                onChange={(event) =>
+                  setReason(event.target.value as CreateSuppressionInputReason)
+                }
+                className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <option value="MANUAL">Manual opt-out</option>
+                <option value="COMPLAINED">Complaint received elsewhere</option>
+              </select>
+            </Field>
+            <Button
+              type="submit"
+              disabled={!recipientRef.trim() || createMutation.isPending}
+              className="bg-rust-500 text-white hover:bg-rust-600"
+            >
+              {createMutation.isPending ? "Recording…" : "Record stop"}
+            </Button>
+          </div>
+          {reason === "COMPLAINED" ? (
+            <p className="rounded-md border border-ember-300 bg-ember-50 px-3 py-2 text-xs text-ember-700">
+              This records an operator-observed complaint. It does not claim
+              that Gmail supplied a complaint event.
+            </p>
+          ) : null}
+        </form>
+      </SettingsCard>
+
+      <SettingsCard className="overflow-hidden">
+        <div className="border-b border-paper-200 px-5 py-4">
+          <h3 className="text-sm font-semibold text-ink-900">
+            Protected recipients
+          </h3>
+          <p className="mt-0.5 text-xs text-ink-500">
+            No total is estimated; pages show only rows confirmed by the
+            backend.
+          </p>
+        </div>
+        {listQuery.isLoading ? (
+          <div className="space-y-3 p-5">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <Skeleton key={index} className="h-12 w-full" />
+            ))}
+          </div>
+        ) : listQuery.isError || !listQuery.data ? (
+          <ErrorState
+            title="Couldn't load protected recipients"
+            description="The registry could not be verified. No recipient state has been inferred."
+            onRetry={() => listQuery.refetch()}
+          />
+        ) : listQuery.data.rows.length === 0 ? (
+          <EmptyState
+            icon={Shield}
+            title="No suppression rows on this page"
+            description="Recorded opt-outs, bounces, and complaints will appear here."
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[680px] text-left text-sm">
+              <thead className="bg-paper-50 text-xs uppercase tracking-wide text-ink-500">
+                <tr>
+                  <th className="px-5 py-3 font-semibold">Recipient</th>
+                  <th className="px-5 py-3 font-semibold">Reason</th>
+                  <th className="px-5 py-3 font-semibold">Source</th>
+                  <th className="px-5 py-3 font-semibold">Recorded</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-paper-100">
+                {listQuery.data.rows.map((row) => (
+                  <tr key={row.id}>
+                    <td className="px-5 py-3 font-mono text-xs text-ink-800">
+                      {row.recipientRef}
+                    </td>
+                    <td className="px-5 py-3 text-ink-700">
+                      {SUPPRESSION_REASON_LABELS[row.reason] ?? row.reason}
+                    </td>
+                    <td className="px-5 py-3 text-ink-500">
+                      {row.source ?? "Not recorded"}
+                    </td>
+                    <td className="px-5 py-3 text-xs text-ink-500">
+                      {new Date(row.createdAt).toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {!listQuery.isLoading && !listQuery.isError && listQuery.data ? (
+          <div className="flex items-center justify-between border-t border-paper-200 px-5 py-3">
+            <span className="text-xs text-ink-500">
+              Page {cursorStack.length}
+            </span>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={cursorStack.length === 1 || listQuery.isFetching}
+                onClick={() =>
+                  setCursorStack((current) => current.slice(0, -1))
+                }
+              >
+                Previous
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!listQuery.data.nextCursor || listQuery.isFetching}
+                onClick={() => {
+                  if (listQuery.data?.nextCursor) {
+                    setCursorStack((current) => [
+                      ...current,
+                      listQuery.data!.nextCursor!,
+                    ]);
+                  }
+                }}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </SettingsCard>
     </>
   );
 }
@@ -974,15 +1455,12 @@ function BillingTab() {
       onRetry={() => refetch()}
       skeleton={<FormSkeleton rows={5} />}
     >
-      <SectionHeader title="Billing & Usage" description="Plan, credits, and invoice history." />
+      <SectionHeader title="Billing & Usage" description="Plan and backend-recorded billing details." />
       <SettingsCard className="p-5 space-y-5">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs text-ink-400 uppercase tracking-wide">Current Plan</p>
             <p className="text-2xl font-serif font-semibold text-ink-900 dark:text-paper-50 mt-0.5">{billing.plan}</p>
-            <p className="text-xs text-ink-400 mt-1">
-              <CountUp value={billing.creditsRemaining} /> credits remaining
-            </p>
           </div>
           <Button
             size="sm"
@@ -993,17 +1471,15 @@ function BillingTab() {
           </Button>
         </div>
         <Separator />
-        <UsageBar label="Credits" used={billing.creditsTotal - billing.creditsRemaining} total={billing.creditsTotal} unit="" />
-        <UsageBar label="Sends this month" used={billing.sendsThisMonth} total={billing.sendsLimit} unit="" />
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-ink-600">Seats</span>
-          <span className="font-mono text-ink-900 dark:text-paper-50">
-            <CountUp value={billing.seats} /> / <CountUp value={billing.seatsLimit} />
-          </span>
-        </div>
+        <BillingUsageSummary billing={billing} />
       </SettingsCard>
 
-      {billing.invoices.length > 0 && (
+      {billing.invoices === null ? (
+        <SettingsCard className="p-4 flex items-center justify-between text-sm">
+          <span className="text-ink-600">Invoice history</span>
+          <span className="font-mono text-ink-900 dark:text-paper-50">Not recorded</span>
+        </SettingsCard>
+      ) : billing.invoices.length > 0 ? (
         <SettingsCard className="overflow-hidden">
           <div className="px-4 py-3 border-b border-paper-200 bg-paper-50">
             <span className="text-xs font-semibold text-ink-500 uppercase tracking-wide">Invoices</span>
@@ -1020,6 +1496,11 @@ function BillingTab() {
               </div>
             ))}
           </div>
+        </SettingsCard>
+      ) : (
+        <SettingsCard className="p-4 flex items-center justify-between text-sm">
+          <span className="text-ink-600">Invoice history</span>
+          <span className="font-mono text-ink-900 dark:text-paper-50">No invoices recorded</span>
         </SettingsCard>
       )}
 
@@ -1047,23 +1528,6 @@ function BillingTab() {
         </DialogContent>
       </Dialog>
     </TabBoundary>
-  );
-}
-
-function UsageBar({ label, used, total, unit }: { label: string; used: number; total: number; unit: string }) {
-  const pct = total > 0 ? Math.round((used / total) * 100) : 0;
-  const color = pct >= 90 ? "bg-rust-500" : pct >= 70 ? "bg-amber-400" : "bg-ink-700";
-  return (
-    <div>
-      <div className="flex justify-between text-sm mb-1.5">
-        <span className="text-ink-600">{label}</span>
-        <span className="font-mono text-ink-900 dark:text-paper-50">{used.toLocaleString()}{unit} / {total.toLocaleString()}{unit}</span>
-      </div>
-      <div className="h-2 bg-paper-200 rounded-full overflow-hidden">
-        <div className={cn("h-full rounded-full transition-all", color)} style={{ width: `${pct}%` }} />
-      </div>
-      <p className="text-[10px] text-ink-400 mt-1 text-right">{pct}% used</p>
-    </div>
   );
 }
 
@@ -1260,6 +1724,7 @@ function TabPanel({ tabId }: { tabId: TabId }) {
       {tabId === "org"           && <OrgTab />}
       {tabId === "icp"           && <IcpTab />}
       {tabId === "integrations"  && <IntegrationsTab />}
+      {tabId === "suppressions"  && <SuppressionsTab />}
     </div>
   );
 

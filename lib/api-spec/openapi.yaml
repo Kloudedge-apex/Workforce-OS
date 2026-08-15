@@ -74,7 +74,19 @@ paths:
           in: query
           schema:
             type: string
-            enum: [DRAFT, PENDING_REVIEW, APPROVED, REJECTED, SENT, SUPPRESSED, SENDING, SIMULATED, DELIVERY_UNKNOWN]
+            enum:
+              [
+                DRAFT,
+                PENDING_REVIEW,
+                APPROVED,
+                REJECTED,
+                SENT,
+                SUPPRESSED,
+                SENDING,
+                SIMULATED,
+                DELIVERY_UNKNOWN,
+                FAILED,
+              ]
         - name: page
           in: query
           schema: { type: integer, default: 1 }
@@ -126,6 +138,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OutreachArtifact"
+        "503":
+          description: Approval may be durably saved even though queue handoff failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactApprovalFailure"
         "404":
           description: Not found
 
@@ -619,6 +637,49 @@ paths:
               schema:
                 $ref: "#/components/schemas/OrgHealth"
 
+  /settings/suppressions:
+    get:
+      operationId: listSuppressions
+      tags: [settings]
+      summary: List the authoritative outreach suppression registry
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: cursor
+          in: query
+          schema: { type: string, minLength: 1 }
+      responses:
+        "200":
+          description: One cursor page of suppression rows
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuppressionPage"
+    post:
+      operationId: createSuppression
+      tags: [settings]
+      summary: Record an operator-observed opt-out or complaint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSuppressionInput"
+      responses:
+        "200":
+          description: Suppression already existed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateSuppressionResult"
+        "201":
+          description: Suppression recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateSuppressionResult"
+
   /settings/icp:
     get:
       operationId: getIcpProfile
@@ -664,11 +725,30 @@ paths:
                 items:
                   $ref: "#/components/schemas/Integration"
 
+  /settings/integrations/gmail/finalize:
+    post:
+      operationId: finalizeGmailIntegration
+      tags: [settings]
+      summary: Finalize a Gmail OAuth callback with an authenticated session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GmailOAuthFinalizeInput"
+      responses:
+        "200":
+          description: Connected Gmail integration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Integration"
+
   /settings/integrations/{provider}/connect:
     post:
       operationId: connectIntegration
       tags: [settings]
-      summary: Connect an integration (stub OAuth)
+      summary: Request a direct integration connection
       parameters:
         - name: provider
           in: path
@@ -1013,7 +1093,13 @@ components:
         postalAddressSet: { type: boolean }
         unsubscribeConfigured: { type: boolean }
         recipientSuppressed: { type: boolean }
-      required: [liveSendEnabled, postalAddressSet, unsubscribeConfigured, recipientSuppressed]
+      required:
+        [
+          liveSendEnabled,
+          postalAddressSet,
+          unsubscribeConfigured,
+          recipientSuppressed,
+        ]
 
     OutreachArtifact:
       type: object
@@ -1021,14 +1107,31 @@ components:
         id: { type: string }
         status:
           type: string
-          enum: [DRAFT, PENDING_REVIEW, APPROVED, REJECTED, SENT, SUPPRESSED, SENDING, SIMULATED, DELIVERY_UNKNOWN]
+          enum:
+            [
+              DRAFT,
+              PENDING_REVIEW,
+              APPROVED,
+              REJECTED,
+              SENT,
+              SUPPRESSED,
+              SENDING,
+              SIMULATED,
+              DELIVERY_UNKNOWN,
+              FAILED,
+              RECONCILIATION_REQUIRED,
+            ]
+        purpose:
+          type: string
+          enum: [OUTBOUND, REPLY, FOLLOW_UP]
         channel:
           type: string
           enum: [EMAIL, LINKEDIN, HUBSPOT_NOTE, UNKNOWN]
         recipient:
           $ref: "#/components/schemas/Recipient"
         subject: { type: string }
-        bodyHtml: { type: string }
+        bodyText: { type: string }
+        bodyHtml: { type: ["string", "null"] }
         citations:
           type: array
           items:
@@ -1043,17 +1146,48 @@ components:
             - type: "null"
         refusal:
           $ref: "#/components/schemas/ArtifactRefusal"
+        approvalEligibility:
+          $ref: "#/components/schemas/ArtifactApprovalEligibility"
         langsmithRunId: { type: ["string", "null"] }
         createdAt: { type: string }
         updatedAt: { type: string }
         approvedAt: { type: ["string", "null"] }
         sentAt: { type: ["string", "null"] }
         rejectionReason: { type: ["string", "null"] }
+        failureReason: { type: ["string", "null"] }
+        failedAt: { type: ["string", "null"] }
         statusReason: { type: ["string", "null"] }
         sendReceiptId: { type: ["string", "null"] }
         graphRunId: { type: ["string", "null"] }
         cohort: { type: ["string", "null"] }
-      required: [id, status, channel, recipient, subject, bodyHtml, citations, evaluatorScores, sendPolicy, refusal, langsmithRunId, createdAt, updatedAt, approvedAt, sentAt, rejectionReason, statusReason, sendReceiptId, graphRunId, cohort]
+      required:
+        [
+          id,
+          status,
+          purpose,
+          channel,
+          recipient,
+          subject,
+          bodyText,
+          bodyHtml,
+          citations,
+          evaluatorScores,
+          sendPolicy,
+          refusal,
+          approvalEligibility,
+          langsmithRunId,
+          createdAt,
+          updatedAt,
+          approvedAt,
+          sentAt,
+          rejectionReason,
+          failureReason,
+          failedAt,
+          statusReason,
+          sendReceiptId,
+          graphRunId,
+          cohort,
+        ]
 
     ArtifactRefusal:
       type: object
@@ -1061,6 +1195,24 @@ components:
         refused: { type: boolean }
         reason: { type: ["string", "null"] }
       required: [refused, reason]
+
+    ArtifactApprovalEligibility:
+      type: object
+      properties:
+        eligible: { type: boolean }
+        reason: { type: ["string", "null"] }
+      required: [eligible, reason]
+
+    ArtifactApprovalFailure:
+      type: object
+      properties:
+        message: { type: string }
+        approvalSaved: { type: boolean }
+        artifactId: { type: string }
+        status:
+          type: string
+          enum: [APPROVED]
+      required: [message, approvalSaved, artifactId]
 
     PaginatedArtifacts:
       type: object
@@ -1102,7 +1254,19 @@ components:
             id: { type: string }
             status:
               type: string
-              enum: [DRAFT, PENDING_REVIEW, APPROVED, REJECTED, SENT, SUPPRESSED, SENDING, SIMULATED, DELIVERY_UNKNOWN]
+              enum:
+                [
+                  DRAFT,
+                  PENDING_REVIEW,
+                  APPROVED,
+                  REJECTED,
+                  SENT,
+                  SUPPRESSED,
+                  SENDING,
+                  SIMULATED,
+                  DELIVERY_UNKNOWN,
+                  FAILED,
+                ]
             statusChanged: { type: boolean }
           required: [id, status, statusChanged]
         suppression:
@@ -1125,7 +1289,21 @@ components:
         id: { type: string }
         kind:
           type: string
-          enum: [run_started, run_needs_approval, run_completed, run_failed, draft_created, draft_approved, draft_rejected, draft_sent, delivery_unknown, meeting_proposed, meeting_confirmed]
+          enum:
+            [
+              run_started,
+              run_needs_approval,
+              run_completed,
+              run_failed,
+              draft_created,
+              draft_approved,
+              draft_rejected,
+              draft_failed,
+              draft_sent,
+              delivery_unknown,
+              meeting_proposed,
+              meeting_confirmed,
+            ]
         action: { type: string }
         timestamp: { type: string }
         artifactId: { type: ["string", "null"] }
@@ -1141,7 +1319,15 @@ components:
         qualifiedMeetingsBooked: { type: integer }
         leadsSourcedToday: { type: [integer, "null"] }
         leadsScored: { type: integer }
-      required: [artifactsPending, artifactsSentToday, replyRate7d, qualifiedMeetingsBooked, leadsSourcedToday, leadsScored]
+      required:
+        [
+          artifactsPending,
+          artifactsSentToday,
+          replyRate7d,
+          qualifiedMeetingsBooked,
+          leadsSourcedToday,
+          leadsScored,
+        ]
 
     IntentSignal:
       type: object
@@ -1168,7 +1354,11 @@ components:
         industry: { type: ["string", "null"] }
         headcountEstimate: { type: ["string", "null"] }
         cohort: { type: ["string", "null"], enum: [A, B, null] }
-        emailStatus: { type: ["string", "null"], enum: [DELIVERABLE, HIGH_PROBABILITY, CATCH_ALL, null] }
+        emailStatus:
+          {
+            type: ["string", "null"],
+            enum: [DELIVERABLE, HIGH_PROBABILITY, CATCH_ALL, null],
+          }
         intentSignals:
           anyOf:
             - type: array
@@ -1181,7 +1371,20 @@ components:
             - $ref: "#/components/schemas/SendPolicy"
             - type: "null"
         createdAt: { type: ["string", "null"] }
-      required: [id, name, email, company, score, stage, cohort, emailStatus, intentSignals, sendPolicy, createdAt]
+      required:
+        [
+          id,
+          name,
+          email,
+          company,
+          score,
+          stage,
+          cohort,
+          emailStatus,
+          intentSignals,
+          sendPolicy,
+          createdAt,
+        ]
 
     ScoreBreakdown:
       type: object
@@ -1278,7 +1481,15 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PersonSuppressionResult"
-      required: [requestedCount, uniqueCount, affectedCount, alreadySuppressedCount, skippedCount, results]
+      required:
+        [
+          requestedCount,
+          uniqueCount,
+          affectedCount,
+          alreadySuppressedCount,
+          skippedCount,
+          results,
+        ]
 
     BulkActionResult:
       type: object
@@ -1416,7 +1627,14 @@ components:
         nextBestActionType:
           type: [string, "null"]
           enum: [send_content, qualify, disqualify, follow_up, null]
-      required: [analysisStatus, sentiment, sentimentConfidence, nextBestAction, nextBestActionType]
+      required:
+        [
+          analysisStatus,
+          sentiment,
+          sentimentConfidence,
+          nextBestAction,
+          nextBestActionType,
+        ]
 
     Conversation:
       type: object
@@ -1434,7 +1652,19 @@ components:
         archived: { type: boolean }
         replyIntelligence:
           $ref: "#/components/schemas/ReplyIntelligence"
-      required: [id, leadName, leadCompany, subject, lastMessagePreview, lastMessageAt, unread, needsReply, archived, replyIntelligence]
+      required:
+        [
+          id,
+          leadName,
+          leadCompany,
+          subject,
+          lastMessagePreview,
+          lastMessageAt,
+          unread,
+          needsReply,
+          archived,
+          replyIntelligence,
+        ]
 
     ConversationDetail:
       type: object
@@ -1474,9 +1704,18 @@ components:
         liveSendAllowed: { type: boolean }
         physicalAddressSet: { type: boolean }
         senderNameSet: { type: boolean }
+        countrySet: { type: boolean }
         mailboxConnected: { type: boolean }
         dailyCapRemaining: { type: [integer, "null"] }
-      required: [liveSendAllowed, physicalAddressSet, senderNameSet, mailboxConnected, dailyCapRemaining]
+      required:
+        [
+          liveSendAllowed,
+          physicalAddressSet,
+          senderNameSet,
+          countrySet,
+          mailboxConnected,
+          dailyCapRemaining,
+        ]
 
     OrgSettings:
       type: object
@@ -1492,18 +1731,41 @@ components:
         liveSendEnabled: { type: boolean }
         postalAddress: { type: ["string", "null"] }
         unsubscribeUrl: { type: ["string", "null"] }
-        suppressionCount: { type: integer }
+        suppressionCount: { type: [integer, "null"] }
         allowlistedDomains:
           type: array
           items: { type: string }
-        plan: { type: string }
-        creditsRemaining: { type: integer }
+        plan: { type: [string, "null"] }
+        creditsRemaining: { type: [integer, "null"] }
         welcomeComplete: { type: boolean }
+        canReviewArtifacts: { type: [boolean, "null"] }
+        canManageMailbox: { type: [boolean, "null"] }
+        canManageOrg: { type: [boolean, "null"] }
+        canManageSuppressions: { type: [boolean, "null"] }
         sendReadiness:
           anyOf:
             - $ref: "#/components/schemas/SendReadiness"
             - type: "null"
-      required: [orgId, orgName, slug, website, country, timezone, liveSendEnabled, suppressionCount, allowlistedDomains, creditsRemaining, welcomeComplete, sendReadiness]
+      required:
+        [
+          orgId,
+          orgName,
+          slug,
+          website,
+          country,
+          timezone,
+          liveSendEnabled,
+          suppressionCount,
+          allowlistedDomains,
+          plan,
+          creditsRemaining,
+          welcomeComplete,
+          canReviewArtifacts,
+          canManageMailbox,
+          canManageOrg,
+          canManageSuppressions,
+          sendReadiness,
+        ]
 
     UpdateOrgInput:
       type: object
@@ -1528,7 +1790,60 @@ components:
         blockers:
           type: array
           items: { type: string }
-      required: [liveSendEnabled, postalAddressConfigured, unsubscribeConfigured, suppressionCount, blockers]
+      required:
+        [
+          liveSendEnabled,
+          postalAddressConfigured,
+          unsubscribeConfigured,
+          suppressionCount,
+          blockers,
+        ]
+
+    SuppressionReason:
+      type: string
+      enum: [USER_UNSUBSCRIBED, BOUNCED, COMPLAINED, MANUAL]
+
+    SuppressionEntry:
+      type: object
+      properties:
+        id: { type: string }
+        recipientRef: { type: string }
+        reason:
+          $ref: "#/components/schemas/SuppressionReason"
+        source: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+      required: [id, recipientRef, reason, source, createdAt]
+
+    SuppressionPage:
+      type: object
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/SuppressionEntry"
+        nextCursor: { type: [string, "null"] }
+      required: [rows, nextCursor]
+
+    CreateSuppressionInput:
+      type: object
+      additionalProperties: false
+      properties:
+        recipientRef: { type: string, minLength: 1, maxLength: 512 }
+        reason:
+          type: string
+          enum: [MANUAL, COMPLAINED]
+          default: MANUAL
+      required: [recipientRef]
+
+    CreateSuppressionResult:
+      type: object
+      properties:
+        created: { type: boolean }
+        recipientRef: { type: string }
+        reason:
+          type: string
+          enum: [MANUAL, COMPLAINED]
+      required: [created, recipientRef, reason]
 
     IcpProfile:
       type: object
@@ -1555,7 +1870,17 @@ components:
         exclusionDomains:
           type: array
           items: { type: string }
-      required: [industries, titles, geos, sizeBand, techStackSignals, intentSignals, seedDomains, exclusionDomains]
+      required:
+        [
+          industries,
+          titles,
+          geos,
+          sizeBand,
+          techStackSignals,
+          intentSignals,
+          seedDomains,
+          exclusionDomains,
+        ]
 
     Integration:
       type: object
@@ -1569,6 +1894,12 @@ components:
         connectedAt: { type: ["string", "null"] }
         errorMessage: { type: ["string", "null"] }
       required: [id, provider, status]
+
+    GmailOAuthFinalizeInput:
+      type: object
+      properties:
+        attemptId: { type: string, minLength: 1 }
+      required: [attemptId]
 
     CadenceStage:
       type: object
@@ -1617,17 +1948,27 @@ components:
       type: object
       properties:
         plan: { type: string }
-        creditsRemaining: { type: integer }
-        creditsTotal: { type: integer }
-        sendsThisMonth: { type: integer }
-        sendsLimit: { type: integer }
+        creditsRemaining: { type: [integer, "null"] }
+        creditsTotal: { type: [integer, "null"] }
+        sendsThisMonth: { type: [integer, "null"] }
+        sendsLimit: { type: [integer, "null"] }
         seats: { type: integer }
-        seatsLimit: { type: integer }
+        seatsLimit: { type: [integer, "null"] }
         invoices:
-          type: array
+          type: [array, "null"]
           items:
             $ref: "#/components/schemas/Invoice"
-      required: [plan, creditsRemaining, creditsTotal, sendsThisMonth, sendsLimit, seats, seatsLimit, invoices]
+      required:
+        [
+          plan,
+          creditsRemaining,
+          creditsTotal,
+          sendsThisMonth,
+          sendsLimit,
+          seats,
+          seatsLimit,
+          invoices,
+        ]
 
     Invoice:
       type: object
@@ -1675,7 +2016,16 @@ components:
         suppressionHit: { type: boolean }
         weeklyReport: { type: boolean }
         newReply: { type: boolean }
-      required: [emailEnabled, slackEnabled, approvalQueueFull, sendFailed, suppressionHit, weeklyReport, newReply]
+      required:
+        [
+          emailEnabled,
+          slackEnabled,
+          approvalQueueFull,
+          sendFailed,
+          suppressionHit,
+          weeklyReport,
+          newReply,
+        ]
 
     Notification:
       type: object
@@ -1736,7 +2086,17 @@ components:
           type: string
           enum: [organization, sender_identity, icp, mailbox, complete]
         readyForLiveSend: { type: boolean }
-      required: [organization, senderIdentity, icp, mailbox, sendReadiness, complete, currentStep, readyForLiveSend]
+      required:
+        [
+          organization,
+          senderIdentity,
+          icp,
+          mailbox,
+          sendReadiness,
+          complete,
+          currentStep,
+          readyForLiveSend,
+        ]
 
     GraphRun:
       type: object
@@ -1755,7 +2115,19 @@ components:
         approvedBy: { type: ["string", "null"] }
         startedAt: { type: string }
         completedAt: { type: ["string", "null"] }
-      required: [id, status, stagesCompleted, leadsScored, artifactsGenerated, durationMs, costUsd, approvedBy, startedAt, completedAt]
+      required:
+        [
+          id,
+          status,
+          stagesCompleted,
+          leadsScored,
+          artifactsGenerated,
+          durationMs,
+          costUsd,
+          approvedBy,
+          startedAt,
+          completedAt,
+        ]
 
     PaginatedRuns:
       type: object

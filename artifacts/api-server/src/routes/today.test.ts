@@ -10,7 +10,7 @@ describe("shapeTodayKpis", () => {
     leadsSourced: 42,
     leadsQualified: 17,
     emailsSent: 120,
-    replyRate: 0, // backend hardcodes 0
+    replyRate: null,
     meetingsBooked: 6,
   };
   const quality: QualityKpiUpstream = {
@@ -35,7 +35,7 @@ describe("shapeTodayKpis", () => {
     });
   });
 
-  it("does not present the upstream hardcoded reply rate as measured telemetry", () => {
+  it("does not present an ungrounded upstream reply rate as measured telemetry", () => {
     expect(shapeTodayKpis({ ...stats, replyRate: 0 }, quality).replyRate7d).toBeNull();
     expect(shapeTodayKpis({ ...stats, replyRate: 0.73 }, quality).replyRate7d).toBeNull();
   });

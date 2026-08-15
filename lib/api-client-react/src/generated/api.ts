@@ -24,6 +24,7 @@ import type {
   Agent,
   ApiKey,
   ApiKeyCreated,
+  ArtifactApprovalFailure,
   ArtifactSuppressionResult,
   BillingInfo,
   BulkActionResult,
@@ -37,7 +38,10 @@ import type {
   CreateConversationFollowUpInput,
   CreateConversationMeetingInput,
   CreateConversationReplyInput,
+  CreateSuppressionInput,
+  CreateSuppressionResult,
   GetActivityStreamParams,
+  GmailOAuthFinalizeInput,
   GraphRunDetail,
   HealthStatus,
   IcpProfile,
@@ -49,6 +53,7 @@ import type {
   ListLeadsParams,
   ListPendingArtifactsParams,
   ListRunsParams,
+  ListSuppressionsParams,
   NotificationList,
   NotificationPrefs,
   OrgHealth,
@@ -60,6 +65,7 @@ import type {
   PaginatedRuns,
   RejectInput,
   StyleConfig,
+  SuppressionPage,
   TeamMember,
   TimelineNode,
   TodayKpis,
@@ -429,7 +435,7 @@ export const approveArtifact = async (id: string, options?: RequestInit): Promis
 
 
 
-export const getApproveArtifactMutationOptions = <TError = ErrorType<void>,
+export const getApproveArtifactMutationOptions = <TError = ErrorType<void | ArtifactApprovalFailure>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveArtifact>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof approveArtifact>>, TError,{id: string}, TContext> => {
 
@@ -458,12 +464,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type ApproveArtifactMutationResult = NonNullable<Awaited<ReturnType<typeof approveArtifact>>>
 
-    export type ApproveArtifactMutationError = ErrorType<void>
+    export type ApproveArtifactMutationError = ErrorType<void | ArtifactApprovalFailure>
 
     /**
  * @summary Approve an outreach artifact
  */
-export const useApproveArtifact = <TError = ErrorType<void>,
+export const useApproveArtifact = <TError = ErrorType<void | ArtifactApprovalFailure>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveArtifact>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof approveArtifact>>,
@@ -2198,6 +2204,160 @@ export function useGetOrgHealth<TData = Awaited<ReturnType<typeof getOrgHealth>>
 
 
 
+export const getListSuppressionsUrl = (params?: ListSuppressionsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/settings/suppressions?${stringifiedParams}` : `/api/settings/suppressions`
+}
+
+/**
+ * @summary List the authoritative outreach suppression registry
+ */
+export const listSuppressions = async (params?: ListSuppressionsParams, options?: RequestInit): Promise<SuppressionPage> => {
+
+  return customFetch<SuppressionPage>(getListSuppressionsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListSuppressionsQueryKey = (params?: ListSuppressionsParams,) => {
+    return [
+    `/api/settings/suppressions`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListSuppressionsQueryOptions = <TData = Awaited<ReturnType<typeof listSuppressions>>, TError = ErrorType<unknown>>(params?: ListSuppressionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listSuppressions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListSuppressionsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listSuppressions>>> = ({ signal }) => listSuppressions(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listSuppressions>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListSuppressionsQueryResult = NonNullable<Awaited<ReturnType<typeof listSuppressions>>>
+export type ListSuppressionsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List the authoritative outreach suppression registry
+ */
+
+export function useListSuppressions<TData = Awaited<ReturnType<typeof listSuppressions>>, TError = ErrorType<unknown>>(
+ params?: ListSuppressionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listSuppressions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListSuppressionsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getCreateSuppressionUrl = () => {
+
+
+
+
+  return `/api/settings/suppressions`
+}
+
+/**
+ * @summary Record an operator-observed opt-out or complaint
+ */
+export const createSuppression = async (createSuppressionInput: CreateSuppressionInput, options?: RequestInit): Promise<CreateSuppressionResult> => {
+
+  return customFetch<CreateSuppressionResult>(getCreateSuppressionUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(createSuppressionInput)
+  }
+);}
+
+
+
+
+export const getCreateSuppressionMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSuppression>>, TError,{data: BodyType<CreateSuppressionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createSuppression>>, TError,{data: BodyType<CreateSuppressionInput>}, TContext> => {
+
+const mutationKey = ['createSuppression'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createSuppression>>, {data: BodyType<CreateSuppressionInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createSuppression(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateSuppressionMutationResult = NonNullable<Awaited<ReturnType<typeof createSuppression>>>
+    export type CreateSuppressionMutationBody = BodyType<CreateSuppressionInput>
+    export type CreateSuppressionMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Record an operator-observed opt-out or complaint
+ */
+export const useCreateSuppression = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSuppression>>, TError,{data: BodyType<CreateSuppressionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createSuppression>>,
+        TError,
+        {data: BodyType<CreateSuppressionInput>},
+        TContext
+      > => {
+      return useMutation(getCreateSuppressionMutationOptions(options));
+    }
+
 export const getGetIcpProfileUrl = () => {
 
 
@@ -2422,6 +2582,76 @@ export function useListIntegrations<TData = Awaited<ReturnType<typeof listIntegr
 
 
 
+export const getFinalizeGmailIntegrationUrl = () => {
+
+
+
+
+  return `/api/settings/integrations/gmail/finalize`
+}
+
+/**
+ * @summary Finalize a Gmail OAuth callback with an authenticated session
+ */
+export const finalizeGmailIntegration = async (gmailOAuthFinalizeInput: GmailOAuthFinalizeInput, options?: RequestInit): Promise<Integration> => {
+
+  return customFetch<Integration>(getFinalizeGmailIntegrationUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(gmailOAuthFinalizeInput)
+  }
+);}
+
+
+
+
+export const getFinalizeGmailIntegrationMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof finalizeGmailIntegration>>, TError,{data: BodyType<GmailOAuthFinalizeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof finalizeGmailIntegration>>, TError,{data: BodyType<GmailOAuthFinalizeInput>}, TContext> => {
+
+const mutationKey = ['finalizeGmailIntegration'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof finalizeGmailIntegration>>, {data: BodyType<GmailOAuthFinalizeInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  finalizeGmailIntegration(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type FinalizeGmailIntegrationMutationResult = NonNullable<Awaited<ReturnType<typeof finalizeGmailIntegration>>>
+    export type FinalizeGmailIntegrationMutationBody = BodyType<GmailOAuthFinalizeInput>
+    export type FinalizeGmailIntegrationMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Finalize a Gmail OAuth callback with an authenticated session
+ */
+export const useFinalizeGmailIntegration = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof finalizeGmailIntegration>>, TError,{data: BodyType<GmailOAuthFinalizeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof finalizeGmailIntegration>>,
+        TError,
+        {data: BodyType<GmailOAuthFinalizeInput>},
+        TContext
+      > => {
+      return useMutation(getFinalizeGmailIntegrationMutationOptions(options));
+    }
+
 export const getConnectIntegrationUrl = (provider: string,) => {
 
 
@@ -2431,7 +2661,7 @@ export const getConnectIntegrationUrl = (provider: string,) => {
 }
 
 /**
- * @summary Connect an integration (stub OAuth)
+ * @summary Request a direct integration connection
  */
 export const connectIntegration = async (provider: string, options?: RequestInit): Promise<Integration> => {
 
@@ -2479,7 +2709,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ConnectIntegrationMutationError = ErrorType<unknown>
 
     /**
- * @summary Connect an integration (stub OAuth)
+ * @summary Request a direct integration connection
  */
 export const useConnectIntegration = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof connectIntegration>>, TError,{provider: string}, TContext>, request?: SecondParameter<typeof customFetch>}

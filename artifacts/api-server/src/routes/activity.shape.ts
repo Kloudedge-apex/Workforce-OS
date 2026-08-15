@@ -16,6 +16,7 @@ export interface ActivityEventUpstream {
     | "draft_created"
     | "draft_approved"
     | "draft_rejected"
+    | "draft_failed"
     | "draft_sent"
     | "delivery_unknown"
     | "meeting_proposed"
@@ -75,8 +76,22 @@ export function shapeActivity(
     Exclude<ActivityFilter, "all">,
     ActivityEventUpstream["kind"][]
   > = {
-    outbound: ["draft_created", "draft_approved", "draft_rejected", "draft_sent", "delivery_unknown"],
-    pipeline: ["run_started", "run_needs_approval", "run_completed", "run_failed", "meeting_proposed", "meeting_confirmed"],
+    outbound: [
+      "draft_created",
+      "draft_approved",
+      "draft_rejected",
+      "draft_failed",
+      "draft_sent",
+      "delivery_unknown",
+    ],
+    pipeline: [
+      "run_started",
+      "run_needs_approval",
+      "run_completed",
+      "run_failed",
+      "meeting_proposed",
+      "meeting_confirmed",
+    ],
   };
   const allow = allowedKinds[filter];
   return mapped.filter((e) => allow.includes(e.kind));

@@ -1,4 +1,10 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
+import {
+  CreateSuppressionBody,
+  CreateSuppressionResponse,
+  ListSuppressionsQueryParams,
+  ListSuppressionsResponse,
+} from "@workspace/api-zod";
 import { apex, UpstreamError } from "../upstream/apex-client";
 import { gapResponse } from "../lib/unavailable";
 
@@ -8,7 +14,7 @@ const router = Router();
  * The subset of the apex-gtm-api Org row (GET /api/orgs/me →
  * OrgsService.findByClerkUser) that the BFF reads. The deployed Org model has
  * NO logoUrl/timezone/unsubscribeUrl/allowlistedDomains/creditsRemaining
- * columns, so those FE fields are DEFAULTED (synthesized) — see the audit's
+ * columns, so unsupported FE fields are defaulted and accounting stays null — see the audit's
  * transform for endpoint 0. Onboarding completion is fetched from the
  * backend's derived status endpoint, never from a mutable/synthetic flag.
  * `sendReadiness` is the GL5
@@ -23,7 +29,7 @@ export interface ApexOrg {
   physicalAddress?: string | null;
   country?: string | null;
   senderName?: string | null;
-  plan?: string;
+  plan?: string | null;
   sendReadiness?: unknown;
 }
 
@@ -40,6 +46,7 @@ export interface SendReadiness {
   liveSendAllowed: boolean;
   physicalAddressSet: boolean;
   senderNameSet: boolean;
+  countrySet: boolean;
   mailboxConnected: boolean;
   dailyCapRemaining: number | null;
 }
@@ -60,6 +67,7 @@ export function parseSendReadiness(raw: unknown): SendReadiness | null {
     typeof r["liveSendAllowed"] !== "boolean" ||
     typeof r["physicalAddressSet"] !== "boolean" ||
     typeof r["senderNameSet"] !== "boolean" ||
+    typeof r["countrySet"] !== "boolean" ||
     typeof r["mailboxConnected"] !== "boolean"
   ) {
     return null;
@@ -69,6 +77,7 @@ export function parseSendReadiness(raw: unknown): SendReadiness | null {
     liveSendAllowed: r["liveSendAllowed"],
     physicalAddressSet: r["physicalAddressSet"],
     senderNameSet: r["senderNameSet"],
+    countrySet: r["countrySet"],
     mailboxConnected: r["mailboxConnected"],
     dailyCapRemaining: typeof cap === "number" && Number.isFinite(cap) ? cap : null,
   };
@@ -86,13 +95,58 @@ export interface OrgSettings {
   liveSendEnabled: boolean;
   postalAddress: string | null;
   unsubscribeUrl: string | null;
-  suppressionCount: number;
+  suppressionCount: number | null;
   allowlistedDomains: string[];
-  plan: string;
-  creditsRemaining: number;
+  plan: string | null;
+  creditsRemaining: number | null;
   welcomeComplete: boolean;
+  /** true = reviewer guard confirmed; false = guard denied; null = unavailable/unknown. */
+  canReviewArtifacts: boolean | null;
+  /** true = mailbox mutation guard confirmed; false = denied; null = unavailable/unknown. */
+  canManageMailbox: boolean | null;
+  /** true = organization mutation guard confirmed; false = denied; null = unavailable/unknown. */
+  canManageOrg: boolean | null;
+  /** true = suppression mutation guard confirmed; false = denied; null = unavailable/unknown. */
+  canManageSuppressions: boolean | null;
   /** GL5: forwarded verbatim from upstream; null = backend didn't report it. */
   sendReadiness: SendReadiness | null;
+}
+
+export interface OrgCapabilities {
+  canReviewArtifacts: boolean | null;
+  canManageMailbox: boolean | null;
+  canManageOrg: boolean | null;
+  canManageSuppressions: boolean | null;
+}
+
+function unknownOrgCapabilities(): OrgCapabilities {
+  return {
+    canReviewArtifacts: null,
+    canManageMailbox: null,
+    canManageOrg: null,
+    canManageSuppressions: null,
+  };
+}
+
+/**
+ * Parse each capability independently and fail closed. Explicit `false` is a
+ * known denial and must never be collapsed into "unknown"; absent, non-boolean,
+ * or malformed fields become null so the corresponding UI control stays
+ * read-only without discarding other valid flags in the same response.
+ */
+export function parseOrgCapabilities(raw: unknown): OrgCapabilities {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return unknownOrgCapabilities();
+  }
+  const rec = raw as Record<string, unknown>;
+  const capability = (key: keyof OrgCapabilities): boolean | null =>
+    typeof rec[key] === "boolean" ? (rec[key] as boolean) : null;
+  return {
+    canReviewArtifacts: capability("canReviewArtifacts"),
+    canManageMailbox: capability("canManageMailbox"),
+    canManageOrg: capability("canManageOrg"),
+    canManageSuppressions: capability("canManageSuppressions"),
+  };
 }
 
 /**
@@ -100,20 +154,21 @@ export interface OrgSettings {
  *
  * REAL: `sendReadiness` is forwarded from the upstream org read (null when the
  * backend doesn't send it), and `liveSendEnabled` is true only when the
- * allowlist, mailbox, sender, address, and positive-capacity gates are all
+ * allowlist, mailbox, sender, country, address, and positive-capacity gates are all
  * reported open; absent/malformed readiness fails closed.
  *
  * SYNTHESIZED (no backing Org column on the deployed backend, per audit):
  *   logoUrl=null, timezone='UTC', unsubscribeUrl=null, allowlistedDomains=[],
- *   creditsRemaining=0.
- *   suppressionCount has no count endpoint upstream → 0 unless caller supplies one.
+ *   creditsRemaining=null (the backend does not expose credit accounting).
+ *   suppressionCount has no count endpoint upstream → null unless caller supplies one.
  * `welcomeComplete` is never synthesized: the caller must supply the derived
  * backend onboarding verdict, and a missing/malformed verdict fails closed.
  */
 export function shapeOrgSettings(
   org: ApexOrg,
-  suppressionCount = 0,
+  suppressionCount: number | null = null,
   welcomeComplete = false,
+  capabilities: OrgCapabilities = unknownOrgCapabilities(),
 ): OrgSettings {
   const sendReadiness = parseSendReadiness(org.sendReadiness);
   return {
@@ -129,6 +184,7 @@ export function shapeOrgSettings(
       sendReadiness?.liveSendAllowed === true &&
       sendReadiness.physicalAddressSet &&
       sendReadiness.senderNameSet &&
+      sendReadiness.countrySet &&
       sendReadiness.mailboxConnected &&
       sendReadiness.dailyCapRemaining !== null &&
       sendReadiness.dailyCapRemaining > 0,
@@ -136,10 +192,61 @@ export function shapeOrgSettings(
     unsubscribeUrl: null,
     suppressionCount,
     allowlistedDomains: [],
-    plan: org.plan ?? "TRIAL",
-    creditsRemaining: 0,
+    plan:
+      typeof org.plan === "string" && org.plan.trim() !== ""
+        ? org.plan
+        : null,
+    creditsRemaining: null,
     welcomeComplete,
+    ...capabilities,
     sendReadiness,
+  };
+}
+
+/**
+ * Resolve the backend's guarded artifact-review capability without guessing.
+ * A guard denial is a known read-only state; any missing/malformed/failed
+ * capability lookup is unknown and therefore also fails closed in the UI.
+ */
+export async function fetchReviewCapability(
+  req: Request,
+  client: Pick<typeof apex, "get"> = apex,
+): Promise<boolean | null> {
+  try {
+    const raw = await client.get("/outreach-artifacts/review-capability", { req });
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    return (raw as Record<string, unknown>)["canReviewArtifacts"] === true ? true : null;
+  } catch (err) {
+    if (err instanceof UpstreamError && err.status === 401) throw err;
+    if (err instanceof UpstreamError && err.status === 403) return false;
+    return null;
+  }
+}
+
+/**
+ * Resolve the granular backend capability envelope. Older deployments may not
+ * have `/orgs/me/capabilities`; in that case only the legacy artifact-review
+ * probe is recoverable. Mailbox, org, and suppression permissions remain null
+ * rather than being inferred from the review role.
+ */
+export async function fetchOrgCapabilities(
+  req: Request,
+  client: Pick<typeof apex, "get"> = apex,
+): Promise<OrgCapabilities> {
+  let parsed = unknownOrgCapabilities();
+  try {
+    parsed = parseOrgCapabilities(
+      await client.get("/orgs/me/capabilities", { req }),
+    );
+  } catch (err) {
+    if (err instanceof UpstreamError && err.status === 401) throw err;
+  }
+
+  if (parsed.canReviewArtifacts !== null) return parsed;
+
+  return {
+    ...parsed,
+    canReviewArtifacts: await fetchReviewCapability(req, client),
   };
 }
 
@@ -155,8 +262,11 @@ router.get("/settings/org", async (req, res, next) => {
       "/orgs/onboarding/status",
       { req },
     )) as ApexOnboardingStatus;
-    const org = (await apex.get("/orgs/me", { req })) as ApexOrg;
-    res.json(shapeOrgSettings(org, 0, onboarding?.complete === true));
+    const [org, capabilities] = await Promise.all([
+      apex.get("/orgs/me", { req }) as Promise<ApexOrg>,
+      fetchOrgCapabilities(req),
+    ]);
+    res.json(shapeOrgSettings(org, null, onboarding?.complete === true, capabilities));
   } catch (err) {
     if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
     next(err);
@@ -228,11 +338,12 @@ router.put("/settings/org", async (req, res, next) => {
     // addition to name — buildOrgPatchBody forwards exactly those.
     const me = (await apex.get("/orgs/me", { req })) as ApexOrg;
     await apex.patch(`/orgs/${me.id}`, { req }, buildOrgPatchBody(req.body));
-    const [updated, onboarding] = await Promise.all([
+    const [updated, onboarding, capabilities] = await Promise.all([
       apex.get("/orgs/me", { req }) as Promise<ApexOrg>,
       apex.get("/orgs/onboarding/status", { req }) as Promise<ApexOnboardingStatus>,
+      fetchOrgCapabilities(req),
     ]);
-    res.json(shapeOrgSettings(updated, 0, onboarding?.complete === true));
+    res.json(shapeOrgSettings(updated, null, onboarding?.complete === true, capabilities));
   } catch (err) {
     if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
     // Surface upstream validation failures honestly (e.g. country must be
@@ -257,5 +368,80 @@ router.put("/settings/org", async (req, res, next) => {
 router.get("/settings/org/health", (_req, res) => {
   return gapResponse(res, "org-health");
 });
+
+// ─── Authoritative suppression registry ────────────────────────────────────
+
+type SuppressionUpstream = Pick<typeof apex, "get" | "post">;
+
+/**
+ * Owner/admin suppression boundary. The upstream derives both tenant and
+ * actor from the authenticated request. This BFF intentionally exposes no
+ * delete operation: opt-out removal needs a separate, durable re-consent
+ * contract before it can be a customer-facing action.
+ */
+export function createSuppressionSettingsRouter(
+  client: SuppressionUpstream = apex,
+): Router {
+  const suppressionRouter = Router();
+
+  suppressionRouter.get("/settings/suppressions", async (req, res, next) => {
+    const parsed = ListSuppressionsQueryParams.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid suppression-list query" });
+      return;
+    }
+
+    const query = new URLSearchParams({ limit: String(parsed.data.limit) });
+    if (parsed.data.cursor) query.set("cursor", parsed.data.cursor);
+
+    try {
+      const upstream = await client.get(
+        `/outreach/suppression?${query.toString()}`,
+        { req },
+      );
+      const shaped = ListSuppressionsResponse.safeParse(upstream);
+      if (!shaped.success) {
+        res.status(502).json({
+          error: "The backend returned an invalid suppression registry",
+        });
+        return;
+      }
+      res.json(shaped.data);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  suppressionRouter.post("/settings/suppressions", async (req, res, next) => {
+    const parsed = CreateSuppressionBody.safeParse(req.body);
+    const recipientRef = parsed.success ? parsed.data.recipientRef.trim() : "";
+    if (!parsed.success || recipientRef.length === 0) {
+      res.status(400).json({ error: "Invalid suppression request" });
+      return;
+    }
+
+    try {
+      const upstream = await client.post(
+        "/outreach/suppression",
+        { req },
+        { ...parsed.data, recipientRef },
+      );
+      const shaped = CreateSuppressionResponse.safeParse(upstream);
+      if (!shaped.success) {
+        res.status(502).json({
+          error: "The backend returned an invalid suppression result",
+        });
+        return;
+      }
+      res.status(shaped.data.created ? 201 : 200).json(shaped.data);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  return suppressionRouter;
+}
+
+router.use(createSuppressionSettingsRouter());
 
 export default router;

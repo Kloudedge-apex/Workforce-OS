@@ -30,7 +30,8 @@ export const ListPendingArtifactsQueryParams = zod.object({
 export const ListPendingArtifactsResponse = zod.object({
   "items": zod.array(zod.object({
   "id": zod.string(),
-  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN']),
+  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN', 'FAILED', 'RECONCILIATION_REQUIRED']),
+  "purpose": zod.enum(['OUTBOUND', 'REPLY', 'FOLLOW_UP']),
   "channel": zod.enum(['EMAIL', 'LINKEDIN', 'HUBSPOT_NOTE', 'UNKNOWN']),
   "recipient": zod.object({
   "id": zod.string(),
@@ -41,7 +42,8 @@ export const ListPendingArtifactsResponse = zod.object({
   "avatarUrl": zod.string().nullish()
 }),
   "subject": zod.string(),
-  "bodyHtml": zod.string(),
+  "bodyText": zod.string(),
+  "bodyHtml": zod.string().nullable(),
   "citations": zod.array(zod.object({
   "factId": zod.string(),
   "claim": zod.string(),
@@ -65,12 +67,18 @@ export const ListPendingArtifactsResponse = zod.object({
   "refused": zod.boolean(),
   "reason": zod.string().nullable()
 }),
+  "approvalEligibility": zod.object({
+  "eligible": zod.boolean(),
+  "reason": zod.string().nullable()
+}),
   "langsmithRunId": zod.string().nullable(),
   "createdAt": zod.string(),
   "updatedAt": zod.string(),
   "approvedAt": zod.string().nullable(),
   "sentAt": zod.string().nullable(),
   "rejectionReason": zod.string().nullable(),
+  "failureReason": zod.string().nullable(),
+  "failedAt": zod.string().nullable(),
   "statusReason": zod.string().nullable(),
   "sendReceiptId": zod.string().nullable(),
   "graphRunId": zod.string().nullable(),
@@ -89,7 +97,7 @@ export const listArtifactsQueryPageDefault = 1;
 export const listArtifactsQueryLimitDefault = 20;
 
 export const ListArtifactsQueryParams = zod.object({
-  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN']).optional(),
+  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN', 'FAILED']).optional(),
   "page": zod.coerce.number().default(listArtifactsQueryPageDefault),
   "limit": zod.coerce.number().default(listArtifactsQueryLimitDefault)
 })
@@ -97,7 +105,8 @@ export const ListArtifactsQueryParams = zod.object({
 export const ListArtifactsResponse = zod.object({
   "items": zod.array(zod.object({
   "id": zod.string(),
-  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN']),
+  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN', 'FAILED', 'RECONCILIATION_REQUIRED']),
+  "purpose": zod.enum(['OUTBOUND', 'REPLY', 'FOLLOW_UP']),
   "channel": zod.enum(['EMAIL', 'LINKEDIN', 'HUBSPOT_NOTE', 'UNKNOWN']),
   "recipient": zod.object({
   "id": zod.string(),
@@ -108,7 +117,8 @@ export const ListArtifactsResponse = zod.object({
   "avatarUrl": zod.string().nullish()
 }),
   "subject": zod.string(),
-  "bodyHtml": zod.string(),
+  "bodyText": zod.string(),
+  "bodyHtml": zod.string().nullable(),
   "citations": zod.array(zod.object({
   "factId": zod.string(),
   "claim": zod.string(),
@@ -132,12 +142,18 @@ export const ListArtifactsResponse = zod.object({
   "refused": zod.boolean(),
   "reason": zod.string().nullable()
 }),
+  "approvalEligibility": zod.object({
+  "eligible": zod.boolean(),
+  "reason": zod.string().nullable()
+}),
   "langsmithRunId": zod.string().nullable(),
   "createdAt": zod.string(),
   "updatedAt": zod.string(),
   "approvedAt": zod.string().nullable(),
   "sentAt": zod.string().nullable(),
   "rejectionReason": zod.string().nullable(),
+  "failureReason": zod.string().nullable(),
+  "failedAt": zod.string().nullable(),
   "statusReason": zod.string().nullable(),
   "sendReceiptId": zod.string().nullable(),
   "graphRunId": zod.string().nullable(),
@@ -158,7 +174,8 @@ export const GetArtifactParams = zod.object({
 
 export const GetArtifactResponse = zod.object({
   "id": zod.string(),
-  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN']),
+  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN', 'FAILED', 'RECONCILIATION_REQUIRED']),
+  "purpose": zod.enum(['OUTBOUND', 'REPLY', 'FOLLOW_UP']),
   "channel": zod.enum(['EMAIL', 'LINKEDIN', 'HUBSPOT_NOTE', 'UNKNOWN']),
   "recipient": zod.object({
   "id": zod.string(),
@@ -169,7 +186,8 @@ export const GetArtifactResponse = zod.object({
   "avatarUrl": zod.string().nullish()
 }),
   "subject": zod.string(),
-  "bodyHtml": zod.string(),
+  "bodyText": zod.string(),
+  "bodyHtml": zod.string().nullable(),
   "citations": zod.array(zod.object({
   "factId": zod.string(),
   "claim": zod.string(),
@@ -193,12 +211,18 @@ export const GetArtifactResponse = zod.object({
   "refused": zod.boolean(),
   "reason": zod.string().nullable()
 }),
+  "approvalEligibility": zod.object({
+  "eligible": zod.boolean(),
+  "reason": zod.string().nullable()
+}),
   "langsmithRunId": zod.string().nullable(),
   "createdAt": zod.string(),
   "updatedAt": zod.string(),
   "approvedAt": zod.string().nullable(),
   "sentAt": zod.string().nullable(),
   "rejectionReason": zod.string().nullable(),
+  "failureReason": zod.string().nullable(),
+  "failedAt": zod.string().nullable(),
   "statusReason": zod.string().nullable(),
   "sendReceiptId": zod.string().nullable(),
   "graphRunId": zod.string().nullable(),
@@ -215,7 +239,8 @@ export const ApproveArtifactParams = zod.object({
 
 export const ApproveArtifactResponse = zod.object({
   "id": zod.string(),
-  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN']),
+  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN', 'FAILED', 'RECONCILIATION_REQUIRED']),
+  "purpose": zod.enum(['OUTBOUND', 'REPLY', 'FOLLOW_UP']),
   "channel": zod.enum(['EMAIL', 'LINKEDIN', 'HUBSPOT_NOTE', 'UNKNOWN']),
   "recipient": zod.object({
   "id": zod.string(),
@@ -226,7 +251,8 @@ export const ApproveArtifactResponse = zod.object({
   "avatarUrl": zod.string().nullish()
 }),
   "subject": zod.string(),
-  "bodyHtml": zod.string(),
+  "bodyText": zod.string(),
+  "bodyHtml": zod.string().nullable(),
   "citations": zod.array(zod.object({
   "factId": zod.string(),
   "claim": zod.string(),
@@ -250,12 +276,18 @@ export const ApproveArtifactResponse = zod.object({
   "refused": zod.boolean(),
   "reason": zod.string().nullable()
 }),
+  "approvalEligibility": zod.object({
+  "eligible": zod.boolean(),
+  "reason": zod.string().nullable()
+}),
   "langsmithRunId": zod.string().nullable(),
   "createdAt": zod.string(),
   "updatedAt": zod.string(),
   "approvedAt": zod.string().nullable(),
   "sentAt": zod.string().nullable(),
   "rejectionReason": zod.string().nullable(),
+  "failureReason": zod.string().nullable(),
+  "failedAt": zod.string().nullable(),
   "statusReason": zod.string().nullable(),
   "sendReceiptId": zod.string().nullable(),
   "graphRunId": zod.string().nullable(),
@@ -276,7 +308,8 @@ export const RejectArtifactBody = zod.object({
 
 export const RejectArtifactResponse = zod.object({
   "id": zod.string(),
-  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN']),
+  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN', 'FAILED', 'RECONCILIATION_REQUIRED']),
+  "purpose": zod.enum(['OUTBOUND', 'REPLY', 'FOLLOW_UP']),
   "channel": zod.enum(['EMAIL', 'LINKEDIN', 'HUBSPOT_NOTE', 'UNKNOWN']),
   "recipient": zod.object({
   "id": zod.string(),
@@ -287,7 +320,8 @@ export const RejectArtifactResponse = zod.object({
   "avatarUrl": zod.string().nullish()
 }),
   "subject": zod.string(),
-  "bodyHtml": zod.string(),
+  "bodyText": zod.string(),
+  "bodyHtml": zod.string().nullable(),
   "citations": zod.array(zod.object({
   "factId": zod.string(),
   "claim": zod.string(),
@@ -311,12 +345,18 @@ export const RejectArtifactResponse = zod.object({
   "refused": zod.boolean(),
   "reason": zod.string().nullable()
 }),
+  "approvalEligibility": zod.object({
+  "eligible": zod.boolean(),
+  "reason": zod.string().nullable()
+}),
   "langsmithRunId": zod.string().nullable(),
   "createdAt": zod.string(),
   "updatedAt": zod.string(),
   "approvedAt": zod.string().nullable(),
   "sentAt": zod.string().nullable(),
   "rejectionReason": zod.string().nullable(),
+  "failureReason": zod.string().nullable(),
+  "failedAt": zod.string().nullable(),
   "statusReason": zod.string().nullable(),
   "sendReceiptId": zod.string().nullable(),
   "graphRunId": zod.string().nullable(),
@@ -334,7 +374,7 @@ export const SuppressArtifactParams = zod.object({
 export const SuppressArtifactResponse = zod.object({
   "artifact": zod.object({
   "id": zod.string(),
-  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN']),
+  "status": zod.enum(['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SENT', 'SUPPRESSED', 'SENDING', 'SIMULATED', 'DELIVERY_UNKNOWN', 'FAILED']),
   "statusChanged": zod.boolean()
 }),
   "suppression": zod.object({
@@ -361,7 +401,7 @@ export const GetActivityStreamQueryParams = zod.object({
 
 export const GetActivityStreamResponseItem = zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['run_started', 'run_needs_approval', 'run_completed', 'run_failed', 'draft_created', 'draft_approved', 'draft_rejected', 'draft_sent', 'delivery_unknown', 'meeting_proposed', 'meeting_confirmed']),
+  "kind": zod.enum(['run_started', 'run_needs_approval', 'run_completed', 'run_failed', 'draft_created', 'draft_approved', 'draft_rejected', 'draft_failed', 'draft_sent', 'delivery_unknown', 'meeting_proposed', 'meeting_confirmed']),
   "action": zod.string(),
   "timestamp": zod.string(),
   "artifactId": zod.string().nullable(),
@@ -884,15 +924,20 @@ export const GetOrgSettingsResponse = zod.object({
   "liveSendEnabled": zod.boolean(),
   "postalAddress": zod.string().nullish(),
   "unsubscribeUrl": zod.string().nullish(),
-  "suppressionCount": zod.number(),
+  "suppressionCount": zod.number().nullable(),
   "allowlistedDomains": zod.array(zod.string()),
-  "plan": zod.string().optional(),
-  "creditsRemaining": zod.number(),
+  "plan": zod.string().nullable(),
+  "creditsRemaining": zod.number().nullable(),
   "welcomeComplete": zod.boolean(),
+  "canReviewArtifacts": zod.boolean().nullable(),
+  "canManageMailbox": zod.boolean().nullable(),
+  "canManageOrg": zod.boolean().nullable(),
+  "canManageSuppressions": zod.boolean().nullable(),
   "sendReadiness": zod.union([zod.object({
   "liveSendAllowed": zod.boolean(),
   "physicalAddressSet": zod.boolean(),
   "senderNameSet": zod.boolean(),
+  "countrySet": zod.boolean(),
   "mailboxConnected": zod.boolean(),
   "dailyCapRemaining": zod.number().nullable()
 }),zod.null()])
@@ -926,15 +971,20 @@ export const UpdateOrgSettingsResponse = zod.object({
   "liveSendEnabled": zod.boolean(),
   "postalAddress": zod.string().nullish(),
   "unsubscribeUrl": zod.string().nullish(),
-  "suppressionCount": zod.number(),
+  "suppressionCount": zod.number().nullable(),
   "allowlistedDomains": zod.array(zod.string()),
-  "plan": zod.string().optional(),
-  "creditsRemaining": zod.number(),
+  "plan": zod.string().nullable(),
+  "creditsRemaining": zod.number().nullable(),
   "welcomeComplete": zod.boolean(),
+  "canReviewArtifacts": zod.boolean().nullable(),
+  "canManageMailbox": zod.boolean().nullable(),
+  "canManageOrg": zod.boolean().nullable(),
+  "canManageSuppressions": zod.boolean().nullable(),
   "sendReadiness": zod.union([zod.object({
   "liveSendAllowed": zod.boolean(),
   "physicalAddressSet": zod.boolean(),
   "senderNameSet": zod.boolean(),
+  "countrySet": zod.boolean(),
   "mailboxConnected": zod.boolean(),
   "dailyCapRemaining": zod.number().nullable()
 }),zod.null()])
@@ -950,6 +1000,51 @@ export const GetOrgHealthResponse = zod.object({
   "unsubscribeConfigured": zod.boolean(),
   "suppressionCount": zod.number(),
   "blockers": zod.array(zod.string())
+})
+
+
+/**
+ * @summary List the authoritative outreach suppression registry
+ */
+export const listSuppressionsQueryLimitDefault = 50;
+export const listSuppressionsQueryLimitMax = 200;
+
+
+
+
+export const ListSuppressionsQueryParams = zod.object({
+  "limit": zod.coerce.number().min(1).max(listSuppressionsQueryLimitMax).default(listSuppressionsQueryLimitDefault),
+  "cursor": zod.coerce.string().min(1).optional()
+})
+
+export const ListSuppressionsResponse = zod.object({
+  "rows": zod.array(zod.object({
+  "id": zod.string(),
+  "recipientRef": zod.string(),
+  "reason": zod.enum(['USER_UNSUBSCRIBED', 'BOUNCED', 'COMPLAINED', 'MANUAL']),
+  "source": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+})),
+  "nextCursor": zod.string().nullable()
+})
+
+
+/**
+ * @summary Record an operator-observed opt-out or complaint
+ */
+export const createSuppressionBodyRecipientRefMax = 512;
+
+export const createSuppressionBodyReasonDefault = `MANUAL`;
+
+export const CreateSuppressionBody = zod.object({
+  "recipientRef": zod.string().min(1).max(createSuppressionBodyRecipientRefMax),
+  "reason": zod.enum(['MANUAL', 'COMPLAINED']).default(createSuppressionBodyReasonDefault)
+})
+
+export const CreateSuppressionResponse = zod.object({
+  "created": zod.boolean(),
+  "recipientRef": zod.string(),
+  "reason": zod.enum(['MANUAL', 'COMPLAINED'])
 })
 
 
@@ -1009,7 +1104,27 @@ export const ListIntegrationsResponse = zod.array(ListIntegrationsResponseItem)
 
 
 /**
- * @summary Connect an integration (stub OAuth)
+ * @summary Finalize a Gmail OAuth callback with an authenticated session
+ */
+
+
+
+export const FinalizeGmailIntegrationBody = zod.object({
+  "attemptId": zod.string().min(1)
+})
+
+export const FinalizeGmailIntegrationResponse = zod.object({
+  "id": zod.string(),
+  "provider": zod.string(),
+  "status": zod.enum(['connected', 'available', 'errored']),
+  "accountEmail": zod.string().nullish(),
+  "connectedAt": zod.string().nullish(),
+  "errorMessage": zod.string().nullish()
+})
+
+
+/**
+ * @summary Request a direct integration connection
  */
 export const ConnectIntegrationParams = zod.object({
   "provider": zod.coerce.string()
@@ -1159,19 +1274,19 @@ export const RemoveTeamMemberResponse = zod.object({
  */
 export const GetBillingResponse = zod.object({
   "plan": zod.string(),
-  "creditsRemaining": zod.number(),
-  "creditsTotal": zod.number(),
-  "sendsThisMonth": zod.number(),
-  "sendsLimit": zod.number(),
+  "creditsRemaining": zod.number().nullable(),
+  "creditsTotal": zod.number().nullable(),
+  "sendsThisMonth": zod.number().nullable(),
+  "sendsLimit": zod.number().nullable(),
   "seats": zod.number(),
-  "seatsLimit": zod.number(),
+  "seatsLimit": zod.number().nullable(),
   "invoices": zod.array(zod.object({
   "id": zod.string(),
   "date": zod.string(),
   "amount": zod.number(),
   "status": zod.string(),
   "downloadUrl": zod.string()
-}))
+})).nullable()
 })
 
 
@@ -1300,6 +1415,7 @@ export const GetWelcomeStatusResponse = zod.object({
   "liveSendAllowed": zod.boolean(),
   "physicalAddressSet": zod.boolean(),
   "senderNameSet": zod.boolean(),
+  "countrySet": zod.boolean(),
   "mailboxConnected": zod.boolean(),
   "dailyCapRemaining": zod.number().nullable()
 }),
