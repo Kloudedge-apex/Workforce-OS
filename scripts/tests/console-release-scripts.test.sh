@@ -233,6 +233,18 @@ test_production_release_workflow_verifier() {
   expect_workflow_verifier_rejects \
     "${harness}/repo-variable-scope.yml" "a non-environment identity variable scope"
 
+  sed \
+    's|workforce-os/initial-production-bootstrap/state-v1.json|workforce-os/console-only/state-v1.json|g' \
+    "${workflow}" >"${harness}/repository-specific-control-blob.yml"
+  expect_workflow_verifier_rejects \
+    "${harness}/repository-specific-control-blob.yml" "a repository-specific production-control blob"
+
+  sed \
+    's|${{ steps.protected_environment.outputs.production_control_storage_blob }}|${{ vars.WORKFORCE_PRODUCTION_CONTROL_STORAGE_BLOB }}|' \
+    "${workflow}" >"${harness}/fallback-control-variable.yml"
+  expect_workflow_verifier_rejects \
+    "${harness}/fallback-control-variable.yml" "a fallback-scope shared lease identity"
+
   awk '
     { print }
     $0 == "      - name: Checkout exact release commit" {
@@ -934,6 +946,35 @@ argument() {
   return 1
 }
 
+if [[ "${1:-} ${2:-} ${3:-} ${4:-}" == "storage blob lease acquire" ]]; then
+  if [[ "${FAKE_AZURE_LEASE_ACQUIRE_STATUS:-0}" != "0" ]]; then
+    exit "${FAKE_AZURE_LEASE_ACQUIRE_STATUS}"
+  fi
+  argument --proposed-lease-id "$@"
+  exit 0
+fi
+if [[ "${1:-} ${2:-} ${3:-} ${4:-}" == "storage blob lease renew" ]]; then
+  if [[ "${FAKE_AZURE_LEASE_RENEW_STATUS:-0}" != "0" ]]; then
+    exit "${FAKE_AZURE_LEASE_RENEW_STATUS}"
+  fi
+  argument --lease-id "$@"
+  exit 0
+fi
+if [[ "${1:-} ${2:-} ${3:-} ${4:-}" == "storage blob lease release" ]]; then
+  exit "${FAKE_AZURE_LEASE_RELEASE_STATUS:-0}"
+fi
+if [[ "${1:-} ${2:-} ${3:-}" == "storage blob show" ]]; then
+  if [[ "${FAKE_AZURE_LEASE_SHOW_STATUS:-0}" != "0" ]]; then
+    exit "${FAKE_AZURE_LEASE_SHOW_STATUS}"
+  fi
+  if [[ -n "${FAKE_AZURE_LEASE_STATE:-}" ]]; then
+    printf '%s\n' "${FAKE_AZURE_LEASE_STATE}"
+  else
+    printf '%s\n' '{"status":"unlocked","state":"available"}'
+  fi
+  exit 0
+fi
+
 if [[ "${1:-} ${2:-}" == "containerapp show" ]]; then
   printf 'show\n' >>"${SHOW_LOG}"
   show_count="$(wc -l <"${SHOW_LOG}" | tr -d ' ')"
@@ -1019,6 +1060,11 @@ run_fake_deploy() {
     FAKE_REGISTRY_STATUS="${FAKE_REGISTRY_STATUS:-0}" \
     FAKE_LOCK_STATUS="${FAKE_LOCK_STATUS:-0}" \
     FAKE_LEASE_CLEANUP_STATUS="${FAKE_LEASE_CLEANUP_STATUS:-0}" \
+    FAKE_AZURE_LEASE_ACQUIRE_STATUS="${FAKE_AZURE_LEASE_ACQUIRE_STATUS:-0}" \
+    FAKE_AZURE_LEASE_RENEW_STATUS="${FAKE_AZURE_LEASE_RENEW_STATUS:-0}" \
+    FAKE_AZURE_LEASE_RELEASE_STATUS="${FAKE_AZURE_LEASE_RELEASE_STATUS:-0}" \
+    FAKE_AZURE_LEASE_SHOW_STATUS="${FAKE_AZURE_LEASE_SHOW_STATUS:-0}" \
+    FAKE_AZURE_LEASE_STATE="${FAKE_AZURE_LEASE_STATE:-}" \
     FAKE_CONFIG_STATUS="${FAKE_CONFIG_STATUS:-0}" \
     FAKE_NEW_CONFIG_STATUS="${FAKE_NEW_CONFIG_STATUS:-0}" \
     FAKE_DIRTY_STATUS="${FAKE_DIRTY_STATUS:-0}" \
@@ -1037,6 +1083,11 @@ run_fake_deploy() {
     FAKE_CONTROLLER_READY_FILE="${FAKE_CONTROLLER_READY_FILE:-}" \
     VITE_CLERK_PUBLISHABLE_KEY="${FAKE_CLERK_PUBLISHABLE_KEY:-${TEST_PRODUCTION_CLERK_KEY}}" \
     ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED="${FAKE_AUTHORITY_CONFIRMED:-true}" \
+    AZURE_SUBSCRIPTION_ID="11111111-2222-3333-4444-555555555555" \
+    WORKFORCE_PRODUCTION_CONTROL_STORAGE_ACCOUNT="workforcebootstrap" \
+    WORKFORCE_PRODUCTION_CONTROL_STORAGE_CONTAINER="production-control" \
+    WORKFORCE_PRODUCTION_CONTROL_STORAGE_BLOB="${FAKE_CONTROL_BLOB:-workforce-os/initial-production-bootstrap/state-v1.json}" \
+    WORKFORCE_PRODUCTION_CONTROL_STORAGE_RESOURCE_ID="/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/production-control/providers/Microsoft.Storage/storageAccounts/workforcebootstrap" \
     CONSOLE_RELEASE_VERIFY_ATTEMPTS=1 \
     CONSOLE_RELEASE_VERIFY_DELAY_SECONDS=0 \
     "${HARNESS}/repo/scripts/deploy-console-prod.sh" --yes
@@ -1058,6 +1109,12 @@ reset_deploy_harness() {
   FAKE_ROLLBACK_UPDATE_STATUS=0
   FAKE_LOCK_STATUS=0
   FAKE_LEASE_CLEANUP_STATUS=0
+  FAKE_AZURE_LEASE_ACQUIRE_STATUS=0
+  FAKE_AZURE_LEASE_RENEW_STATUS=0
+  FAKE_AZURE_LEASE_RELEASE_STATUS=0
+  FAKE_AZURE_LEASE_SHOW_STATUS=0
+  FAKE_AZURE_LEASE_STATE='{"status":"unlocked","state":"available"}'
+  FAKE_CONTROL_BLOB="workforce-os/initial-production-bootstrap/state-v1.json"
   FAKE_CONCURRENT_SHOW_AT=0
   FAKE_CONCURRENT_IMAGE=""
   FAKE_MUTATE_AFTER_ARCHIVE=false
@@ -1074,7 +1131,7 @@ reset_deploy_harness() {
 }
 
 test_deploy_guard() {
-  local expected_image
+  local azure_acquire azure_release expected_image
   make_deploy_harness
   FAKE_COMMIT="$(printf '2%.0s' {1..40})"
   FAKE_RUN_ID="ca123"
@@ -1096,11 +1153,49 @@ test_deploy_guard() {
   assert_contains "${CALL_LOG}" "init --quiet --bare --template="
   assert_contains "${CALL_LOG}" "push --porcelain --force-with-lease=refs/heads/workforce-os-release-lock/production-console: origin ${FAKE_LEASE_COMMIT}:refs/heads/workforce-os-release-lock/production-console"
   assert_contains "${CALL_LOG}" "push --porcelain --force-with-lease=refs/heads/workforce-os-release-lock/production-console:${FAKE_LEASE_COMMIT} origin :refs/heads/workforce-os-release-lock/production-console"
+  azure_acquire="az storage blob lease acquire --account-name workforcebootstrap --container-name production-control --blob-name workforce-os/initial-production-bootstrap/state-v1.json --auth-mode login --subscription 11111111-2222-3333-4444-555555555555 --only-show-errors --lease-duration -1 --proposed-lease-id"
+  azure_release="az storage blob lease release --account-name workforcebootstrap --container-name production-control --blob-name workforce-os/initial-production-bootstrap/state-v1.json --auth-mode login --subscription 11111111-2222-3333-4444-555555555555 --only-show-errors --lease-id"
+  assert_contains "${CALL_LOG}" "${azure_acquire}"
+  assert_contains "${CALL_LOG}" "${azure_release}"
+  assert_before "${CALL_LOG}" "${azure_acquire}" "force-with-lease=refs/heads/workforce-os-release-lock/production-console: origin"
+  assert_before "${CALL_LOG}" "${azure_acquire}" "az acr build"
+  assert_before "${CALL_LOG}" "force-with-lease=refs/heads/workforce-os-release-lock/production-console:${FAKE_LEASE_COMMIT} origin" "${azure_release}"
+  assert_excludes "${CALL_LOG}" "storage blob lease break"
   assert_before "${CALL_LOG}" "force-with-lease=refs/heads/workforce-os-release-lock/production-console: origin ${FAKE_LEASE_COMMIT}" "az containerapp show"
   assert_excludes "${CALL_LOG}" "gh api --method DELETE"
   assert_contains "${CALL_LOG}" "az containerapp update --name nikxius-web"
   assert_before "${CALL_LOG}" "verify-registry" "az containerapp update"
   [[ "$(tail -n 1 "${UPDATE_LOG}")" == "${expected_image}" ]] || fail "deploy did not select exact digest"
+  pass
+
+  reset_deploy_harness
+  FAKE_AZURE_LEASE_ACQUIRE_STATUS=1
+  FAKE_AZURE_LEASE_RENEW_STATUS=1
+  if run_fake_deploy >/dev/null 2>&1; then
+    fail "console deploy continued while the shared Azure mutation lease was held"
+  fi
+  assert_excludes "${CALL_LOG}" "force-with-lease=refs/heads/workforce-os-release-lock/production-console: origin"
+  assert_excludes "${CALL_LOG}" "az acr build"
+  assert_excludes "${CALL_LOG}" "az containerapp update"
+  assert_excludes "${CALL_LOG}" "storage blob lease break"
+  pass
+
+  reset_deploy_harness
+  FAKE_AZURE_LEASE_ACQUIRE_STATUS=1
+  FAKE_AZURE_LEASE_RENEW_STATUS=0
+  run_fake_deploy >/dev/null
+  assert_contains "${CALL_LOG}" "storage blob lease renew"
+  assert_contains "${CALL_LOG}" "storage blob lease release"
+  pass
+
+  reset_deploy_harness
+  FAKE_CONTROL_BLOB="workforce-os/console-only/state-v1.json"
+  if run_fake_deploy >/dev/null 2>&1; then
+    fail "console deploy accepted a repository-specific production-control blob"
+  fi
+  assert_excludes "${CALL_LOG}" "storage blob lease acquire"
+  assert_excludes "${CALL_LOG}" "force-with-lease=refs/heads/workforce-os-release-lock/production-console: origin"
+  assert_excludes "${CALL_LOG}" "az acr build"
   pass
 
   reset_deploy_harness
@@ -1145,6 +1240,18 @@ test_deploy_guard() {
   [[ "$(tail -n 1 "${UPDATE_LOG}")" == "${expected_image}" ]] ||
     fail "cleanup-failure case did not first complete the rollout"
   assert_contains "${CALL_LOG}" "force-with-lease=refs/heads/workforce-os-release-lock/production-console:${FAKE_LEASE_COMMIT} origin :refs/heads/workforce-os-release-lock/production-console"
+  assert_excludes "${CALL_LOG}" "storage blob lease release"
+  pass
+
+  reset_deploy_harness
+  FAKE_AZURE_LEASE_RELEASE_STATUS=1
+  FAKE_AZURE_LEASE_STATE='{"status":"locked","state":"leased"}'
+  if run_fake_deploy >/dev/null 2>&1; then
+    fail "console deploy reported success while shared Azure lease cleanup was uncertain"
+  fi
+  assert_contains "${CALL_LOG}" "force-with-lease=refs/heads/workforce-os-release-lock/production-console:${FAKE_LEASE_COMMIT} origin :refs/heads/workforce-os-release-lock/production-console"
+  assert_contains "${CALL_LOG}" "storage blob lease release"
+  assert_before "${CALL_LOG}" "force-with-lease=refs/heads/workforce-os-release-lock/production-console:${FAKE_LEASE_COMMIT} origin" "storage blob lease release"
   pass
 
   reset_deploy_harness
@@ -1233,6 +1340,7 @@ test_deploy_guard() {
   [[ "$(sed -n '1p' "${UPDATE_LOG}")" == "${expected_image}" ]] || fail "new image was not attempted"
   [[ "$(sed -n '2p' "${UPDATE_LOG}")" == "${FAKE_PREVIOUS_IMAGE}" ]] || fail "previous digest was not restored"
   assert_excludes "${CALL_LOG}" "force-with-lease=refs/heads/workforce-os-release-lock/production-console:${FAKE_LEASE_COMMIT} origin :refs/heads/workforce-os-release-lock/production-console"
+  assert_excludes "${CALL_LOG}" "storage blob lease release"
   pass
 
   reset_deploy_harness

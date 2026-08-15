@@ -63,7 +63,11 @@ Before a rollout:
 5. The protected environment, OIDC federation, and exclusive Azure RBAC do not
    yet exist as verified release evidence. The environment must own the
    `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, and
-   `ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED` variables and the
+   `ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED` variables; the exact
+   `WORKFORCE_PRODUCTION_CONTROL_STORAGE_ACCOUNT`,
+   `WORKFORCE_PRODUCTION_CONTROL_STORAGE_CONTAINER`,
+   `WORKFORCE_PRODUCTION_CONTROL_STORAGE_BLOB`, and
+   `WORKFORCE_PRODUCTION_CONTROL_STORAGE_RESOURCE_ID` variables; and the
    `VITE_CLERK_PUBLISHABLE_KEY` secret. Repository- or organization-scoped
    fallbacks are not admitted: the workflow checks each environment metadata
    endpoint before checkout and OIDC login. Both
@@ -115,12 +119,23 @@ authorize its ACR write, and the candidate lane never deploys `nikxius-web`.
 
 ## Container App mutation authority
 
+Before its repository-local Git ref, the controller acquires an infinite lease
+on the fixed `production-control/workforce-os/initial-production-bootstrap/state-v1.json`
+blob. The backend bootstrap, subsequent backend release, and console release
+all use this one provider-enforced global mutation lease. It is acquired before
+any Git lock or ACR artifact write and released last only after exact-owner Git
+cleanup. Post-mutation uncertainty retains both locks. A controller never
+breaks a lease or deletes the state blob. The protected OIDC identity therefore
+needs exact-blob property/lease data-plane authority, while per-repository blob
+identities and repository/org variable fallbacks are rejected.
+
 The documented stable Azure Container Apps update contract through
 `2026-01-01` exposes no ETag/`If-Match` request precondition. This controller
-therefore does not claim provider-enforced compare-and-swap. Its unique GitHub
-lease, exact final pre-write image read, and post-write verification serialize
-only cooperating writers and detect divergence; they do not stop an unrelated
-Azure principal in the final read/write window.
+therefore does not claim provider-enforced compare-and-swap for the app write.
+Its shared Azure lease, unique repository-local GitHub lease, exact final
+pre-write image read, and post-write verification serialize cooperating
+controllers and detect divergence; they do not stop an unrelated Azure
+principal in the final read/write window.
 
 Production RBAC must close that gap before a release. Audit inherited and
 direct role assignments and prove there is no other writer: the protected CI

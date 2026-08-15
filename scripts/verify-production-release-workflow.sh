@@ -248,7 +248,21 @@ name: Release exact production console commit"
   require_workflow_text "${workflow_file}" \
     'exclusive_authority="$(read_environment_variable ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED)"'
   require_workflow_text "${workflow_file}" \
+    'production_control_storage_account="$(read_environment_variable WORKFORCE_PRODUCTION_CONTROL_STORAGE_ACCOUNT)"'
+  require_workflow_text "${workflow_file}" \
+    'production_control_storage_container="$(read_environment_variable WORKFORCE_PRODUCTION_CONTROL_STORAGE_CONTAINER)"'
+  require_workflow_text "${workflow_file}" \
+    'production_control_storage_blob="$(read_environment_variable WORKFORCE_PRODUCTION_CONTROL_STORAGE_BLOB)"'
+  require_workflow_text "${workflow_file}" \
+    'production_control_storage_resource_id="$(read_environment_variable WORKFORCE_PRODUCTION_CONTROL_STORAGE_RESOURCE_ID)"'
+  require_workflow_text "${workflow_file}" \
     '[[ "${exclusive_authority}" == "true" ]]'
+  require_workflow_text "${workflow_file}" \
+    '[[ "${production_control_storage_container}" == "production-control" ]]'
+  require_workflow_text "${workflow_file}" \
+    '[[ "${production_control_storage_blob}" == "workforce-os/initial-production-bootstrap/state-v1.json" ]]'
+  require_workflow_text "${workflow_file}" \
+    'providers/Microsoft.Storage/storageAccounts/${production_control_storage_account}$'
   require_workflow_text "${workflow_file}" \
     'environments/workforce-os-production/secrets/VITE_CLERK_PUBLISHABLE_KEY"'
   require_workflow_text "${workflow_file}" \
@@ -261,6 +275,14 @@ name: Release exact production console commit"
     'printf '\''azure_tenant_id=%s\n'\'' "${azure_tenant_id}"'
   require_workflow_text "${workflow_file}" \
     'printf '\''exclusive_authority=%s\n'\'' "${exclusive_authority}"'
+  require_workflow_text "${workflow_file}" \
+    'printf '\''production_control_storage_account=%s\n'\'' "${production_control_storage_account}"'
+  require_workflow_text "${workflow_file}" \
+    'printf '\''production_control_storage_container=%s\n'\'' "${production_control_storage_container}"'
+  require_workflow_text "${workflow_file}" \
+    'printf '\''production_control_storage_blob=%s\n'\'' "${production_control_storage_blob}"'
+  require_workflow_text "${workflow_file}" \
+    'printf '\''production_control_storage_resource_id=%s\n'\'' "${production_control_storage_resource_id}"'
   require_workflow_text "${workflow_file}" '>>"${GITHUB_OUTPUT}"'
   require_workflow_order "${workflow_file}" \
     "      - name: Audit protected production environment" \
@@ -283,6 +305,19 @@ name: Release exact production console commit"
 
   require_workflow_line "${workflow_file}" \
     '          ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED: ${{ steps.protected_environment.outputs.exclusive_authority }}'
+  azure_subscription_mapping_count="$(grep -Fxc \
+    '          AZURE_SUBSCRIPTION_ID: ${{ steps.protected_environment.outputs.azure_subscription_id }}' \
+    "${workflow_file}" || true)"
+  [[ "${azure_subscription_mapping_count}" == "2" ]] || \
+    workflow_error "Azure subscription identity must be mapped only to verification and release"
+  require_workflow_line "${workflow_file}" \
+    '          WORKFORCE_PRODUCTION_CONTROL_STORAGE_ACCOUNT: ${{ steps.protected_environment.outputs.production_control_storage_account }}'
+  require_workflow_line "${workflow_file}" \
+    '          WORKFORCE_PRODUCTION_CONTROL_STORAGE_CONTAINER: ${{ steps.protected_environment.outputs.production_control_storage_container }}'
+  require_workflow_line "${workflow_file}" \
+    '          WORKFORCE_PRODUCTION_CONTROL_STORAGE_BLOB: ${{ steps.protected_environment.outputs.production_control_storage_blob }}'
+  require_workflow_line "${workflow_file}" \
+    '          WORKFORCE_PRODUCTION_CONTROL_STORAGE_RESOURCE_ID: ${{ steps.protected_environment.outputs.production_control_storage_resource_id }}'
   authority_mapping_count="$(grep -Ec \
     '^[[:space:]]*ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED:[[:space:]]*' \
     "${workflow_file}" || true)"
@@ -301,8 +336,6 @@ name: Release exact production console commit"
     '          tenant-id: ${{ steps.protected_environment.outputs.azure_tenant_id }}'
   require_workflow_line "${workflow_file}" \
     '          AZURE_CLIENT_ID: ${{ steps.protected_environment.outputs.azure_client_id }}'
-  require_workflow_line "${workflow_file}" \
-    '          AZURE_SUBSCRIPTION_ID: ${{ steps.protected_environment.outputs.azure_subscription_id }}'
   require_workflow_line "${workflow_file}" \
     '          AZURE_TENANT_ID: ${{ steps.protected_environment.outputs.azure_tenant_id }}'
   require_workflow_text "${workflow_file}" 'account_json="$(az account show --output json)"'

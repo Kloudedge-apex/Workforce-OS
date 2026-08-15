@@ -350,6 +350,8 @@ DOCKERFILE="Dockerfile"
 RELEASE_LOCK_REPOSITORY="Kloudedge-apex/Workforce-OS"
 RELEASE_REMOTE_URL="https://github.com/${RELEASE_LOCK_REPOSITORY}.git"
 RELEASE_LOCK_REF="refs/heads/workforce-os-release-lock/production-console"
+PRODUCTION_CONTROL_CONTAINER="production-control"
+PRODUCTION_CONTROL_BLOB="workforce-os/initial-production-bootstrap/state-v1.json"
 
 if ! command -v realpath >/dev/null 2>&1; then
   echo "ERROR: required snapshot-admission command is unavailable: realpath" >&2
@@ -532,6 +534,95 @@ LEASE_STATE_DIR=""
 LEASE_COMMIT=""
 ATTEMPT_ID=""
 BUILD_CONTEXT="${REPO_ROOT}"
+PRODUCTION_MUTATION_LEASE_ACQUIRED="false"
+PRODUCTION_MUTATION_LEASE_SAFE_TO_RELEASE="true"
+PRODUCTION_MUTATION_LEASE_ID=""
+
+validate_production_mutation_lease_configuration() {
+  if [[ ! "${AZURE_SUBSCRIPTION_ID:-}" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ||
+    ! "${WORKFORCE_PRODUCTION_CONTROL_STORAGE_ACCOUNT:-}" =~ ^[a-z0-9]{3,24}$ ||
+    "${WORKFORCE_PRODUCTION_CONTROL_STORAGE_CONTAINER:-}" != "${PRODUCTION_CONTROL_CONTAINER}" ||
+    "${WORKFORCE_PRODUCTION_CONTROL_STORAGE_BLOB:-}" != "${PRODUCTION_CONTROL_BLOB}" ||
+    ! "${WORKFORCE_PRODUCTION_CONTROL_STORAGE_RESOURCE_ID:-}" =~ ^/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/[A-Za-z0-9._()-]+/providers/Microsoft.Storage/storageAccounts/${WORKFORCE_PRODUCTION_CONTROL_STORAGE_ACCOUNT}$ ]]; then
+    echo "ERROR: exact shared production-control lease identity is missing or invalid" >&2
+    return 1
+  fi
+}
+
+production_mutation_blob_lease() {
+  local operation=$1
+  shift
+  az storage blob lease "${operation}" \
+    --account-name "${WORKFORCE_PRODUCTION_CONTROL_STORAGE_ACCOUNT}" \
+    --container-name "${PRODUCTION_CONTROL_CONTAINER}" \
+    --blob-name "${PRODUCTION_CONTROL_BLOB}" \
+    --auth-mode login \
+    --subscription "${AZURE_SUBSCRIPTION_ID}" \
+    --only-show-errors \
+    "$@"
+}
+
+verify_production_mutation_lease() {
+  local returned_lease_id
+  returned_lease_id="$(production_mutation_blob_lease renew \
+    --lease-id "${PRODUCTION_MUTATION_LEASE_ID}" \
+    --query leaseId \
+    --output tsv)" || return 1
+  [[ "${returned_lease_id}" == "${PRODUCTION_MUTATION_LEASE_ID}" ]]
+}
+
+production_mutation_lease_is_released() {
+  local lease_json
+  lease_json="$(az storage blob show \
+    --account-name "${WORKFORCE_PRODUCTION_CONTROL_STORAGE_ACCOUNT}" \
+    --container-name "${PRODUCTION_CONTROL_CONTAINER}" \
+    --name "${PRODUCTION_CONTROL_BLOB}" \
+    --auth-mode login \
+    --subscription "${AZURE_SUBSCRIPTION_ID}" \
+    --only-show-errors \
+    --query properties.lease \
+    --output json)" || return 1
+  jq -e '
+    .status == "unlocked"
+    and (.state == "available" or .state == "expired" or .state == "broken")
+  ' >/dev/null <<<"${lease_json}"
+}
+
+acquire_production_mutation_lease() {
+  local returned_lease_id
+  returned_lease_id="$(production_mutation_blob_lease acquire \
+    --lease-duration -1 \
+    --proposed-lease-id "${PRODUCTION_MUTATION_LEASE_ID}" \
+    --query leaseId \
+    --output tsv)" || {
+      # A successful acquire can lose its acknowledgement. Exact-ID renewal
+      # adopts only this attempt; it never breaks or steals another lease.
+      verify_production_mutation_lease || return 1
+      PRODUCTION_MUTATION_LEASE_ACQUIRED="true"
+      return 0
+    }
+  if [[ "${returned_lease_id}" != "${PRODUCTION_MUTATION_LEASE_ID}" ]]; then
+    echo "ERROR: shared production mutation lease returned a different owner identity" >&2
+    return 1
+  fi
+  PRODUCTION_MUTATION_LEASE_ACQUIRED="true"
+}
+
+release_production_mutation_lease() {
+  if production_mutation_blob_lease release \
+    --lease-id "${PRODUCTION_MUTATION_LEASE_ID}" \
+    --output none; then
+    PRODUCTION_MUTATION_LEASE_ACQUIRED="false"
+    return 0
+  fi
+  # Adopt a lost release acknowledgement only from a provider readback that
+  # proves no lease is currently held. Never break or delete the state blob.
+  if production_mutation_lease_is_released; then
+    PRODUCTION_MUTATION_LEASE_ACQUIRED="false"
+    return 0
+  fi
+  return 1
+}
 
 lease_git() {
   isolated_release_git \
@@ -544,10 +635,24 @@ lease_git() {
 
 cleanup_release_resources() {
   local status=$?
+  local azure_lease_owned="false"
   trap - EXIT
   set +e
+  if [[ "${PRODUCTION_MUTATION_LEASE_ACQUIRED:-false}" == "true" &&
+    "${PRODUCTION_MUTATION_LEASE_SAFE_TO_RELEASE:-false}" == "true" ]]; then
+    if verify_production_mutation_lease; then
+      azure_lease_owned="true"
+    else
+      echo "ERROR: shared production mutation lease ownership was lost during cleanup" >&2
+      echo "       retaining the repository lock as an incident marker" >&2
+      PRODUCTION_MUTATION_LEASE_SAFE_TO_RELEASE="false"
+      RELEASE_LOCK_SAFE_TO_RELEASE="false"
+      status=1
+    fi
+  fi
   if [[ "${RELEASE_LOCK_ACQUIRED:-false}" == "true" &&
-    "${RELEASE_LOCK_SAFE_TO_RELEASE:-false}" == "true" ]]; then
+    "${RELEASE_LOCK_SAFE_TO_RELEASE:-false}" == "true" &&
+    "${azure_lease_owned}" == "true" ]]; then
     if lease_git \
       --git-dir="${LEASE_GIT_DIR}" \
       push --porcelain \
@@ -560,10 +665,24 @@ cleanup_release_resources() {
       if ((status == 0)); then
         status=1
       fi
+      PRODUCTION_MUTATION_LEASE_SAFE_TO_RELEASE="false"
     fi
   elif [[ "${RELEASE_LOCK_ACQUIRED:-false}" == "true" ]]; then
     echo "ERROR: retaining the console release lease because rollout state is uncertain" >&2
     echo "       investigate Azure state before separately authorizing lease removal" >&2
+  fi
+  if [[ "${PRODUCTION_MUTATION_LEASE_ACQUIRED:-false}" == "true" &&
+    "${PRODUCTION_MUTATION_LEASE_SAFE_TO_RELEASE:-false}" == "true" &&
+    "${RELEASE_LOCK_ACQUIRED:-false}" == "false" &&
+    "${azure_lease_owned}" == "true" ]]; then
+    if ! release_production_mutation_lease; then
+      echo "ERROR: exact shared production mutation lease cleanup failed" >&2
+      echo "       do not break the lease; investigate its exact owner identity" >&2
+      status=1
+    fi
+  elif [[ "${PRODUCTION_MUTATION_LEASE_ACQUIRED:-false}" == "true" ]]; then
+    echo "ERROR: retaining the shared Azure production mutation lease because release state is uncertain" >&2
+    echo "       investigate both repositories and Azure before separately authorizing cleanup" >&2
   fi
   if [[ -n "${LEASE_STATE_DIR:-}" && -d "${LEASE_STATE_DIR}" &&
     "$(basename "${LEASE_STATE_DIR}")" == workforce-os-console-lease-state.* ]]; then
@@ -572,6 +691,19 @@ cleanup_release_resources() {
   exit "${status}"
 }
 trap cleanup_release_resources EXIT
+
+validate_production_mutation_lease_configuration || exit 1
+ATTEMPT_ID="$(openssl rand -hex 16)"
+if [[ ! "${ATTEMPT_ID}" =~ ^[0-9a-f]{32}$ ]]; then
+  echo "ERROR: could not construct a unique console release lease identity" >&2
+  exit 1
+fi
+PRODUCTION_MUTATION_LEASE_ID="${ATTEMPT_ID:0:8}-${ATTEMPT_ID:8:4}-${ATTEMPT_ID:12:4}-${ATTEMPT_ID:16:4}-${ATTEMPT_ID:20:12}"
+if ! acquire_production_mutation_lease; then
+  echo "ERROR: shared Azure production mutation lease is held or could not be acquired" >&2
+  echo "       inspect the fixed production-control blob; never break it during an active release" >&2
+  exit 1
+fi
 
 umask 077
 LEASE_STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/workforce-os-console-lease-state.XXXXXX")"
@@ -592,7 +724,6 @@ if [[ "${FETCHED_RELEASE_COMMIT}" != "${COMMIT}" ]]; then
   exit 1
 fi
 LEASE_TREE="$(lease_git --git-dir="${LEASE_GIT_DIR}" rev-parse "${COMMIT}^{tree}")"
-ATTEMPT_ID="$(openssl rand -hex 16)"
 if [[ ! "${LEASE_TREE}" =~ ^[0-9a-f]{40}$ ||
   ! "${ATTEMPT_ID}" =~ ^[0-9a-f]{32}$ ]]; then
   echo "ERROR: could not construct a unique console release lease identity" >&2
@@ -817,6 +948,7 @@ if ! require_exclusive_mutation_authority; then
 fi
 
 RELEASE_LOCK_SAFE_TO_RELEASE="false"
+PRODUCTION_MUTATION_LEASE_SAFE_TO_RELEASE="false"
 UPDATE_ATTEMPTED="true"
 if ! az containerapp update \
   --name "${APP}" \
@@ -831,6 +963,7 @@ fi
 
 trap - ERR HUP INT TERM
 RELEASE_LOCK_SAFE_TO_RELEASE="true"
+PRODUCTION_MUTATION_LEASE_SAFE_TO_RELEASE="true"
 
 cat <<EOF
 

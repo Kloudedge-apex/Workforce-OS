@@ -107,10 +107,18 @@ jobs:
           azure_subscription_id="$(read_environment_variable AZURE_SUBSCRIPTION_ID)"
           azure_tenant_id="$(read_environment_variable AZURE_TENANT_ID)"
           exclusive_authority="$(read_environment_variable ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED)"
+          production_control_storage_account="$(read_environment_variable WORKFORCE_PRODUCTION_CONTROL_STORAGE_ACCOUNT)"
+          production_control_storage_container="$(read_environment_variable WORKFORCE_PRODUCTION_CONTROL_STORAGE_CONTAINER)"
+          production_control_storage_blob="$(read_environment_variable WORKFORCE_PRODUCTION_CONTROL_STORAGE_BLOB)"
+          production_control_storage_resource_id="$(read_environment_variable WORKFORCE_PRODUCTION_CONTROL_STORAGE_RESOURCE_ID)"
           [[ "${azure_client_id}" =~ ${guid_pattern} ]]
           [[ "${azure_subscription_id}" =~ ${guid_pattern} ]]
           [[ "${azure_tenant_id}" =~ ${guid_pattern} ]]
           [[ "${exclusive_authority}" == "true" ]]
+          [[ "${production_control_storage_account}" =~ ^[a-z0-9]{3,24}$ ]]
+          [[ "${production_control_storage_container}" == "production-control" ]]
+          [[ "${production_control_storage_blob}" == "workforce-os/initial-production-bootstrap/state-v1.json" ]]
+          [[ "${production_control_storage_resource_id}" =~ ^/subscriptions/${azure_subscription_id}/resourceGroups/[A-Za-z0-9._()-]+/providers/Microsoft.Storage/storageAccounts/${production_control_storage_account}$ ]]
 
           gh api \
             "repos/${GITHUB_REPOSITORY}/environments/workforce-os-production/secrets/VITE_CLERK_PUBLISHABLE_KEY" |
@@ -121,6 +129,10 @@ jobs:
             printf 'azure_subscription_id=%s\n' "${azure_subscription_id}"
             printf 'azure_tenant_id=%s\n' "${azure_tenant_id}"
             printf 'exclusive_authority=%s\n' "${exclusive_authority}"
+            printf 'production_control_storage_account=%s\n' "${production_control_storage_account}"
+            printf 'production_control_storage_container=%s\n' "${production_control_storage_container}"
+            printf 'production_control_storage_blob=%s\n' "${production_control_storage_blob}"
+            printf 'production_control_storage_resource_id=%s\n' "${production_control_storage_resource_id}"
           } >>"${GITHUB_OUTPUT}"
 
       - name: Checkout exact release commit
@@ -200,8 +212,13 @@ jobs:
       - name: Release exact production console commit
         env:
           ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED: ${{ steps.protected_environment.outputs.exclusive_authority }}
+          AZURE_SUBSCRIPTION_ID: ${{ steps.protected_environment.outputs.azure_subscription_id }}
           GH_TOKEN: ${{ github.token }}
           VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+          WORKFORCE_PRODUCTION_CONTROL_STORAGE_ACCOUNT: ${{ steps.protected_environment.outputs.production_control_storage_account }}
+          WORKFORCE_PRODUCTION_CONTROL_STORAGE_CONTAINER: ${{ steps.protected_environment.outputs.production_control_storage_container }}
+          WORKFORCE_PRODUCTION_CONTROL_STORAGE_BLOB: ${{ steps.protected_environment.outputs.production_control_storage_blob }}
+          WORKFORCE_PRODUCTION_CONTROL_STORAGE_RESOURCE_ID: ${{ steps.protected_environment.outputs.production_control_storage_resource_id }}
         run: |
           set -euo pipefail
           if [[ "${ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED}" != "true" ]]; then
