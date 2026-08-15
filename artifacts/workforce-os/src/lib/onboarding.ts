@@ -6,6 +6,23 @@ export function homePathForWelcome(status: unknown): "/today" | "/settings/setup
   return isCompleteWelcomeStatus(status) ? "/today" : "/settings/setup";
 }
 
+/**
+ * Setup owns its loading and failure UI. Holding a setup route behind the same
+ * welcome-status query would unmount that UI while it refetches; a failed
+ * request could then remount it and start the cycle again. All other private
+ * routes remain fail-closed until the initial status check settles.
+ */
+export function isSetupRoute(location: string): boolean {
+  return /^\/settings(?:\/(?:setup|org|icp|integrations))?\/?$/.test(location);
+}
+
+export function shouldHoldForWelcomeStatus(
+  location: string,
+  isLoading: boolean,
+): boolean {
+  return isLoading && !isSetupRoute(location);
+}
+
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)

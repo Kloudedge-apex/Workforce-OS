@@ -17,7 +17,11 @@ import { ErrorBoundary } from "@/components/states/ErrorBoundary";
 import { ApiAuthBridge } from "@/lib/api-auth";
 import { requireClerkPublishableKey } from "@/lib/clerkConfig";
 import { ClerkQueryClientProvider } from "@/lib/queryClientScope";
-import { homePathForWelcome } from "@/lib/onboarding";
+import {
+  homePathForWelcome,
+  isSetupRoute,
+  shouldHoldForWelcomeStatus,
+} from "@/lib/onboarding";
 import { useGetWelcomeStatus } from "@workspace/api-client-react";
 import SignInPage from "@/pages/SignIn";
 import Today from "@/pages/Today";
@@ -38,18 +42,22 @@ function Router() {
     query: { queryKey: ["getWelcomeStatus"], retry: 1 },
   });
 
-  if (isLoading) {
+  if (shouldHoldForWelcomeStatus(location, isLoading)) {
     return (
       <div
-        className="h-full bg-paper-50 animate-pulse"
+        className="min-h-[100dvh] bg-paper-50 flex items-center justify-center px-6"
         aria-label="Checking workspace setup"
-      />
+        role="status"
+      >
+        <p className="text-sm font-medium text-ink-500">
+          Checking workspace setup…
+        </p>
+      </div>
     );
   }
 
   const signedInHome = homePathForWelcome(welcomeStatus);
-  const setupRoute =
-    /^\/settings(?:\/(?:setup|org|icp|integrations))?\/?$/.test(location);
+  const setupRoute = isSetupRoute(location);
   if (location === "/") return <Redirect to={signedInHome} />;
   if (signedInHome === "/settings/setup" && !setupRoute) {
     return <Redirect to="/settings/setup" />;

@@ -174,7 +174,7 @@ function HealthDot({ label, ok }: { label: string; ok: boolean }) {
 function SetupTab() {
   const [, navigate] = useLocation();
   const { data, isLoading, isError, refetch } = useGetWelcomeStatus({
-    query: { queryKey: ["getWelcomeStatus"], refetchOnMount: "always" },
+    query: { queryKey: ["getWelcomeStatus"], refetchOnMount: false },
   });
 
   if (isLoading) return <FormSkeleton rows={5} />;
