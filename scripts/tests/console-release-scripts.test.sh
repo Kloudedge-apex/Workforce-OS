@@ -216,22 +216,26 @@ test_production_release_workflow_verifier() {
     "${harness}/fallback-variable.yml" "a repository/org variable fallback"
 
   sed \
-    's|.type != "required_reviewers"|.type == "required_reviewers"|' \
-    "${workflow}" >"${harness}/reviewer-gated.yml"
+    's|350c994e-d076-42ab-bf56-4e923947dc32|00000000-0000-0000-0000-000000000000|' \
+    "${workflow}" >"${harness}/wrong-release-client.yml"
   expect_workflow_verifier_rejects \
-    "${harness}/reviewer-gated.yml" "a reviewer-gated production environment"
+    "${harness}/wrong-release-client.yml" "an unreviewed release identity"
 
   sed \
-    's|environments/workforce-os-production/secrets|actions/secrets|' \
-    "${workflow}" >"${harness}/repo-secret-scope.yml"
+    's|exclusive_authority="false"|exclusive_authority="true"|' \
+    "${workflow}" >"${harness}/source-authority-enabled.yml"
   expect_workflow_verifier_rejects \
-    "${harness}/repo-secret-scope.yml" "a non-environment Clerk secret scope"
+    "${harness}/source-authority-enabled.yml" "source-enabled mutation authority"
 
-  sed \
-    's|environments/workforce-os-production/variables/${variable_name}|actions/variables/${variable_name}|' \
-    "${workflow}" >"${harness}/repo-variable-scope.yml"
+  awk '
+    { print }
+    !changed && $0 == "          set -euo pipefail" {
+      print "          gh api \"repos/${GITHUB_REPOSITORY}/environments/workforce-os-production\" >/dev/null"
+      changed = 1
+    }
+  ' "${workflow}" >"${harness}/environment-admin-api.yml"
   expect_workflow_verifier_rejects \
-    "${harness}/repo-variable-scope.yml" "a non-environment identity variable scope"
+    "${harness}/environment-admin-api.yml" "an impossible Environment administration API query"
 
   sed \
     's|workforce-os/initial-production-bootstrap/state-v1.json|workforce-os/console-only/state-v1.json|g' \
