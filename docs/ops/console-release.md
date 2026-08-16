@@ -55,11 +55,11 @@ Before a rollout:
    branch does not create or prove a production release boundary. **External
    NO-GO:** do not dispatch it until the source change is reviewed on `main`,
    `main` is reported protected by GitHub, and the fixed
-   `workforce-os-production` environment has administrator bypass disabled, at
-   least one required reviewer with self-review prevention, and a
-   protected-branches-only deployment policy. The workflow audits those
-   settings through the environment API and fails closed when its token cannot
-   read them.
+   `workforce-os-production` environment has administrator bypass disabled, no
+   required-reviewer rule, and a protected-branches-only deployment policy.
+   The accountable owner dispatches it directly with the exact typed
+   confirmation. The workflow audits those settings through the environment
+   API and fails closed when its token cannot read them.
 5. The protected environment, OIDC federation, and exclusive Azure RBAC do not
    yet exist as verified release evidence. The environment must own the
    `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, and
@@ -262,7 +262,7 @@ Within that future protected job, the script:
    to the captured prior digest if rollout verification fails.
 
 Retain the commit, GitHub run, ACR run ID, registry digest, prior digest,
-reviewer/operator identity, and command log. A successful workflow appends a
+operator identity, and command log. A successful workflow appends a
 concise evidence index to its run summary; the controller's detailed identities
 and verification output remain in that protected run log. Do not place Clerk
 tokens, customer data, or other credentials in the evidence record.

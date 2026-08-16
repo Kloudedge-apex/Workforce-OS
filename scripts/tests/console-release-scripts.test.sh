@@ -216,10 +216,10 @@ test_production_release_workflow_verifier() {
     "${harness}/fallback-variable.yml" "a repository/org variable fallback"
 
   sed \
-    's|select(.prevent_self_review == true)|select(.prevent_self_review == false)|' \
-    "${workflow}" >"${harness}/self-review.yml"
+    's|.type != "required_reviewers"|.type == "required_reviewers"|' \
+    "${workflow}" >"${harness}/reviewer-gated.yml"
   expect_workflow_verifier_rejects \
-    "${harness}/self-review.yml" "an environment that allows self-review"
+    "${harness}/reviewer-gated.yml" "a reviewer-gated production environment"
 
   sed \
     's|environments/workforce-os-production/secrets|actions/secrets|' \
