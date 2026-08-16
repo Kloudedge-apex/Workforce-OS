@@ -224,10 +224,9 @@ name: Release exact production console commit"
   require_workflow_text "${workflow_file}" \
     '"repos/${GITHUB_REPOSITORY}/environments/workforce-os-production"'
   require_workflow_text "${workflow_file}" '.can_admins_bypass == false'
-  require_workflow_text "${workflow_file}" 'select(.type == "required_reviewers")'
-  require_workflow_text "${workflow_file}" 'select(.prevent_self_review == true)'
+  require_workflow_text "${workflow_file}" '(.protection_rules | type == "array")'
   require_workflow_text "${workflow_file}" \
-    'select((.reviewers // []) | length > 0)'
+    'all(.protection_rules[]?; .type != "required_reviewers")'
   require_workflow_text "${workflow_file}" \
     '.deployment_branch_policy.protected_branches == true'
   require_workflow_text "${workflow_file}" \

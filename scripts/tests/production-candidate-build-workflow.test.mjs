@@ -41,6 +41,12 @@ test("canonical console candidate-build workflow passes", () => {
   assert.match(result.stdout, /candidate-build workflow contract verified/u);
 });
 
+rejected("a reviewer-gated production environment is rejected", (source) =>
+  source.replace(
+    '.type != "required_reviewers"',
+    '.type == "required_reviewers"',
+  ));
+
 rejected("a mutable action reference is rejected", (source) =>
   source.replace(
     "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
