@@ -18,9 +18,8 @@ import { ApiAuthBridge } from "@/lib/api-auth";
 import { requireClerkPublishableKey } from "@/lib/clerkConfig";
 import { ClerkQueryClientProvider } from "@/lib/queryClientScope";
 import {
-  homePathForWelcome,
-  isSetupRoute,
   shouldHoldForWelcomeStatus,
+  welcomeRedirectForLocation,
 } from "@/lib/onboarding";
 import { useGetWelcomeStatus } from "@workspace/api-client-react";
 import SignInPage from "@/pages/SignIn";
@@ -56,12 +55,8 @@ function Router() {
     );
   }
 
-  const signedInHome = homePathForWelcome(welcomeStatus);
-  const setupRoute = isSetupRoute(location);
-  if (location === "/") return <Redirect to={signedInHome} />;
-  if (signedInHome === "/settings/setup" && !setupRoute) {
-    return <Redirect to="/settings/setup" />;
-  }
+  const welcomeRedirect = welcomeRedirectForLocation(location, welcomeStatus);
+  if (welcomeRedirect) return <Redirect to={welcomeRedirect} />;
 
   return (
     <Shell>

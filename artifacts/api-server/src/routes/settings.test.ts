@@ -3,6 +3,7 @@ import {
   buildOrgPatchBody,
   fetchOrgCapabilities,
   fetchReviewCapability,
+  legacyOrgCapabilities,
   parseOrgCapabilities,
   parseSendReadiness,
   shapeOrgSettings,
@@ -164,6 +165,59 @@ describe("parseOrgCapabilities", () => {
   });
 });
 
+describe("legacyOrgCapabilities", () => {
+  it("mirrors the legacy write guards for personal-session roles", () => {
+    expect(legacyOrgCapabilities({ role: "OWNER" }, undefined)).toEqual({
+      canReviewArtifacts: true,
+      canManageMailbox: true,
+      canManageOrg: true,
+      canManageSuppressions: true,
+    });
+    expect(legacyOrgCapabilities({ role: "MANAGER" }, undefined)).toEqual({
+      canReviewArtifacts: true,
+      canManageMailbox: true,
+      canManageOrg: false,
+      canManageSuppressions: false,
+    });
+    expect(legacyOrgCapabilities({ role: "MEMBER" }, undefined)).toEqual({
+      canReviewArtifacts: false,
+      canManageMailbox: false,
+      canManageOrg: false,
+      canManageSuppressions: false,
+    });
+  });
+
+  it("uses the signed Clerk role only as a privilege veto", () => {
+    expect(legacyOrgCapabilities({ role: "OWNER" }, "org:manager")).toEqual({
+      canReviewArtifacts: true,
+      canManageMailbox: true,
+      canManageOrg: false,
+      canManageSuppressions: false,
+    });
+    expect(legacyOrgCapabilities({ role: "MEMBER" }, "org:admin")).toEqual({
+      canReviewArtifacts: false,
+      canManageMailbox: false,
+      canManageOrg: false,
+      canManageSuppressions: false,
+    });
+    expect(legacyOrgCapabilities({ role: "OWNER" }, "org:member")).toEqual({
+      canReviewArtifacts: false,
+      canManageMailbox: false,
+      canManageOrg: false,
+      canManageSuppressions: false,
+    });
+  });
+
+  it("keeps malformed legacy role projections unknown", () => {
+    expect(legacyOrgCapabilities({ role: "SUPERUSER" }, undefined)).toEqual({
+      canReviewArtifacts: null,
+      canManageMailbox: null,
+      canManageOrg: null,
+      canManageSuppressions: null,
+    });
+  });
+});
+
 describe("parseSendReadiness", () => {
   const full = {
     liveSendAllowed: true,
@@ -264,9 +318,48 @@ describe("fetchOrgCapabilities", () => {
     expect(get).toHaveBeenCalledWith("/orgs/me/capabilities", { req });
   });
 
-  it("falls back only the review flag when the granular endpoint is unavailable", async () => {
+  it("derives legacy management capabilities from the authenticated user role", async () => {
     const get = vi.fn(async (path: string) => {
       if (path === "/orgs/me/capabilities") {
+        throw new UpstreamError(404, { message: "Not found" });
+      }
+      if (path === "/auth/me") return { role: "OWNER" };
+      throw new Error(`unexpected path ${path}`);
+    });
+    await expect(fetchOrgCapabilities(req, { get })).resolves.toEqual({
+      canReviewArtifacts: true,
+      canManageMailbox: true,
+      canManageOrg: true,
+      canManageSuppressions: true,
+    });
+    expect(get.mock.calls.map(([path]) => path)).toEqual([
+      "/orgs/me/capabilities",
+      "/auth/me",
+    ]);
+  });
+
+  it("applies a signed role veto to the legacy authenticated user role", async () => {
+    const signedReq = { clerkOrgRole: "org:manager" } as Parameters<
+      typeof fetchOrgCapabilities
+    >[0];
+    const get = vi.fn(async (path: string) => {
+      if (path === "/orgs/me/capabilities") {
+        throw new UpstreamError(404, { message: "Not found" });
+      }
+      if (path === "/auth/me") return { role: "OWNER" };
+      throw new Error(`unexpected path ${path}`);
+    });
+    await expect(fetchOrgCapabilities(signedReq, { get })).resolves.toEqual({
+      canReviewArtifacts: true,
+      canManageMailbox: true,
+      canManageOrg: false,
+      canManageSuppressions: false,
+    });
+  });
+
+  it("uses the legacy review probe only when both capability projections are unavailable", async () => {
+    const get = vi.fn(async (path: string) => {
+      if (path === "/orgs/me/capabilities" || path === "/auth/me") {
         throw new UpstreamError(404, { message: "Not found" });
       }
       return { canReviewArtifacts: true };
@@ -279,6 +372,7 @@ describe("fetchOrgCapabilities", () => {
     });
     expect(get.mock.calls.map(([path]) => path)).toEqual([
       "/orgs/me/capabilities",
+      "/auth/me",
       "/outreach-artifacts/review-capability",
     ]);
   });

@@ -12,6 +12,8 @@ declare global {
     interface Request {
       orgId?: string;
       clerkUserId?: string;
+      /** Verified Clerk organization role, used only as a privilege veto. */
+      clerkOrgRole?: string;
       /** Raw bearer token, forwarded upstream to apex-gtm-api. */
       clerkToken?: string;
     }
@@ -268,6 +270,10 @@ export function requireClerkAuth(deps: RequireClerkAuthDeps = {}) {
       req.orgId =
         typeof payload["org_id"] === "string"
           ? (payload["org_id"] as string)
+          : undefined;
+      req.clerkOrgRole =
+        typeof payload["org_role"] === "string"
+          ? (payload["org_role"] as string)
           : undefined;
       next();
     } catch {
