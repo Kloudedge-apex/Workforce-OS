@@ -24,6 +24,15 @@ require_workflow_text() {
     workflow_error "missing required source contract: ${expected}"
 }
 
+reject_workflow_pattern() {
+  local workflow_file=$1
+  local pattern=$2
+  local description=$3
+  if grep -Eq -- "${pattern}" "${workflow_file}"; then
+    workflow_error "${description}"
+  fi
+}
+
 require_workflow_order() {
   local workflow_file=$1
   local first=$2
@@ -221,39 +230,22 @@ name: Release exact production console commit"
     "      - name: Verify reviewed production trust pins" \
     "      - name: Azure login with protected OIDC identity"
 
-  require_workflow_text "${workflow_file}" \
-    '"repos/${GITHUB_REPOSITORY}/environments/workforce-os-production"'
-  require_workflow_text "${workflow_file}" '.can_admins_bypass == false'
-  require_workflow_text "${workflow_file}" '(.protection_rules | type == "array")'
-  require_workflow_text "${workflow_file}" \
-    'all(.protection_rules[]?; .type != "required_reviewers")'
-  require_workflow_text "${workflow_file}" \
-    '.deployment_branch_policy.protected_branches == true'
-  require_workflow_text "${workflow_file}" \
-    '.deployment_branch_policy.custom_branch_policies == false'
   require_workflow_line "${workflow_file}" "        id: protected_environment"
   require_workflow_text "${workflow_file}" \
-    'environments/workforce-os-production/variables/${variable_name}'
+    'azure_client_id="350c994e-d076-42ab-bf56-4e923947dc32"'
   require_workflow_text "${workflow_file}" \
-    'select(.name == $expected_name)'
+    'azure_subscription_id="3171575e-f164-425c-9ee0-2fb10cf93884"'
   require_workflow_text "${workflow_file}" \
-    'select(type == "string" and length > 0)'
+    'azure_tenant_id="d4b3813d-146f-4d03-96b8-d6e5862d58a2"'
+  require_workflow_text "${workflow_file}" 'exclusive_authority="false"'
   require_workflow_text "${workflow_file}" \
-    'azure_client_id="$(read_environment_variable AZURE_CLIENT_ID)"'
+    'production_control_storage_account="ledgrstorage"'
   require_workflow_text "${workflow_file}" \
-    'azure_subscription_id="$(read_environment_variable AZURE_SUBSCRIPTION_ID)"'
+    'production_control_storage_container="production-control"'
   require_workflow_text "${workflow_file}" \
-    'azure_tenant_id="$(read_environment_variable AZURE_TENANT_ID)"'
+    'production_control_storage_blob="workforce-os/initial-production-bootstrap/state-v1.json"'
   require_workflow_text "${workflow_file}" \
-    'exclusive_authority="$(read_environment_variable ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED)"'
-  require_workflow_text "${workflow_file}" \
-    'production_control_storage_account="$(read_environment_variable WORKFORCE_PRODUCTION_CONTROL_STORAGE_ACCOUNT)"'
-  require_workflow_text "${workflow_file}" \
-    'production_control_storage_container="$(read_environment_variable WORKFORCE_PRODUCTION_CONTROL_STORAGE_CONTAINER)"'
-  require_workflow_text "${workflow_file}" \
-    'production_control_storage_blob="$(read_environment_variable WORKFORCE_PRODUCTION_CONTROL_STORAGE_BLOB)"'
-  require_workflow_text "${workflow_file}" \
-    'production_control_storage_resource_id="$(read_environment_variable WORKFORCE_PRODUCTION_CONTROL_STORAGE_RESOURCE_ID)"'
+    'production_control_storage_resource_id="/subscriptions/3171575e-f164-425c-9ee0-2fb10cf93884/resourceGroups/Ledgr-prod/providers/Microsoft.Storage/storageAccounts/ledgrstorage"'
   require_workflow_text "${workflow_file}" \
     '[[ "${exclusive_authority}" == "true" ]]'
   require_workflow_text "${workflow_file}" \
@@ -262,10 +254,12 @@ name: Release exact production console commit"
     '[[ "${production_control_storage_blob}" == "workforce-os/initial-production-bootstrap/state-v1.json" ]]'
   require_workflow_text "${workflow_file}" \
     'providers/Microsoft.Storage/storageAccounts/${production_control_storage_account}$'
-  require_workflow_text "${workflow_file}" \
-    'environments/workforce-os-production/secrets/VITE_CLERK_PUBLISHABLE_KEY"'
-  require_workflow_text "${workflow_file}" \
-    '.name == "VITE_CLERK_PUBLISHABLE_KEY"'
+  reject_workflow_pattern "${workflow_file}" \
+    'repos/\$\{GITHUB_REPOSITORY\}/environments' \
+    "workflow token cannot query Environment administration APIs"
+  reject_workflow_pattern "${workflow_file}" \
+    'exclusive_authority="true"' \
+    "source-pinned exclusive authority must remain fail-closed"
   require_workflow_text "${workflow_file}" \
     'printf '\''azure_client_id=%s\n'\'' "${azure_client_id}"'
   require_workflow_text "${workflow_file}" \

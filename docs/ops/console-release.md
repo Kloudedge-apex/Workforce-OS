@@ -58,19 +58,15 @@ Before a rollout:
    `workforce-os-production` environment has administrator bypass disabled, no
    required-reviewer rule, and a protected-branches-only deployment policy.
    The accountable owner dispatches it directly with the exact typed
-   confirmation. The workflow audits those settings through the environment
-   API and fails closed when its token cannot read them.
-5. The protected environment, OIDC federation, and exclusive Azure RBAC do not
-   yet exist as verified release evidence. The environment must own the
-   `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, and
-   `ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED` variables; the exact
-   `WORKFORCE_PRODUCTION_CONTROL_STORAGE_ACCOUNT`,
-   `WORKFORCE_PRODUCTION_CONTROL_STORAGE_CONTAINER`,
-   `WORKFORCE_PRODUCTION_CONTROL_STORAGE_BLOB`, and
-   `WORKFORCE_PRODUCTION_CONTROL_STORAGE_RESOURCE_ID` variables; and the
-   `VITE_CLERK_PUBLISHABLE_KEY` secret. Repository- or organization-scoped
-   fallbacks are not admitted: the workflow checks each environment metadata
-   endpoint before checkout and OIDC login. Both
+   confirmation. GitHub natively admits the job through that environment; the
+   separate governance audit verifies its administration policy because a
+   workflow token cannot read Environment administration endpoints.
+5. The protected environment and exact OIDC federation exist. Exclusive Azure
+   mutation authority is still NO-GO. The reviewed workflow source pins the
+   public Azure coordinates, shared control-blob identity, and current `false`
+   authority verdict. The environment owns the `VITE_CLERK_PUBLISHABLE_KEY`
+   secret. Repository- or organization-scoped fallbacks are not admitted.
+   Both
    `production-api-upstream-url.sha256` and
    `production-clerk-publishable-key.sha256` are source-pinned from a
    2026-08-14 read-only production observation. The API origin came from the
@@ -80,17 +76,16 @@ Before a rollout:
    those observations before release; do not substitute tests, examples, or
    historical notes.
 
-At this review point GitHub reports `main` as unprotected, the repository has
-no environments, and the private-repository protection API is plan-blocked.
-The eventual branch evidence must prove more than the boolean `protected`
-flag: require reviewed pull requests, the exact blocking CI checks, stale-review
-dismissal, administrator enforcement, and disabled force-push/deletion. The
-workflow's runtime flag check does not replace that separately retained ruleset
-evidence.
+As of 2026-08-16, GitHub reports `main` protected and the production and build
+environments configured. The separately retained governance evidence proves
+reviewed pull requests, exact blocking CI checks, stale-review dismissal,
+administrator enforcement, disabled force-push/deletion, direct-dispatch
+Environment policy, and protected-branch-only deployment admission.
 
 `scripts/verify-production-release-workflow.sh` enforces the manual trigger,
 minimal permissions, fixed environment and concurrency, pinned actions, exact
-ordered job/step shape, environment metadata checks, and direct controller
+ordered job/step shape, source-pinned public coordinates and fail-closed
+authority, and direct controller
 invocation. CI runs it during review, and the release workflow reruns it from
 the exact checked-out commit before trust-pin validation or OIDC. This is a
 source-review defense, not runtime authority: only protected reviewed source
@@ -233,10 +228,11 @@ configuration.
 After every external NO-GO above is closed, dispatch the workflow from protected
 `main` with the exact 40-character current `main` SHA and the exact phrase
 `RELEASE WORKFORCE OS PRODUCTION`. It rechecks the remote `main` identity,
-exact-commit CI, environment policy and variable/secret scope, reviewed pins,
-and the logged-in Azure subscription, tenant, and service-principal client ID
-before release. The authority attestation comes only from the protected
-environment variable; it is neither a dispatch input nor a source constant.
+exact-commit CI, reviewed source pins, and the logged-in Azure subscription,
+tenant, and service-principal client ID before release. Native Environment
+admission protects the Clerk secret. Mutation authority remains source-pinned
+`false` until a reviewed source change records a successful Azure authority
+audit; it is never a dispatch input or repository/org variable fallback.
 
 The protected job injects the reviewed `VITE_CLERK_PUBLISHABLE_KEY` without
 printing it, then invokes `scripts/deploy-console-prod.sh --yes` directly. There
