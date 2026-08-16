@@ -3,6 +3,7 @@ import {
   homePathForWelcome,
   isSetupRoute,
   shouldHoldForWelcomeStatus,
+  welcomeRedirectForLocation,
 } from "./onboarding";
 
 describe("homePathForWelcome", () => {
@@ -68,5 +69,24 @@ describe("homePathForWelcome", () => {
     ).toBe("/settings/setup");
     expect(homePathForWelcome(null)).toBe("/settings/setup");
     expect(homePathForWelcome(undefined)).toBe("/settings/setup");
+  });
+
+  it("uses setup only as the root landing page, not as a global menu redirect", () => {
+    expect(welcomeRedirectForLocation("/", { complete: false })).toBe(
+      "/settings/setup",
+    );
+    expect(welcomeRedirectForLocation("/", complete)).toBe("/today");
+    for (const route of [
+      "/today",
+      "/pipeline",
+      "/outbound",
+      "/conversations",
+      "/runs",
+      "/settings/org",
+      "/settings/integrations",
+    ]) {
+      expect(welcomeRedirectForLocation(route, { complete: false })).toBeNull();
+      expect(welcomeRedirectForLocation(route, null)).toBeNull();
+    }
   });
 });

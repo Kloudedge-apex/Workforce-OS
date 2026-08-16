@@ -120,6 +120,10 @@ export interface OrgCapabilities {
   canManageSuppressions: boolean | null;
 }
 
+interface LegacyAuthUser {
+  role: string;
+}
+
 function unknownOrgCapabilities(): OrgCapabilities {
   return {
     canReviewArtifacts: null,
@@ -148,6 +152,71 @@ export function parseOrgCapabilities(raw: unknown): OrgCapabilities {
     canManageOrg: capability("canManageOrg"),
     canManageSuppressions: capability("canManageSuppressions"),
   };
+}
+
+function normalizeOrgRole(role: unknown): "OWNER" | "ADMIN" | "MANAGER" | "MEMBER" | null {
+  if (typeof role !== "string") return null;
+  const normalized = role.trim().toUpperCase().replace(/^ORG:/, "");
+  return normalized === "OWNER" ||
+    normalized === "ADMIN" ||
+    normalized === "MANAGER" ||
+    normalized === "MEMBER"
+    ? normalized
+    : null;
+}
+
+/**
+ * Compatibility projection for the June backend, which predates the granular
+ * capability route but exposes the authenticated user's persisted role at
+ * `/auth/me`. Each allow mirrors the legacy write guards. A signed Clerk role,
+ * when present, is an additional veto and can never elevate the database role.
+ */
+export function legacyOrgCapabilities(
+  raw: unknown,
+  signedClerkRole: unknown,
+): OrgCapabilities {
+  const rec = raw && typeof raw === "object" && !Array.isArray(raw)
+    ? (raw as Record<string, unknown>)
+    : null;
+  const databaseRole = normalizeOrgRole(rec?.["role"]);
+  if (!databaseRole) return unknownOrgCapabilities();
+
+  const signedRolePresent =
+    typeof signedClerkRole === "string" && signedClerkRole.trim().length > 0;
+  const signedRole = signedRolePresent ? normalizeOrgRole(signedClerkRole) : null;
+  const permitted = (allowed: readonly string[]): boolean =>
+    allowed.includes(databaseRole) &&
+    (!signedRolePresent || (signedRole !== null && allowed.includes(signedRole)));
+
+  const canAdministerWork = permitted(["OWNER", "ADMIN", "MANAGER"]);
+  const canAdministerOrg = permitted(["OWNER", "ADMIN"]);
+  return {
+    canReviewArtifacts: canAdministerWork,
+    canManageMailbox: canAdministerWork,
+    canManageOrg: canAdministerOrg,
+    canManageSuppressions: canAdministerOrg,
+  };
+}
+
+async function fetchLegacyOrgCapabilities(
+  req: Request,
+  client: Pick<typeof apex, "get">,
+): Promise<OrgCapabilities> {
+  try {
+    const raw = (await client.get("/auth/me", { req })) as LegacyAuthUser;
+    return legacyOrgCapabilities(raw, req.clerkOrgRole);
+  } catch (err) {
+    if (err instanceof UpstreamError && err.status === 401) throw err;
+    if (err instanceof UpstreamError && err.status === 403) {
+      return {
+        canReviewArtifacts: false,
+        canManageMailbox: false,
+        canManageOrg: false,
+        canManageSuppressions: false,
+      };
+    }
+    return unknownOrgCapabilities();
+  }
 }
 
 /**
@@ -226,9 +295,10 @@ export async function fetchReviewCapability(
 
 /**
  * Resolve the granular backend capability envelope. Older deployments may not
- * have `/orgs/me/capabilities`; in that case only the legacy artifact-review
- * probe is recoverable. Mailbox, org, and suppression permissions remain null
- * rather than being inferred from the review role.
+ * have `/orgs/me/capabilities`; in that case derive the same route permissions
+ * from the authenticated `/auth/me` role, with any signed Clerk organization
+ * role applied as an additional veto. The review probe remains a final,
+ * read-only compatibility source when the legacy user projection is missing.
  */
 export async function fetchOrgCapabilities(
   req: Request,
@@ -241,12 +311,31 @@ export async function fetchOrgCapabilities(
     );
   } catch (err) {
     if (err instanceof UpstreamError && err.status === 401) throw err;
+    if (err instanceof UpstreamError && err.status === 403) {
+      return {
+        canReviewArtifacts: false,
+        canManageMailbox: false,
+        canManageOrg: false,
+        canManageSuppressions: false,
+      };
+    }
   }
 
-  if (parsed.canReviewArtifacts !== null) return parsed;
+  if (Object.values(parsed).some((capability) => capability !== null)) {
+    if (parsed.canReviewArtifacts !== null) return parsed;
+    return {
+      ...parsed,
+      canReviewArtifacts: await fetchReviewCapability(req, client),
+    };
+  }
+
+  const legacy = await fetchLegacyOrgCapabilities(req, client);
+  if (Object.values(legacy).some((capability) => capability !== null)) {
+    return legacy;
+  }
 
   return {
-    ...parsed,
+    ...legacy,
     canReviewArtifacts: await fetchReviewCapability(req, client),
   };
 }

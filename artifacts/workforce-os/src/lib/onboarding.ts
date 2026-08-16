@@ -1,9 +1,24 @@
 /**
  * Choose the signed-in landing route from the derived backend verdict.
- * Missing, malformed, or incomplete state always fails closed into setup.
+ * Missing, malformed, or incomplete state lands in setup, but it does not
+ * turn setup into a global navigation guard. Individual write and live-send
+ * actions remain protected by their server-authoritative capability gates.
  */
 export function homePathForWelcome(status: unknown): "/today" | "/settings/setup" {
   return isCompleteWelcomeStatus(status) ? "/today" : "/settings/setup";
+}
+
+/**
+ * Guided setup owns only the signed-in root landing decision. A customer may
+ * inspect and configure the rest of the product while setup is incomplete;
+ * server-side authorization and readiness checks continue to guard writes and
+ * delivery. This prevents every menu click from bouncing back into setup.
+ */
+export function welcomeRedirectForLocation(
+  location: string,
+  status: unknown,
+): "/today" | "/settings/setup" | null {
+  return location === "/" ? homePathForWelcome(status) : null;
 }
 
 /**

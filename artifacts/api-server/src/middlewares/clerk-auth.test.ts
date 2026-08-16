@@ -42,16 +42,21 @@ describe("requireClerkAuth", () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  it("sets orgId/clerkUserId/clerkToken and calls next for a valid token with org_id", async () => {
+  it("sets verified org/user/role context and calls next for an organization token", async () => {
     const req = mockReq({ authorization: "Bearer abc.def.ghi" });
     const res = mockRes();
     const next = vi.fn();
     await requireClerkAuth({
-      verify: async () => ({ org_id: "org_x", sub: "user_1" }),
+      verify: async () => ({
+        org_id: "org_x",
+        org_role: "org:admin",
+        sub: "user_1",
+      }),
     })(req, res, next);
     expect(next).toHaveBeenCalledOnce();
     expect(req.orgId).toBe("org_x");
     expect(req.clerkUserId).toBe("user_1");
+    expect(req.clerkOrgRole).toBe("org:admin");
     expect(req.clerkToken).toBe("abc.def.ghi");
   });
 
@@ -67,6 +72,7 @@ describe("requireClerkAuth", () => {
     expect(next).toHaveBeenCalledOnce();
     expect(req.clerkUserId).toBe("user_1");
     expect(req.orgId).toBeUndefined();
+    expect(req.clerkOrgRole).toBeUndefined();
   });
 
   it("401s when the verified token has no subject", async () => {
