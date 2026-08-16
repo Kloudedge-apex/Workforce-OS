@@ -7,6 +7,7 @@ import {
 } from "@workspace/api-zod";
 import { apex, UpstreamError } from "../upstream/apex-client";
 import { gapResponse } from "../lib/unavailable";
+import { fetchWelcomeStatus } from "./welcome";
 
 const router = Router();
 
@@ -258,10 +259,7 @@ router.get("/settings/org", async (req, res, next) => {
     // after it resolves do we call the legacy @SkipOrgGuard /orgs/me lookup,
     // avoiding a race where /orgs/me returns null while provisioning is still
     // in flight.
-    const onboarding = (await apex.get(
-      "/orgs/onboarding/status",
-      { req },
-    )) as ApexOnboardingStatus;
+    const onboarding = (await fetchWelcomeStatus(req)) as ApexOnboardingStatus;
     const [org, capabilities] = await Promise.all([
       apex.get("/orgs/me", { req }) as Promise<ApexOrg>,
       fetchOrgCapabilities(req),
@@ -331,7 +329,7 @@ router.put("/settings/org", async (req, res, next) => {
   try {
     // Provision/resolve the internal tenant before the chicken-and-egg-safe
     // /orgs/me endpoint is read directly by a fresh user.
-    await apex.get("/orgs/onboarding/status", { req });
+    await fetchWelcomeStatus(req);
     // PATCH /api/orgs/:id requires :id === caller's resolved orgId, so resolve
     // it via /orgs/me first. The upstream UpdateOrgDto now accepts the sender
     // identity / CAN-SPAM fields (senderName, country, physicalAddress) in
@@ -340,7 +338,7 @@ router.put("/settings/org", async (req, res, next) => {
     await apex.patch(`/orgs/${me.id}`, { req }, buildOrgPatchBody(req.body));
     const [updated, onboarding, capabilities] = await Promise.all([
       apex.get("/orgs/me", { req }) as Promise<ApexOrg>,
-      apex.get("/orgs/onboarding/status", { req }) as Promise<ApexOnboardingStatus>,
+      fetchWelcomeStatus(req) as Promise<ApexOnboardingStatus>,
       fetchOrgCapabilities(req),
     ]);
     res.json(shapeOrgSettings(updated, null, onboarding?.complete === true, capabilities));
