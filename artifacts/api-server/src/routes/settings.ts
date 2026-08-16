@@ -61,14 +61,30 @@ export interface SendReadiness {
  * or non-finite `dailyCapRemaining` degrades to null ("no cap reported")
  * without discarding the rest of the envelope.
  */
-export function parseSendReadiness(raw: unknown): SendReadiness | null {
+export function parseSendReadiness(
+  raw: unknown,
+  legacyCountry?: string | null,
+): SendReadiness | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
+  const hasCountrySet = Object.prototype.hasOwnProperty.call(r, "countrySet");
+  // The public June backend predates `countrySet` in the readiness envelope,
+  // but its persisted Org.country write already rejects anything other than
+  // uppercase ISO-3166 alpha-2. Accept that exact legacy omission only when
+  // the caller supplies the persisted country. A present malformed field is
+  // never replaced, and an absent/invalid country remains an explicit false.
+  const countrySet =
+    typeof r["countrySet"] === "boolean"
+      ? r["countrySet"]
+      : !hasCountrySet && legacyCountry !== undefined
+        ? typeof legacyCountry === "string" &&
+          /^[A-Z]{2}$/.test(legacyCountry.trim())
+        : null;
   if (
     typeof r["liveSendAllowed"] !== "boolean" ||
     typeof r["physicalAddressSet"] !== "boolean" ||
     typeof r["senderNameSet"] !== "boolean" ||
-    typeof r["countrySet"] !== "boolean" ||
+    countrySet === null ||
     typeof r["mailboxConnected"] !== "boolean"
   ) {
     return null;
@@ -78,7 +94,7 @@ export function parseSendReadiness(raw: unknown): SendReadiness | null {
     liveSendAllowed: r["liveSendAllowed"],
     physicalAddressSet: r["physicalAddressSet"],
     senderNameSet: r["senderNameSet"],
-    countrySet: r["countrySet"],
+    countrySet,
     mailboxConnected: r["mailboxConnected"],
     dailyCapRemaining: typeof cap === "number" && Number.isFinite(cap) ? cap : null,
   };
@@ -240,7 +256,10 @@ export function shapeOrgSettings(
   welcomeComplete = false,
   capabilities: OrgCapabilities = unknownOrgCapabilities(),
 ): OrgSettings {
-  const sendReadiness = parseSendReadiness(org.sendReadiness);
+  const sendReadiness = parseSendReadiness(
+    org.sendReadiness,
+    org.country ?? null,
+  );
   return {
     orgId: org.id,
     orgName: org.name,

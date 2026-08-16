@@ -99,6 +99,34 @@ describe("shapeOrgSettings", () => {
     }
   });
 
+  it("accepts the exact legacy readiness omission using the persisted country", () => {
+    const legacyReadiness = {
+      liveSendAllowed: true,
+      physicalAddressSet: true,
+      senderNameSet: true,
+      mailboxConnected: true,
+      dailyCapRemaining: 37,
+    };
+    const out = shapeOrgSettings({
+      ...upstream,
+      sendReadiness: legacyReadiness,
+    });
+    expect(out.sendReadiness).toEqual({
+      ...legacyReadiness,
+      countrySet: true,
+    });
+    expect(out.liveSendEnabled).toBe(true);
+
+    const withoutCountry = shapeOrgSettings({
+      ...upstream,
+      country: null,
+      sendReadiness: legacyReadiness,
+    });
+    expect(withoutCountry.sendReadiness?.countrySet).toBe(false);
+    expect(withoutCountry.sendReadiness?.mailboxConnected).toBe(true);
+    expect(withoutCountry.liveSendEnabled).toBe(false);
+  });
+
   it("threads a caller-supplied suppression count through", () => {
     expect(shapeOrgSettings(upstream, 7).suppressionCount).toBe(7);
   });
@@ -250,6 +278,16 @@ describe("parseSendReadiness", () => {
     expect(parseSendReadiness(withoutCountry)).toBeNull();
     expect(parseSendReadiness({ ...full, liveSendAllowed: "true" })).toBeNull();
     expect(parseSendReadiness({ ...full, mailboxConnected: undefined })).toBeNull();
+  });
+
+  it("accepts only the exact legacy countrySet omission when a persisted country is supplied", () => {
+    const { countrySet: _countryOmitted, ...legacy } = full;
+    expect(parseSendReadiness(legacy, "US")).toEqual(full);
+    expect(parseSendReadiness(legacy, null)).toEqual({
+      ...full,
+      countrySet: false,
+    });
+    expect(parseSendReadiness({ ...legacy, countrySet: "true" }, "US")).toBeNull();
   });
 });
 
