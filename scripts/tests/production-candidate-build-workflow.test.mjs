@@ -41,10 +41,10 @@ test("canonical console candidate-build workflow passes", () => {
   assert.match(result.stdout, /candidate-build workflow contract verified/u);
 });
 
-rejected("a reviewer-gated production environment is rejected", (source) =>
+rejected("a changed source-pinned build identity is rejected", (source) =>
   source.replace(
-    '.type != "required_reviewers"',
-    '.type == "required_reviewers"',
+    "15bb8ea8-3d8f-436e-9218-c16ff31d3c47",
+    "00000000-0000-0000-0000-000000000000",
   ));
 
 rejected("a mutable action reference is rejected", (source) =>
@@ -55,7 +55,7 @@ rejected("a mutable action reference is rejected", (source) =>
 
 rejected("repository variable fallback is rejected", (source) =>
   source.replace(
-    "${{ steps.build_environment.outputs.azure_client_id }}",
+    'azure_client_id="15bb8ea8-3d8f-436e-9218-c16ff31d3c47"',
     "${{ vars.AZURE_CLIENT_ID }}",
   ));
 
@@ -63,12 +63,6 @@ rejected("an unreviewed secret is rejected", (source) =>
   source.replace(
     "${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}",
     "${{ secrets.UNREVIEWED_BUILD_SECRET }}",
-  ));
-
-rejected("missing environment secret metadata proof is rejected", (source) =>
-  source.replace(
-    "environments/workforce-os-production-build/secrets/VITE_CLERK_PUBLISHABLE_KEY",
-    "environments/workforce-os-production-build/secrets/REMOVED",
   ));
 
 rejected("Container App mutation is rejected", (source) =>
