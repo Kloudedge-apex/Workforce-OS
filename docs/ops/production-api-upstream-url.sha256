@@ -1,5 +1,5 @@
 # SHA-256 of the exact production API_UPSTREAM_URL bytes.
 # This binds the bearer-token forwarding destination to reviewed source.
-# Reviewed 2026-08-17 for the current public OAuth-verification compatibility build:
-# https://apex-gtm-api.ashysmoke-fd2f7a7f.eastus.azurecontainerapps.io
-aa40c9486ae64a02da1f3d6e379dfa64aecc68b9671f76f9d5d2f7daef4fecdd
+# Reviewed 2026-08-17 for the isolated Workforce OS production API:
+# https://apex-gtm-api.braveflower-6d3bb66b.eastus.azurecontainerapps.io
+43d0cd95aef1c195beaee43eb42f6507a48c548318bb56f8164e2efe673d1a93
