@@ -4,12 +4,14 @@ import { describe, it, expect, vi } from "vitest";
 import { createApp } from "../app";
 import {
   createGmailFinalizeRouter,
+  createGmailVerificationRouter,
   parseGmailFinalizeInput,
   shapeIcpProfile,
   toIcpCreateBody,
   shapeIntegration,
   shapeIntegrations,
   shapeAuthUrl,
+  shapeGmailMailboxVerification,
   shapeTeamMembers,
   shapeBilling,
   type ApexIcpProfile,
@@ -41,6 +43,37 @@ async function requestGmailFinalize(
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       },
+    );
+    const text = await response.text();
+    return { status: response.status, body: text ? JSON.parse(text) : null };
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+}
+
+async function requestGmailVerification(
+  client: {
+    get: (...args: any[]) => Promise<unknown>;
+    post: (...args: any[]) => Promise<unknown>;
+  },
+): Promise<{ status: number; body: unknown }> {
+  const app = createApp({
+    apiRouter: createGmailVerificationRouter(client),
+    clerkGuard: (req, _res, next) => {
+      req.orgId = "org_1";
+      req.clerkToken = "clerk-token";
+      next();
+    },
+  });
+  const server = app.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/api/settings/integrations/gmail/verify`,
+      { method: "POST" },
     );
     const text = await response.text();
     return { status: response.status, body: text ? JSON.parse(text) : null };
@@ -299,6 +332,94 @@ describe("Gmail OAuth finalization", () => {
       },
     });
     expect(post).not.toHaveBeenCalled();
+  });
+});
+
+describe("Gmail mailbox verification", () => {
+  it("accepts only an active users.watch proof and returns no history cursor", () => {
+    const now = Date.UTC(2026, 7, 17);
+    const expiration = String(now + 7 * 24 * 60 * 60 * 1000);
+    expect(
+      shapeGmailMailboxVerification(
+        { ok: true, historyId: "123456", expiration },
+        now,
+      ),
+    ).toEqual({
+      verified: true,
+      watchExpiresAt: new Date(Number(expiration)).toISOString(),
+    });
+    expect(shapeGmailMailboxVerification({ ok: true }, now)).toBeNull();
+    expect(
+      shapeGmailMailboxVerification(
+        { ok: true, historyId: "history-1", expiration },
+        now,
+      ),
+    ).toBeNull();
+    expect(
+      shapeGmailMailboxVerification(
+        { ok: true, historyId: "123456", expiration: String(now) },
+        now,
+      ),
+    ).toBeNull();
+  });
+
+  it("uses the legacy role projection before registering the watch", async () => {
+    const expiration = String(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const get = vi.fn(async (path: string) => {
+      if (path === "/orgs/me/capabilities") throw new Error("legacy route missing");
+      if (path === "/auth/me") return { role: "ADMIN" };
+      throw new Error(`unexpected GET ${path}`);
+    });
+    const post = vi.fn(async (..._args: any[]) => ({ ok: true, historyId: "123456", expiration }));
+
+    const response = await requestGmailVerification({ get, post });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      verified: true,
+      watchExpiresAt: new Date(Number(expiration)).toISOString(),
+    });
+    expect(post).toHaveBeenCalledOnce();
+    expect(post.mock.calls[0]?.[0]).toBe("/integrations/gmail/watch");
+    expect(post.mock.calls[0]?.[1].req).toMatchObject({
+      orgId: "org_1",
+      clerkToken: "clerk-token",
+    });
+  });
+
+  it("rejects a known role denial before calling Gmail", async () => {
+    const get = vi.fn(async (path: string) => {
+      if (path === "/orgs/me/capabilities") throw new Error("legacy route missing");
+      if (path === "/auth/me") return { role: "MEMBER" };
+      throw new Error(`unexpected GET ${path}`);
+    });
+    const post = vi.fn(async () => ({}));
+
+    const response = await requestGmailVerification({ get, post });
+
+    expect(response).toEqual({
+      status: 403,
+      body: {
+        error: "forbidden",
+        message: "Gmail verification requires an administrator or manager.",
+      },
+    });
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the backend returns only ok=true", async () => {
+    const get = vi.fn(async () => ({ canManageMailbox: true }));
+    const post = vi.fn(async () => ({ ok: true }));
+
+    const response = await requestGmailVerification({ get, post });
+
+    expect(response).toEqual({
+      status: 502,
+      body: {
+        error: "upstream",
+        message: "Google authorization exists, but the backend could not prove an active Gmail reply watch.",
+      },
+    });
   });
 });
 

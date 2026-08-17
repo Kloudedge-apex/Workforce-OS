@@ -404,7 +404,7 @@ export function buildOrgPatchBody(raw: unknown): OrgPatchBody {
   if (typeof body["name"] === "string") patch.name = body["name"];
   if (typeof body["website"] === "string") patch.website = body["website"];
   if (typeof body["senderName"] === "string") patch.senderName = body["senderName"];
-  if (typeof body["country"] === "string") patch.country = body["country"];
+  if (typeof body["country"] === "string") patch.country = body["country"].trim().toUpperCase();
   const address =
     typeof body["physicalAddress"] === "string"
       ? body["physicalAddress"]

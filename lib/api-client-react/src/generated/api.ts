@@ -41,6 +41,7 @@ import type {
   CreateSuppressionInput,
   CreateSuppressionResult,
   GetActivityStreamParams,
+  GmailMailboxVerification,
   GmailOAuthFinalizeInput,
   GraphRunDetail,
   HealthStatus,
@@ -2650,6 +2651,76 @@ export const useFinalizeGmailIntegration = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getFinalizeGmailIntegrationMutationOptions(options));
+    }
+
+export const getVerifyGmailMailboxUrl = () => {
+
+
+
+
+  return `/api/settings/integrations/gmail/verify`
+}
+
+/**
+ * @summary Verify the Gmail connection and active inbound watch
+ */
+export const verifyGmailMailbox = async ( options?: RequestInit): Promise<GmailMailboxVerification> => {
+
+  return customFetch<GmailMailboxVerification>(getVerifyGmailMailboxUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getVerifyGmailMailboxMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof verifyGmailMailbox>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof verifyGmailMailbox>>, TError,void, TContext> => {
+
+const mutationKey = ['verifyGmailMailbox'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof verifyGmailMailbox>>, void> = () => {
+
+
+          return  verifyGmailMailbox(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type VerifyGmailMailboxMutationResult = NonNullable<Awaited<ReturnType<typeof verifyGmailMailbox>>>
+
+    export type VerifyGmailMailboxMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Verify the Gmail connection and active inbound watch
+ */
+export const useVerifyGmailMailbox = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof verifyGmailMailbox>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof verifyGmailMailbox>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getVerifyGmailMailboxMutationOptions(options));
     }
 
 export const getConnectIntegrationUrl = (provider: string,) => {
