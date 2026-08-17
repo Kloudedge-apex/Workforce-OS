@@ -156,8 +156,8 @@ export function PublicHome() {
                   className="mt-0.5 h-5 w-5 shrink-0 text-rust-600"
                   aria-hidden="true"
                 />
-                Gmail access is used only for user-requested drafts, approved
-                sends, and reply monitoring.
+                Gmail access is used only for approved sends and reply or
+                delivery monitoring.
               </li>
             </ul>
           </aside>
@@ -169,11 +169,12 @@ export function PublicHome() {
               How Gmail is used
             </h2>
             <p className="mt-4 max-w-3xl text-base leading-7 text-ink-600">
-              If you connect Gmail, Workforce OS asks for the permissions needed
-              to create and manage drafts, send messages you approve, read
-              relevant mailbox activity, and detect replies or delivery
-              failures. We do not use Google user data for advertising, and we
-              do not sell it.
+              Drafts are created and reviewed inside Workforce OS without
+              accessing Gmail drafts. If you connect Gmail, the service asks
+              only for permission to send messages you approve and read the
+              mailbox activity needed to detect replies or delivery failures.
+              We do not use Google user data for advertising, and we do not
+              sell it.
             </p>
           </div>
         </section>
@@ -241,17 +242,18 @@ export function PrivacyPolicy() {
         <h2>Google user data</h2>
         <p>
           When you connect Gmail, Workforce OS may access Gmail message and
-          thread data, message metadata, drafts, send results, replies, delivery
+          thread data, message metadata, send results, replies, delivery
           failures, and the mailbox identity needed to operate the integration.
-          OAuth credentials are stored so the service can act only within the
-          permissions you granted.
+          Workforce OS does not access Gmail drafts. OAuth credentials are
+          stored so the service can act only within the permissions you granted.
         </p>
         <p>
           We use Google user data only to provide these user-facing features:
         </p>
         <ul>
           <li>
-            Create, update, and manage drafts requested through your workspace.
+            Create and review drafts inside Workforce OS without accessing
+            Gmail drafts.
           </li>
           <li>
             Send a message only after an authorized human approves that exact

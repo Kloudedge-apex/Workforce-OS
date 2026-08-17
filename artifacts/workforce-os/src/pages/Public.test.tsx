@@ -45,6 +45,24 @@ describe("public Workforce OS surfaces", () => {
     expect(html).toContain(
       "do not sell personal information or Google user data",
     );
+    expect(html).toContain("Workforce OS does not access Gmail drafts");
+    expect(html).not.toContain(
+      "Create, update, and manage drafts requested through your workspace",
+    );
+  });
+
+  it("describes the minimum Gmail permissions on the public homepage", () => {
+    const html = renderToStaticMarkup(<PublicHome />);
+
+    expect(html).toContain(
+      "Drafts are created and reviewed inside Workforce OS without accessing Gmail drafts",
+    );
+    expect(html).toContain(
+      "only for permission to send messages you approve and read the mailbox activity",
+    );
+    expect(html).not.toContain(
+      "permissions needed to create and manage drafts",
+    );
   });
 
   it("makes human approval and lawful outbound responsibility explicit", () => {
