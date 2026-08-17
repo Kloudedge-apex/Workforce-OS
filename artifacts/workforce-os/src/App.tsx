@@ -34,6 +34,12 @@ import Runs from "@/pages/Runs";
 import RunDetail from "@/pages/RunDetail";
 import Settings from "@/pages/Settings";
 import NotFound from "@/pages/not-found";
+import {
+  PrivacyPolicy,
+  PublicHome,
+  TermsOfService,
+  publicSurfaceForLocation,
+} from "@/pages/Public";
 
 function Router() {
   const [location] = useLocation();
@@ -82,6 +88,56 @@ function Router() {
   );
 }
 
+function AppRouter() {
+  const [location] = useLocation();
+  const publicSurface = publicSurfaceForLocation(location);
+
+  if (publicSurface === "home") {
+    return (
+      <>
+        <SignedIn>
+          <Redirect to="/today" />
+        </SignedIn>
+        <SignedOut>
+          <PublicHome />
+        </SignedOut>
+      </>
+    );
+  }
+  if (publicSurface === "privacy") return <PrivacyPolicy />;
+  if (publicSurface === "terms") return <TermsOfService />;
+
+  if (publicSurface === "sign-in") {
+    return (
+      <>
+        <SignedIn>
+          <Redirect to="/today" />
+        </SignedIn>
+        <SignedOut>
+          <SignInPage />
+        </SignedOut>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <SignedIn>
+        <QueryErrorResetBoundary>
+          {({ reset }) => (
+            <ErrorBoundary onReset={reset}>
+              <Router />
+            </ErrorBoundary>
+          )}
+        </QueryErrorResetBoundary>
+      </SignedIn>
+      <SignedOut>
+        <SignInPage />
+      </SignedOut>
+    </>
+  );
+}
+
 const PUBLISHABLE_KEY = requireClerkPublishableKey(
   import.meta.env.VITE_CLERK_PUBLISHABLE_KEY,
 );
@@ -94,18 +150,7 @@ function App() {
           <TooltipProvider>
             <ApiAuthBridge />
             <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-              <SignedIn>
-                <QueryErrorResetBoundary>
-                  {({ reset }) => (
-                    <ErrorBoundary onReset={reset}>
-                      <Router />
-                    </ErrorBoundary>
-                  )}
-                </QueryErrorResetBoundary>
-              </SignedIn>
-              <SignedOut>
-                <SignInPage />
-              </SignedOut>
+              <AppRouter />
             </WouterRouter>
             <Toaster
               position="bottom-right"
