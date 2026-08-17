@@ -467,6 +467,10 @@ describe("buildOrgPatchBody", () => {
     ).toEqual({ physicalAddress: "A" });
   });
 
+  it("normalizes country codes before the strict upstream validator", () => {
+    expect(buildOrgPatchBody({ country: " in " })).toEqual({ country: "IN" });
+  });
+
   it("omits fields the upstream DTO does not accept and non-string values", () => {
     expect(
       buildOrgPatchBody({

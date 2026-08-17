@@ -749,6 +749,11 @@ export interface GmailOAuthFinalizeInput {
   attemptId: string;
 }
 
+export interface GmailMailboxVerification {
+  verified: true;
+  watchExpiresAt: string;
+}
+
 export interface CadenceStage {
   id: string;
   dayOffset: number;

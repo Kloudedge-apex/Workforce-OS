@@ -7,7 +7,7 @@ import {
   useGetIcpProfile, useUpdateIcpProfile,
   useGetCadence, useUpdateCadence,
   useGetStyleConfig, useUpdateStyleConfig,
-  useListIntegrations, useDisconnectIntegration, useFinalizeGmailIntegration,
+  useListIntegrations, useDisconnectIntegration, useFinalizeGmailIntegration, useVerifyGmailMailbox,
   useListTeamMembers, useInviteTeamMember, useRemoveTeamMember,
   useGetBilling,
   useListApiKeys, useCreateApiKey, useRevokeApiKey,
@@ -513,6 +513,16 @@ function ComplianceCard({ settings }: { settings: OrgSettings }) {
     physicalAddress: settings.postalAddress ?? "",
     country: settings.country,
   });
+  const normalizedSenderName = form.senderName.trim();
+  const normalizedAddress = form.physicalAddress.trim();
+  const normalizedCountry = form.country.trim().toUpperCase();
+  const complianceError = normalizedSenderName.length === 0
+    ? "Enter the sender name recipients should see."
+    : !/^[A-Z]{2}$/u.test(normalizedCountry)
+      ? "Use a two-letter country code such as US or IN."
+      : normalizedAddress.length < 5
+        ? "Enter the full physical address (at least 5 characters)."
+        : null;
 
   return (
     <SettingsCard className="p-5 space-y-4">
@@ -528,19 +538,20 @@ function ComplianceCard({ settings }: { settings: OrgSettings }) {
           <Input disabled={orgReadOnly} value={form.senderName} onChange={e => setForm(f => ({ ...f, senderName: e.target.value }))} />
         </Field>
         <Field label="Country (ISO-2)">
-          <Input disabled={orgReadOnly} value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value }))} placeholder="US" className="font-mono uppercase" />
+          <Input disabled={orgReadOnly} value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value.toUpperCase().slice(0, 2) }))} placeholder="US" className="font-mono uppercase" maxLength={2} autoCapitalize="characters" aria-invalid={!/^[A-Z]{2}$/u.test(normalizedCountry)} />
         </Field>
       </TwoCol>
       <Field label="Physical Address">
         <Textarea disabled={orgReadOnly} value={form.physicalAddress} onChange={e => setForm(f => ({ ...f, physicalAddress: e.target.value }))} rows={2} className="resize-none" placeholder="Street, city, state, ZIP — appears in every email footer" />
       </Field>
       <div className="flex justify-end">
+        {complianceError && !orgReadOnly && <p className="mr-auto self-center text-xs text-ember-700" role="status">{complianceError}</p>}
         <Button
           className="bg-rust-500 hover:bg-rust-600 text-white"
-          disabled={orgReadOnly || isPending}
+          disabled={orgReadOnly || isPending || complianceError !== null}
           onClick={() => {
             if (!orgReadOnly) {
-              save({ data: { senderName: form.senderName, postalAddress: form.physicalAddress, country: form.country } });
+              save({ data: { senderName: normalizedSenderName, postalAddress: normalizedAddress, country: normalizedCountry } });
             }
           }}
         >
@@ -848,6 +859,7 @@ function IntegrationsTab() {
   // only when the server says so.
   const [gmailWaiting, setGmailWaiting] = useState(false);
   const [gmailLaunching, setGmailLaunching] = useState(false);
+  const [gmailWatchExpiresAt, setGmailWatchExpiresAt] = useState<string | null>(null);
   const gmailDeadline = useRef<number | null>(null);
   const gmailReadinessRefreshRequested = useRef(false);
   const finalizedAttempt = useRef<string | null>(null);
@@ -879,11 +891,21 @@ function IntegrationsTab() {
   const { mutate: disconnect, isPending: disconnecting } = useDisconnectIntegration({
     mutation: {
       onSuccess: () => {
+        setGmailWatchExpiresAt(null);
         toast.success("Disconnected");
         void refreshSetupQueries(queryClient);
         refetch();
       },
       onError: () => toast.error("Disconnect failed"),
+    },
+  });
+  const { mutate: verifyGmail, isPending: verifyingGmail } = useVerifyGmailMailbox({
+    mutation: {
+      onSuccess: (verification) => {
+        setGmailWatchExpiresAt(verification.watchExpiresAt);
+        toast.success("Gmail connection and reply watch verified.");
+      },
+      onError: (err) => toast.error(saveErrorMessage(err)),
     },
   });
   const { mutate: finalizeGmail, isPending: finalizingGmail } =
@@ -1008,7 +1030,7 @@ function IntegrationsTab() {
 
   return (
     <>
-      <SectionHeader title="Mailbox" description="Connect Gmail for reviewed outreach and durable reply ingestion." />
+      <SectionHeader title="Mailbox" description="Connect Gmail for reviewed outreach and monitored replies." />
       {finalizingGmail && (
         <div
           className="mb-3 rounded-md border border-paper-200 bg-paper-50 px-3 py-2 text-xs text-ink-600"
@@ -1072,24 +1094,36 @@ function IntegrationsTab() {
                     This card updates when the mailbox is actually connected.
                   </p>
                 )}
+                {isGmail && gmailWatchExpiresAt && (
+                  <p className="text-xs text-green-700 mb-2" role="status">
+                    Google confirmed an active reply watch through {new Date(gmailWatchExpiresAt).toLocaleString()}.
+                  </p>
+                )}
                 {mailboxManagementCapability === true && (
-                  <Button
-                    size="sm"
-                    variant={hasConnectedRow ? "outline" : "default"}
-                    className={cn("h-7 text-xs", hasConnectedRow ? "border-paper-300 text-ink-600" : "bg-rust-500 hover:bg-rust-600 text-white")}
-                    disabled={disconnecting || gmailBusy}
-                    onClick={() =>
-                      hasConnectedRow
-                        ? disconnect({ provider: int.provider })
-                        : handleConnectGmail()
-                    }
-                  >
-                    {hasConnectedRow
-                      ? "Disconnect"
-                      : isGmail
-                        ? (gmailWaiting ? "Waiting for Google…" : gmailLaunching ? "Opening Google…" : "Connect with Google")
-                        : "Connect"}
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    {isGmail && hasConnectedRow && (
+                      <Button size="sm" className="h-7 bg-rust-500 text-xs text-white hover:bg-rust-600" disabled={disconnecting || gmailBusy || verifyingGmail} onClick={() => verifyGmail()}>
+                        {verifyingGmail ? "Verifying…" : "Verify reply sync"}
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant={hasConnectedRow ? "outline" : "default"}
+                      className={cn("h-7 text-xs", hasConnectedRow ? "border-paper-300 text-ink-600" : "bg-rust-500 hover:bg-rust-600 text-white")}
+                      disabled={disconnecting || gmailBusy || verifyingGmail}
+                      onClick={() =>
+                        hasConnectedRow
+                          ? disconnect({ provider: int.provider })
+                          : handleConnectGmail()
+                      }
+                    >
+                      {hasConnectedRow
+                        ? "Disconnect"
+                        : isGmail
+                          ? (gmailWaiting ? "Waiting for Google…" : gmailLaunching ? "Opening Google…" : "Connect with Google")
+                          : "Connect"}
+                    </Button>
+                  </div>
                 )}
               </div>
             </SettingsCard>

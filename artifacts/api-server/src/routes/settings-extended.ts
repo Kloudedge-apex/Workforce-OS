@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { apex, UpstreamError } from "../upstream/apex-client";
 import { gapResponse } from "../lib/unavailable";
-import { upstreamErrorMessage } from "./settings";
+import { fetchOrgCapabilities, upstreamErrorMessage } from "./settings";
 
 const router = Router();
 
@@ -382,6 +382,103 @@ export function createGmailFinalizeRouter(
   return gmailRouter;
 }
 
+export interface GmailMailboxVerification {
+  verified: true;
+  watchExpiresAt: string;
+}
+
+/**
+ * Accept only a concrete Gmail users.watch proof. A bare `{ ok: true }` is
+ * what the legacy API returns when its Pub/Sub topic is missing, so it must
+ * never be presented as reply-sync readiness.
+ */
+export function shapeGmailMailboxVerification(
+  raw: unknown,
+  now = Date.now(),
+): GmailMailboxVerification | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rec = raw as Record<string, unknown>;
+  const historyId = rec["historyId"];
+  const expiration = rec["expiration"];
+  if (
+    rec["ok"] !== true ||
+    typeof historyId !== "string" ||
+    !/^\d+$/u.test(historyId) ||
+    typeof expiration !== "string" ||
+    !/^\d+$/u.test(expiration)
+  ) {
+    return null;
+  }
+  const expiresAt = Number(expiration);
+  if (!Number.isSafeInteger(expiresAt) || expiresAt <= now) return null;
+  return {
+    verified: true,
+    watchExpiresAt: new Date(expiresAt).toISOString(),
+  };
+}
+
+export type GmailVerificationClient = Pick<typeof apex, "get" | "post">;
+
+/**
+ * Register and verify the authenticated workspace's Gmail inbound watch.
+ * The BFF repeats the mailbox-management capability check because the public
+ * legacy API's watch route predates its AdminOrManagerGuard.
+ */
+export function createGmailVerificationRouter(
+  client: GmailVerificationClient = apex,
+): Router {
+  const gmailRouter = Router();
+  gmailRouter.post(
+    "/settings/integrations/gmail/verify",
+    async (req, res, next) => {
+      try {
+        const capabilities = await fetchOrgCapabilities(req, client);
+        if (capabilities.canManageMailbox !== true) {
+          if (capabilities.canManageMailbox === false) {
+            res.status(403).json({
+              error: "forbidden",
+              message: "Gmail verification requires an administrator or manager.",
+            });
+          } else {
+            res.status(503).json({
+              error: "unavailable",
+              message: "Mailbox management permission could not be verified.",
+            });
+          }
+          return;
+        }
+
+        const verification = shapeGmailMailboxVerification(
+          await client.post("/integrations/gmail/watch", { req }),
+        );
+        if (!verification) {
+          res.status(502).json({
+            error: "upstream",
+            message: "Google authorization exists, but the backend could not prove an active Gmail reply watch.",
+          });
+          return;
+        }
+        res.json(verification);
+      } catch (err) {
+        if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) {
+          throw err;
+        }
+        if (err instanceof UpstreamError && err.status >= 400 && err.status < 500) {
+          res.status(err.status).json({
+            error: "gmail_verification_failed",
+            message:
+              upstreamErrorMessage(err.body) ??
+              "Gmail could not be verified. Reconnect the mailbox and try again.",
+          });
+          return;
+        }
+        next(err);
+      }
+    },
+  );
+  return gmailRouter;
+}
+
 // ─── Gmail OAuth init ────────────────────────────────────────────────────────
 // OAuth providers cannot use the synchronous POST /:provider/connect (that is
 // the api-key path). Upstream exposes GET /api/integrations/gmail/auth-url
@@ -419,6 +516,7 @@ router.get("/settings/integrations/gmail/auth-url", async (req, res, next) => {
 });
 
 router.use(createGmailFinalizeRouter());
+router.use(createGmailVerificationRouter());
 
 router.post("/settings/integrations/:provider/connect", (req, res) => {
   const { provider } = req.params;

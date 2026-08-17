@@ -1124,6 +1124,15 @@ export const FinalizeGmailIntegrationResponse = zod.object({
 
 
 /**
+ * @summary Verify the Gmail connection and active inbound watch
+ */
+export const VerifyGmailMailboxResponse = zod.object({
+  "verified": zod.literal(true),
+  "watchExpiresAt": zod.coerce.date()
+})
+
+
+/**
  * @summary Request a direct integration connection
  */
 export const ConnectIntegrationParams = zod.object({

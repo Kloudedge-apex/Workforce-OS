@@ -37,6 +37,17 @@ const mocks = vi.hoisted(() => ({
         };
       }
     | undefined,
+  verify: vi.fn(),
+  verifyOptions: undefined as
+    | {
+        mutation?: {
+          onSuccess?: (verification: any) => unknown;
+          onError?: (error: unknown) => unknown;
+        };
+      }
+    | undefined,
+  updateOrg: vi.fn(),
+  updateOrgOptions: undefined as any,
   refetchIntegrations: vi.fn(),
   fetchGmailAuthUrl: vi.fn(),
   toastSuccess: vi.fn(),
@@ -170,7 +181,10 @@ vi.mock("@workspace/api-client-react", async (importOriginal) => {
         refetch: mocks.refetchWelcome,
       };
     },
-    useUpdateOrgSettings: () => ({ mutate: vi.fn(), isPending: false }),
+    useUpdateOrgSettings: (options: unknown) => {
+      mocks.updateOrgOptions = options;
+      return { mutate: mocks.updateOrg, isPending: false };
+    },
     useDisconnectIntegration: (options: unknown) => {
       mocks.disconnectOptions = options as typeof mocks.disconnectOptions;
       return { mutate: mocks.disconnect, isPending: false };
@@ -178,6 +192,10 @@ vi.mock("@workspace/api-client-react", async (importOriginal) => {
     useFinalizeGmailIntegration: (options: unknown) => {
       mocks.finalizeOptions = options as typeof mocks.finalizeOptions;
       return { mutate: mocks.finalize, isPending: false };
+    },
+    useVerifyGmailMailbox: (options: unknown) => {
+      mocks.verifyOptions = options as typeof mocks.verifyOptions;
+      return { mutate: mocks.verify, isPending: false };
     },
     useListSuppressions: (_params: unknown, options: unknown) => {
       mocks.listSuppressionOptions = options;
@@ -244,6 +262,8 @@ describe("Settings Gmail readiness refresh", () => {
     mocks.disconnect.mockReset();
     mocks.finalize.mockReset();
     mocks.finalizeOptions = undefined;
+    mocks.verify.mockReset();
+    mocks.verifyOptions = undefined;
     mocks.refetchIntegrations.mockReset();
     mocks.refetchIntegrations.mockResolvedValue({
       data: [
@@ -374,6 +394,28 @@ describe("Settings Gmail readiness refresh", () => {
     expect(mocks.refetchIntegrations).toHaveBeenCalledTimes(1);
   });
 
+  it("verifies a connected Gmail reply watch without sending email", async () => {
+    mocks.integrationStatus = "connected";
+    await renderSettings();
+
+    await act(async () => {
+      getButton("Verify reply sync").click();
+    });
+    expect(mocks.verify).toHaveBeenCalledWith();
+
+    await act(async () => {
+      await mocks.verifyOptions?.mutation?.onSuccess?.({
+        verified: true,
+        watchExpiresAt: "2026-08-24T00:00:00.000Z",
+      });
+    });
+
+    expect(container.textContent).toContain("Google confirmed an active reply watch");
+    expect(mocks.toastSuccess).toHaveBeenCalledWith(
+      "Gmail connection and reply watch verified.",
+    );
+  });
+
   it.each([
     [false, "needs attention", "not operational"],
     [null, "unverified", "could not be verified"],
@@ -502,6 +544,8 @@ describe("Settings organization capability", () => {
     mocks.navigate.mockReset();
     mocks.toastSuccess.mockReset();
     mocks.toastError.mockReset();
+    mocks.updateOrg.mockReset();
+    mocks.updateOrgOptions = undefined;
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -533,6 +577,33 @@ describe("Settings organization capability", () => {
       "Organization management permissions could not be verified.",
     );
     expect(getButton("Save Changes").disabled).toBe(true);
+  });
+
+  it("normalizes the country and trims sender identity before saving", async () => {
+    mocks.orgCapability = true;
+    await renderSettings();
+
+    const country = Array.from(container.querySelectorAll("input")).find(
+      (input) => input.value === "US",
+    );
+    expect(country).toBeInstanceOf(HTMLInputElement);
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setValue?.call(country, "in");
+      country?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => getButton("Save Compliance").click());
+
+    expect(mocks.updateOrg).toHaveBeenCalledWith({
+      data: {
+        senderName: "Ada",
+        postalAddress: "1 Main St",
+        country: "IN",
+      },
+    });
   });
 });
 
