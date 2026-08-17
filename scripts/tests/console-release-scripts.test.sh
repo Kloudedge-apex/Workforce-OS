@@ -70,7 +70,7 @@ test_source_contract() {
   assert_contains "${REPO_ROOT}/scripts/verify-console-image.sh" \
     'docker stop --time 10'
   assert_contains "${REPO_ROOT}/scripts/verify-console-image.sh" \
-    'API_UPSTREAM_URL=https://apex-gtm-api.ashysmoke-fd2f7a7f.eastus.azurecontainerapps.io'
+    'API_UPSTREAM_URL=https://apex-gtm-api.braveflower-6d3bb66b.eastus.azurecontainerapps.io'
   assert_contains "${REPO_ROOT}/artifacts/api-server/src/index.ts" \
     'process.once("SIGTERM"'
   assert_contains "${REPO_ROOT}/.github/workflows/ci.yml" \
@@ -80,7 +80,7 @@ test_source_contract() {
   assert_contains "${REPO_ROOT}/docs/ops/production-clerk-auth.sha256" \
     "5eddc3f498e16df540776fa025bef86f741fae6815abfb9dd80652026b8956ad"
   assert_contains "${REPO_ROOT}/docs/ops/production-api-upstream-url.sha256" \
-    "aa40c9486ae64a02da1f3d6e379dfa64aecc68b9671f76f9d5d2f7daef4fecdd"
+    "43d0cd95aef1c195beaee43eb42f6507a48c548318bb56f8164e2efe673d1a93"
   assert_contains "${REPO_ROOT}/docs/ops/production-clerk-publishable-key.sha256" \
     "582032c8b52eb24d10f761d9f14ab38293ba79871021cf8827bc53cf75b03d2c"
   assert_excludes "${REPO_ROOT}/docs/ops/production-api-upstream-url.sha256" \
