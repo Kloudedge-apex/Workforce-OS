@@ -21,6 +21,21 @@ send, or a production backend cutover.
   cutover. Do not remove the current callback until rollback is no longer
   required.
 
+### 2026-08-18 branding audit
+
+- Interactive Google Cloud authentication completed against the intended
+  project owner account.
+- The Google Cloud project display name was corrected from the default
+  `My First Project` to `Workforce OS`. The project ID and project number did
+  not change.
+- The available OAuth-brand readback still reports the application title as
+  `desktop-app`. This readback comes from Google's deprecated IAP OAuth Admin
+  surface, so confirm it in Google Auth Platform > Branding and change the app
+  name to exactly `Workforce OS` before submitting verification.
+- Do not submit while `desktop-app` appears anywhere in the consent screen,
+  reviewer preview, or verification form. Capture a fresh consent-screen
+  screenshot after the correction.
+
 The homepage, privacy policy, and terms are public without authentication and
 use the same `workforceos.xyz` domain. The privacy policy contains the Google
 API Services User Data Policy Limited Use disclosure, explains retention and
@@ -56,6 +71,8 @@ Confirm all items in Google Cloud Console before requesting verification:
    `supple-design-494220-v3`.
 2. Confirm the application name, support email, developer contact, logo, and
    homepage match the public Workforce OS surfaces.
+   The application name must be exactly `Workforce OS`; `desktop-app` is a
+   known stale value and is a submission blocker.
 3. Confirm `workforceos.xyz` and any other OAuth authorized domain are verified
    in Google Search Console by an account that can complete verification.
 4. Confirm the production OAuth client contains only reviewed JavaScript
