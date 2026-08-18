@@ -16,7 +16,7 @@ export class UpstreamError extends Error {
 
 /** The request fields the client needs to forward the caller's identity. */
 export interface UpstreamCtx {
-  req: Pick<Request, "orgId" | "clerkToken">;
+  req: Pick<Request, "orgId" | "clerkToken" | "clerkUserId">;
 }
 
 function reviewedUpstreamSha256(): string | null {
@@ -103,6 +103,7 @@ async function call(
   const headers: Record<string, string> = { accept: "application/json" };
   if (req.clerkToken) headers["authorization"] = `Bearer ${req.clerkToken}`;
   if (req.orgId) headers["x-org-id"] = req.orgId;
+  if (req.clerkUserId) headers["x-clerk-user-id"] = req.clerkUserId;
   if (body !== undefined) headers["content-type"] = "application/json";
 
   const res = await fetch(`${baseUrl()}/api${path}`, {

@@ -1,5 +1,4 @@
 import React from "react";
-import { UserButton } from "@clerk/clerk-react";
 import { Link, useLocation } from "wouter";
 import { 
   Activity, 
@@ -69,10 +68,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
         <div className="p-4 border-t border-paper-200 flex items-center gap-3">
-          <UserButton
-            afterSignOutUrl="/sign-in"
-            appearance={{ elements: { avatarBox: "h-8 w-8" } }}
-          />
+          <div className="h-8 w-8 rounded-full bg-rust-500 text-white grid place-items-center text-xs font-semibold">ID</div>
           <div className="min-w-0">
             <p className="text-sm font-medium text-ink-900 dark:text-paper-50 truncate">{user.name}</p>
             <p className="text-xs text-ink-400 truncate">{user.email}</p>
@@ -88,6 +84,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <Logo size={20} className="md:hidden" />
             <div className="hidden md:flex items-center text-xs text-ink-400">
               <span>{NAV_ITEMS.find(i => location.startsWith(i.href))?.label || "Workspace"}</span>
+              <span className="ml-3 rounded-full bg-rust-100 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide text-rust-700">Synthetic investor demo</span>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -100,12 +97,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
               <span>Search</span>
               <kbd className="font-mono bg-paper-200 px-1 rounded text-[10px]">⌘K</kbd>
             </button>
-            <div className="md:hidden">
-              <UserButton
-                afterSignOutUrl="/sign-in"
-                appearance={{ elements: { avatarBox: "h-8 w-8" } }}
-              />
-            </div>
+            <span className="md:hidden rounded-full bg-rust-500 px-2 py-1 text-[10px] font-semibold text-white">DEMO</span>
             <ThemeToggle />
             <NotificationBell />
           </div>

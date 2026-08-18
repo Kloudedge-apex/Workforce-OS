@@ -624,7 +624,12 @@ export function shapeTeamMembers(users: ApexUser[]): TeamMember[] {
 
 router.get("/settings/team", async (req, res, next) => {
   try {
-    const me = (await apex.get("/orgs/me", { req })) as { id: string };
+    const me = (await apex.get(
+      process.env["INVESTOR_DEMO_MODE"] === "true" && req.orgId
+        ? `/orgs/${req.orgId}`
+        : "/orgs/me",
+      { req },
+    )) as { id: string };
     const org = (await apex.get(`/orgs/${me.id}`, { req })) as { users?: ApexUser[] };
     res.json(shapeTeamMembers(Array.isArray(org.users) ? org.users : []));
   } catch (err) {
@@ -694,7 +699,12 @@ export function shapeBilling(billing: { plan: string }, seats: number): BillingI
 
 router.get("/settings/billing", async (req, res, next) => {
   try {
-    const me = (await apex.get("/orgs/me", { req })) as { id: string };
+    const me = (await apex.get(
+      process.env["INVESTOR_DEMO_MODE"] === "true" && req.orgId
+        ? `/orgs/${req.orgId}`
+        : "/orgs/me",
+      { req },
+    )) as { id: string };
     const [billing, org] = await Promise.all([
       apex.get("/billing", { req }) as Promise<unknown>,
       apex.get(`/orgs/${me.id}`, { req }) as Promise<unknown>,

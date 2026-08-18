@@ -323,6 +323,14 @@ export async function fetchOrgCapabilities(
   req: Request,
   client: Pick<typeof apex, "get"> = apex,
 ): Promise<OrgCapabilities> {
+  if (process.env["INVESTOR_DEMO_MODE"] === "true") {
+    return {
+      canReviewArtifacts: true,
+      canManageMailbox: true,
+      canManageOrg: true,
+      canManageSuppressions: true,
+    };
+  }
   let parsed = unknownOrgCapabilities();
   try {
     parsed = parseOrgCapabilities(
@@ -369,7 +377,12 @@ router.get("/settings/org", async (req, res, next) => {
     // in flight.
     const onboarding = (await fetchWelcomeStatus(req)) as ApexOnboardingStatus;
     const [org, capabilities] = await Promise.all([
-      apex.get("/orgs/me", { req }) as Promise<ApexOrg>,
+      apex.get(
+        process.env["INVESTOR_DEMO_MODE"] === "true" && req.orgId
+          ? `/orgs/${req.orgId}`
+          : "/orgs/me",
+        { req },
+      ) as Promise<ApexOrg>,
       fetchOrgCapabilities(req),
     ]);
     res.json(shapeOrgSettings(org, null, onboarding?.complete === true, capabilities));
@@ -442,10 +455,20 @@ router.put("/settings/org", async (req, res, next) => {
     // it via /orgs/me first. The upstream UpdateOrgDto now accepts the sender
     // identity / CAN-SPAM fields (senderName, country, physicalAddress) in
     // addition to name — buildOrgPatchBody forwards exactly those.
-    const me = (await apex.get("/orgs/me", { req })) as ApexOrg;
+    const me = (await apex.get(
+      process.env["INVESTOR_DEMO_MODE"] === "true" && req.orgId
+        ? `/orgs/${req.orgId}`
+        : "/orgs/me",
+      { req },
+    )) as ApexOrg;
     await apex.patch(`/orgs/${me.id}`, { req }, buildOrgPatchBody(req.body));
     const [updated, onboarding, capabilities] = await Promise.all([
-      apex.get("/orgs/me", { req }) as Promise<ApexOrg>,
+      apex.get(
+        process.env["INVESTOR_DEMO_MODE"] === "true" && req.orgId
+          ? `/orgs/${req.orgId}`
+          : "/orgs/me",
+        { req },
+      ) as Promise<ApexOrg>,
       fetchWelcomeStatus(req) as Promise<ApexOnboardingStatus>,
       fetchOrgCapabilities(req),
     ]);

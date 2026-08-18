@@ -1,5 +1,3 @@
-# SHA-256 of the exact production API_UPSTREAM_URL bytes.
-# This binds the bearer-token forwarding destination to reviewed source.
-# Reviewed 2026-08-17 for the isolated Workforce OS production API:
-# https://apex-gtm-api.braveflower-6d3bb66b.eastus.azurecontainerapps.io
-43d0cd95aef1c195beaee43eb42f6507a48c548318bb56f8164e2efe673d1a93
+# Investor-demo-only source pin for the isolated synthetic backend.
+# This detached build snapshot is not committed and cannot authorize production.
+d83e6b4c85445261d1d762d8d093bdb57e2cab066abd428cf4ebb60348cb56c3

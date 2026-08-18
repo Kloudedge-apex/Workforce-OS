@@ -6,7 +6,6 @@ import {
   useLocation,
 } from "wouter";
 import { AnimatePresence } from "framer-motion";
-import { ClerkProvider, SignedIn, SignedOut } from "@clerk/clerk-react";
 import { QueryErrorResetBoundary } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -14,15 +13,12 @@ import { Shell } from "@/components/layout/Shell";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { PageTransition } from "@/components/motion/PageTransition";
 import { ErrorBoundary } from "@/components/states/ErrorBoundary";
-import { ApiAuthBridge } from "@/lib/api-auth";
-import { requireClerkPublishableKey } from "@/lib/clerkConfig";
-import { ClerkQueryClientProvider } from "@/lib/queryClientScope";
+import { ScopedQueryClientProvider } from "@/lib/queryClientScope";
 import {
   shouldHoldForWelcomeStatus,
   welcomeRedirectForLocation,
 } from "@/lib/onboarding";
 import { useGetWelcomeStatus } from "@workspace/api-client-react";
-import SignInPage from "@/pages/SignIn";
 import Today from "@/pages/Today";
 import Pipeline from "@/pages/Pipeline";
 import LeadDetail from "@/pages/LeadDetail";
@@ -36,7 +32,6 @@ import Settings from "@/pages/Settings";
 import NotFound from "@/pages/not-found";
 import {
   PrivacyPolicy,
-  PublicHome,
   TermsOfService,
   publicSurfaceForLocation,
 } from "@/pages/Public";
@@ -93,73 +88,41 @@ function AppRouter() {
   const publicSurface = publicSurfaceForLocation(location);
 
   if (publicSurface === "home") {
-    return (
-      <>
-        <SignedIn>
-          <Redirect to="/today" />
-        </SignedIn>
-        <SignedOut>
-          <PublicHome />
-        </SignedOut>
-      </>
-    );
+    return <Redirect to="/today" />;
   }
   if (publicSurface === "privacy") return <PrivacyPolicy />;
   if (publicSurface === "terms") return <TermsOfService />;
 
   if (publicSurface === "sign-in") {
-    return (
-      <>
-        <SignedIn>
-          <Redirect to="/today" />
-        </SignedIn>
-        <SignedOut>
-          <SignInPage />
-        </SignedOut>
-      </>
-    );
+    return <Redirect to="/today" />;
   }
 
   return (
-    <>
-      <SignedIn>
-        <QueryErrorResetBoundary>
-          {({ reset }) => (
-            <ErrorBoundary onReset={reset}>
-              <Router />
-            </ErrorBoundary>
-          )}
-        </QueryErrorResetBoundary>
-      </SignedIn>
-      <SignedOut>
-        <SignInPage />
-      </SignedOut>
-    </>
+    <QueryErrorResetBoundary>
+      {({ reset }) => (
+        <ErrorBoundary onReset={reset}>
+          <Router />
+        </ErrorBoundary>
+      )}
+    </QueryErrorResetBoundary>
   );
 }
 
-const PUBLISHABLE_KEY = requireClerkPublishableKey(
-  import.meta.env.VITE_CLERK_PUBLISHABLE_KEY,
-);
-
 function App() {
   return (
-    <ClerkProvider publishableKey={PUBLISHABLE_KEY}>
-      <ThemeProvider>
-        <ClerkQueryClientProvider>
-          <TooltipProvider>
-            <ApiAuthBridge />
-            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-              <AppRouter />
-            </WouterRouter>
-            <Toaster
-              position="bottom-right"
-              className="bg-ink-900 text-paper-50 border-none font-sans font-medium"
-            />
-          </TooltipProvider>
-        </ClerkQueryClientProvider>
-      </ThemeProvider>
-    </ClerkProvider>
+    <ThemeProvider>
+      <ScopedQueryClientProvider scope="investor-demo">
+        <TooltipProvider>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+            <AppRouter />
+          </WouterRouter>
+          <Toaster
+            position="bottom-right"
+            className="bg-ink-900 text-paper-50 border-none font-sans font-medium"
+          />
+        </TooltipProvider>
+      </ScopedQueryClientProvider>
+    </ThemeProvider>
   );
 }
 

@@ -246,8 +246,12 @@ export function requireClerkAuth(deps: RequireClerkAuthDeps = {}) {
       process.env["NODE_ENV"] !== "production" &&
       process.env["DEV_TRUST_X_ORG_ID"] === "true"
     ) {
-      req.clerkUserId = req.header("x-clerk-user-id") ?? "dev-user";
-      req.orgId = req.header("x-org-id") ?? undefined;
+      req.clerkUserId =
+        req.header("x-clerk-user-id") ??
+        process.env["DEV_DEFAULT_CLERK_USER_ID"] ??
+        "dev-user";
+      req.orgId =
+        req.header("x-org-id") ?? process.env["DEV_DEFAULT_ORG_ID"] ?? undefined;
       next();
       return;
     }

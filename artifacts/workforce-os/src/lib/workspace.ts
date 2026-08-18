@@ -3,7 +3,6 @@
 // Workspace identity comes from the authenticated tenant read; user identity
 // comes from Clerk. Loading/error fallbacks are deliberately generic so one
 // customer never sees another customer's name or an invented role.
-import { useUser } from "@clerk/clerk-react";
 import { useGetOrgSettings } from "@workspace/api-client-react";
 
 export interface Workspace {
@@ -61,18 +60,8 @@ export function useWorkspace(): Workspace {
  * mutable public metadata; role-sensitive UI uses server-derived capabilities.
  */
 export function useCurrentUser(): CurrentUser {
-  const { user } = useUser();
-  if (!user) {
-    return FALLBACK_APP_CONTEXT.user;
-  }
-  const name =
-    user.fullName ||
-    user.primaryEmailAddress?.emailAddress ||
-    FALLBACK_APP_CONTEXT.user.name;
-  const email =
-    user.primaryEmailAddress?.emailAddress ?? FALLBACK_APP_CONTEXT.user.email;
   return {
-    name,
-    email,
+    name: "Investor demo",
+    email: "synthetic@workforceos.example",
   };
 }
