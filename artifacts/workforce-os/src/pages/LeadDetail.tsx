@@ -152,7 +152,7 @@ export default function LeadDetail() {
                     <>
                       <ScoreBar label="Firmographic Fit" score={scoreBreakdown.fit} />
                       <ScoreBar label="Intent Signals" score={scoreBreakdown.intent} />
-                      <ScoreBar label="Prior Engagement" score={scoreBreakdown.engagement} />
+                      <ScoreBar label="Reachability" score={scoreBreakdown.engagement} />
                       <ScoreBar label="Timing / Urgency" score={scoreBreakdown.timing} />
                     </>
                   ) : (

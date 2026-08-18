@@ -159,8 +159,13 @@ const samplePerson: UpstreamPersonDetail = {
   seniority: "DIRECTOR",
   department: "OPERATIONS",
   linkedinUrl: "https://linkedin.com/in/samrivera",
-  location: null,
+  location: "Austin, TX",
   bio: null,
+  industry: "Software",
+  employeeRange: "51-200",
+  country: "US",
+  city: "Austin",
+  createdAt: "2026-06-01T12:00:00.000Z",
   bestEmail: "sam@globex.io",
   score: 91,
   qualifiedAt: "2026-06-02T09:00:00.000Z",
@@ -174,7 +179,15 @@ const samplePerson: UpstreamPersonDetail = {
       verificationResult: "valid",
     },
   ],
-  scoreBreakdown: [{ category: "Total", points: 91 }],
+  researchBrief: "Sam Rivera leads revenue operations at Globex.",
+  scoreBreakdown: { fit: 96, intent: 84, engagement: 90, timing: 78 },
+  recentEvidenceEvents: [{
+    id: "evidence_1",
+    eventType: "Recent Hire",
+    description: "Hiring for an account executive.",
+    timestamp: "2026-06-02T08:00:00.000Z",
+  }],
+  intentSignals: [{ label: "Hiring for an account executive", confidence: 0.92 }],
 };
 
 describe("shapePersonAsLead", () => {
@@ -190,8 +203,11 @@ describe("shapePersonAsLead", () => {
     expect(lead.stage).toBe("qualified"); // qualifiedAt set
     expect(lead.cohort).toBeNull();
     expect(lead.emailStatus).toBe("DELIVERABLE");
-    expect(lead.industry).toBeNull(); // not returned by getPersonDetail
-    expect(lead.createdAt).toBeNull(); // not returned by getPersonDetail
+    expect(lead.geo).toBe("Austin, TX");
+    expect(lead.industry).toBe("Software");
+    expect(lead.headcountEstimate).toBe("51-200");
+    expect(lead.intentSignals).toEqual(samplePerson.intentSignals);
+    expect(lead.createdAt).toBe("2026-06-01T12:00:00.000Z");
     expect(lead.sendPolicy).toBeNull(); // no policy source — never fabricated
   });
 
@@ -218,21 +234,32 @@ describe("shapePersonAsLead", () => {
 });
 
 describe("shapePersonScoreBreakdown", () => {
-  it("does not invent category values from an aggregate score", () => {
-    expect(shapePersonScoreBreakdown(samplePerson)).toBeNull();
+  it("passes through persisted category percentages", () => {
+    expect(shapePersonScoreBreakdown(samplePerson)).toEqual({
+      fit: 96,
+      intent: 84,
+      engagement: 90,
+      timing: 78,
+    });
+  });
+
+  it("clamps malformed upstream percentages", () => {
+    expect(shapePersonScoreBreakdown({
+      ...samplePerson,
+      scoreBreakdown: { fit: 140, intent: -5, engagement: 67.8, timing: Number.NaN },
+    })).toEqual({ fit: 100, intent: 0, engagement: 68, timing: 0 });
   });
 });
 
 describe("shapeLeadDetail", () => {
-  it("composes LeadDetail with honest defaults for ungrounded fields", () => {
+  it("composes LeadDetail from persisted intelligence", () => {
     const detail = shapeLeadDetail(samplePerson);
     expect(detail.lead.id).toBe("person_42");
-    // researchBrief + recentEvidenceEvents have no source on release.
-    expect(detail.researchBrief).toBeNull();
-    expect(detail.recentEvidenceEvents).toEqual([]);
+    expect(detail.researchBrief).toBe("Sam Rivera leads revenue operations at Globex.");
+    expect(detail.recentEvidenceEvents).toEqual(samplePerson.recentEvidenceEvents);
     // sendPolicy has no upstream source on the detail path either — null,
     // never the old fabricated all-false policy.
     expect(detail.lead.sendPolicy).toBeNull();
-    expect(detail.scoreBreakdown).toBeNull();
+    expect(detail.scoreBreakdown).toEqual(samplePerson.scoreBreakdown);
   });
 });
