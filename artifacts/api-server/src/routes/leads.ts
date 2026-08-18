@@ -147,8 +147,13 @@ export interface UpstreamPersonDetail {
   seniority: string | null;
   department: string | null;
   linkedinUrl: string | null;
-  location: null;
-  bio: null;
+  location: string | null;
+  bio: string | null;
+  industry: string | null;
+  employeeRange: string | null;
+  country: string | null;
+  city: string | null;
+  createdAt: string | null;
   bestEmail: string | null;
   score: number | null;
   qualifiedAt: string | null;
@@ -160,7 +165,10 @@ export interface UpstreamPersonDetail {
     verified: boolean | null;
     verificationResult: string | null;
   }>;
-  scoreBreakdown: Array<{ category: string; points: number }>;
+  researchBrief: string | null;
+  scoreBreakdown: ScoreBreakdown | null;
+  recentEvidenceEvents: EvidenceEventSummary[];
+  intentSignals: IntentSignal[] | null;
 }
 
 // ─── Pure transforms (unit-tested; no req/res) ──────────────────────────────
@@ -235,19 +243,19 @@ export function shapeLeadsList(
   };
 }
 
-/**
- * apex-gtm-api's getPersonDetail returns at most a single
- * {category:'Total',points} breakdown row (LeadScore.breakdown is not decomposed
- * into fit/intent/engagement/timing). We map the available total into `fit`
- * and zero the rest — lossy, see audit. researchBrief + recentEvidenceEvents
- * have no source on release and are returned as a default brief + [].
- */
+/** Pass through the backend's persisted category percentages defensively. */
 export function shapePersonScoreBreakdown(
-  _u: UpstreamPersonDetail,
+  u: UpstreamPersonDetail,
 ): ScoreBreakdown | null {
-  // Upstream exposes only an aggregate total. Assigning that total to "fit"
-  // and zero to the other categories would invent a decomposition.
-  return null;
+  if (!u.scoreBreakdown) return null;
+  const clamp = (value: number): number =>
+    Math.max(0, Math.min(100, Math.round(Number.isFinite(value) ? value : 0)));
+  return {
+    fit: clamp(u.scoreBreakdown.fit),
+    intent: clamp(u.scoreBreakdown.intent),
+    engagement: clamp(u.scoreBreakdown.engagement),
+    timing: clamp(u.scoreBreakdown.timing),
+  };
 }
 
 /** Map upstream person detail → the openapi Lead embedded in LeadDetail. */
@@ -264,34 +272,29 @@ export function shapePersonAsLead(u: UpstreamPersonDetail): Lead {
     score: u.score == null ? null : Math.trunc(u.score),
     // Derive only from persisted qualification/email evidence.
     stage: u.qualifiedAt ? "qualified" : u.bestEmail ? "enriched" : "sourced",
-    geo: null,
-    country: null,
-    // industry is not returned by getPersonDetail.
-    industry: null,
-    headcountEstimate: null,
+    geo: emptyToNull(u.location),
+    country: emptyToNull(u.country),
+    industry: emptyToNull(u.industry),
+    headcountEstimate: emptyToNull(u.employeeRange),
     cohort: null,
     emailStatus: verifiedEmailStatus(
       u.emails.find((email) => email.email === u.bestEmail) ?? u.emails[0],
     ),
-    intentSignals: null,
+    intentSignals: u.intentSignals,
     lastContactedAt: null,
     // Same honesty rule as shapeLead: no real policy source → null.
     sendPolicy: null,
-    createdAt: null,
+    createdAt: u.createdAt,
   };
 }
 
-/**
- * Compose the full LeadDetail. researchBrief + recentEvidenceEvents have no
- * source on release/go-live-2026-06-01 (getPersonDetail returns neither), so
- * they remain unavailable rather than becoming empty or zero-valued claims.
- */
+/** Compose the full LeadDetail from the backend's persisted intelligence. */
 export function shapeLeadDetail(u: UpstreamPersonDetail): LeadDetail {
   return {
     lead: shapePersonAsLead(u),
-    researchBrief: null,
+    researchBrief: emptyToNull(u.researchBrief),
     scoreBreakdown: shapePersonScoreBreakdown(u),
-    recentEvidenceEvents: [],
+    recentEvidenceEvents: u.recentEvidenceEvents ?? [],
   };
 }
 
