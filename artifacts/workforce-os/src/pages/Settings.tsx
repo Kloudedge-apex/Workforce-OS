@@ -28,7 +28,6 @@ import { IntegrationLogo } from "@/components/brand/IntegrationLogo";
 import { fadeSlideUp, useReducedMotionSafe } from "@/lib/motion";
 import { EmptyState } from "@/components/states/EmptyState";
 import { ErrorState } from "@/components/states/ErrorState";
-import { isUnavailable, UnavailableState } from "@/lib/unavailable";
 import { getSendReadiness, workspaceLiveState } from "@/lib/sendReadiness";
 import { fetchGmailAuthUrl } from "@/lib/oauthConnect";
 import { cn } from "@/lib/utils";
@@ -118,10 +117,6 @@ export default function Settings() {
 function HealthBar() {
   const { data: health, isLoading, isError } = useGetOrgHealth({ query: { queryKey: ["getOrgHealth"] } });
   if (isLoading) return <div className="h-10 bg-ink-900 animate-pulse" />;
-  // Rolling-deploy compatibility: hide the bar while an older backend still
-  // reports the capability as unavailable. The current backend returns a
-  // tenant-scoped, server-authoritative projection.
-  if (isUnavailable(health)) return null;
   if (isError || !health)
     return (
       <div className="shrink-0 px-6 py-2.5 flex items-center gap-3 bg-ember-500">

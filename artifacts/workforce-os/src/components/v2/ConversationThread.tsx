@@ -10,9 +10,9 @@ import { sanitizeHtml } from "@/lib/sanitize";
 import { Sparkles, Bot, AlertTriangle } from "lucide-react";
 import { SentimentBadge } from "@/components/v2/SentimentBadge";
 import { toast } from "sonner";
-import { isUnavailable } from "@/lib/unavailable";
 import { useLocation } from "wouter";
 import { ConversationActions } from "@/components/v2/ConversationActions";
+import { decisionErrorMessage } from "@/lib/decisionError";
 
 interface ConversationThreadProps {
   mode: "preview" | "full";
@@ -39,14 +39,10 @@ export function ConversationThread({
       const res = await draftReplyMut.mutateAsync({
         id: detail.conversation.id,
       });
-      if (isUnavailable(res)) {
-        toast("Not available yet — coming soon");
-        return;
-      }
       toast(res.message);
       setLocation(`/outbound/${res.runId}`);
-    } catch (e) {
-      toast.error("Failed to generate draft");
+    } catch (error) {
+      toast.error(decisionErrorMessage(error));
     }
   };
 

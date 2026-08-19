@@ -32,7 +32,6 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { isUnavailable } from "@/lib/unavailable";
 import { ArtifactUiStatus, artifactStatusBadge } from "@/lib/artifactStatus";
 import {
   getArtifactRefusal,
@@ -230,10 +229,6 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
     }
     try {
       const updated = await approveMut.mutateAsync({ id: artifact.id });
-      if (isUnavailable(updated)) {
-        toast("Approval isn't available yet — coming soon");
-        return;
-      }
       // Follow whatever status the server actually assigned — approving
       // queues the email, it does NOT send it.
       setLocalStatus(updated.status as ArtifactUiStatus);
@@ -268,10 +263,6 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
         id: artifact.id,
         data: { reason: rejectReason },
       });
-      if (isUnavailable(updated)) {
-        toast("Rejection isn't available yet — coming soon");
-        return;
-      }
       setLocalStatus(updated.status as ArtifactUiStatus);
       toast("Draft rejected");
     } catch (err) {

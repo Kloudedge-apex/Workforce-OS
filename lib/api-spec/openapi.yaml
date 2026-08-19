@@ -561,7 +561,7 @@ paths:
     get:
       operationId: getRun
       tags: [runs]
-      summary: Get one run and its evidence-timeline availability
+      summary: Get one run and its persisted timeline
       parameters:
         - name: id
           in: path
@@ -569,7 +569,7 @@ paths:
           schema: { type: string }
       responses:
         "200":
-          description: Run with evidence timeline, or an explicit unavailable sentinel
+          description: Run with its tenant-scoped persisted timeline
           content:
             application/json:
               schema:

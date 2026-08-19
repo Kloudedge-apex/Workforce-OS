@@ -15,7 +15,6 @@ import { motion } from "framer-motion";
 import { cardEnter, useReducedMotionSafe } from "@/lib/motion";
 import { Search, Inbox, SearchX, MessageSquareText } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { isUnavailable, UnavailableState } from "@/lib/unavailable";
 import { CONVERSATION_REFRESH_INTERVAL_MS } from "@/lib/conversationRefresh";
 import { useLocation } from "wouter";
 
@@ -105,13 +104,6 @@ export default function Conversations() {
       refetchInterval: CONVERSATION_REFRESH_INTERVAL_MS,
     },
   });
-
-  // Retain compatibility with older BFF deployments during a staggered rollout.
-  if (isUnavailable(listData)) {
-    return <UnavailableState feature="conversations" />;
-  }
-
-  const detailUnavailable = isUnavailable(detailData);
 
   return (
     <div className="flex h-full min-w-0">
@@ -253,8 +245,6 @@ export default function Conversations() {
             description="The conversation service didn't respond. Your data is safe — try again."
             onRetry={() => refetchDetail()}
           />
-        ) : detailUnavailable ? (
-          <UnavailableState feature="conversation detail" />
         ) : detailLoading || !detailData ? (
           <div className="p-6 space-y-6 h-full flex flex-col">
             <Skeleton className="h-16 w-full" />
