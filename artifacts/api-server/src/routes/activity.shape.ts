@@ -1,8 +1,6 @@
 /**
- * Pure (db-free) mappers for GET /activity. Kept in its own module so the unit
- * tests can import the shaping logic without pulling in the Drizzle `@workspace/db`
- * client (still used by the co-located /graph-runs/:id/timeline route, which throws
- * at import time when DATABASE_URL is unset).
+ * Pure (db-free) mappers for GET /activity. The production BFF proxies the
+ * tenant-scoped backend and never imports a browser-facing database client.
  */
 
 /** A single event as emitted by DashboardService.activity (apex-gtm-api). */

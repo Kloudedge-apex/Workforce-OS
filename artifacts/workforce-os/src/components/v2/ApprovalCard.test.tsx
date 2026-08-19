@@ -29,7 +29,6 @@ vi.mock("@workspace/api-client-react", async (importOriginal) => {
         },
       },
     }),
-    useGetGraphRunTimeline: () => ({ data: [], isLoading: false }),
   };
 });
 

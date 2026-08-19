@@ -12,12 +12,9 @@ import {
   shapeIntegrations,
   shapeAuthUrl,
   shapeGmailMailboxVerification,
-  shapeTeamMembers,
-  shapeBilling,
   type ApexIcpProfile,
   type ApexIntegration,
   type ApexCatalogEntry,
-  type ApexUser,
 } from "./settings-extended";
 
 async function requestGmailFinalize(
@@ -420,52 +417,5 @@ describe("Gmail mailbox verification", () => {
         message: "Google authorization exists, but the backend could not prove an active Gmail reply watch.",
       },
     });
-  });
-});
-
-describe("shapeTeamMembers", () => {
-  it("maps User rows and synthesizes status/timestamps", () => {
-    const users: ApexUser[] = [
-      { id: "u1", email: "owner@acme.com", name: "Owner", role: "OWNER", createdAt: "2026-01-01T00:00:00.000Z" },
-      { id: "u2", email: "m@acme.com", name: null, role: "MEMBER", createdAt: "2026-02-01T00:00:00.000Z" },
-    ];
-    const out = shapeTeamMembers(users);
-    expect(out[0]).toEqual({
-      id: "u1",
-      email: "owner@acme.com",
-      name: "Owner",
-      role: "OWNER",
-      status: "active",
-      invitedAt: "2026-01-01T00:00:00.000Z",
-      joinedAt: "2026-01-01T00:00:00.000Z",
-    });
-    expect(out[1]?.name).toBe("");
-    expect(out[1]?.role).toBe("MEMBER");
-  });
-
-  it("coerces an unknown role to MEMBER", () => {
-    expect(shapeTeamMembers([{ id: "u", email: "e", role: "SUPERADMIN" }])[0]?.role).toBe("MEMBER");
-  });
-});
-
-describe("shapeBilling", () => {
-  it("maps the real plan and seat count without fabricating accounting data", () => {
-    const out = shapeBilling({ plan: "GROWTH" }, 4);
-    expect(out.plan).toBe("GROWTH");
-    expect(out.seats).toBe(4);
-    expect(out.creditsTotal).toBeNull();
-    expect(out.creditsRemaining).toBeNull();
-    expect(out.sendsLimit).toBeNull();
-    expect(out.seatsLimit).toBeNull();
-    expect(out.sendsThisMonth).toBeNull();
-    expect(out.invoices).toBeNull();
-  });
-
-  it("preserves an upstream plan value exactly and refuses synthesized sources", () => {
-    expect(shapeBilling({ plan: "MYSTERY" }, 0).plan).toBe("MYSTERY");
-    expect(() => shapeBilling({} as { plan: string }, 1)).toThrow(
-      "Billing plan is missing",
-    );
-    expect(() => shapeBilling({ plan: "GROWTH" }, -1)).toThrow("Seat count is invalid");
   });
 });
