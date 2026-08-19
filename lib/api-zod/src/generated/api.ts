@@ -1085,6 +1085,14 @@ export const ListIntegrationsResponse = zod.array(ListIntegrationsResponseItem)
 
 
 /**
+ * @summary Start the authenticated Gmail OAuth flow
+ */
+export const GetGmailAuthorizationUrlResponse = zod.object({
+  "authUrl": zod.string().url()
+})
+
+
+/**
  * @summary Finalize a Gmail OAuth callback with an authenticated session
  */
 
@@ -1114,30 +1122,9 @@ export const VerifyGmailMailboxResponse = zod.object({
 
 
 /**
- * @summary Request a direct integration connection
+ * @summary Disconnect the authenticated workspace Gmail account
  */
-export const ConnectIntegrationParams = zod.object({
-  "provider": zod.coerce.string()
-})
-
-export const ConnectIntegrationResponse = zod.object({
-  "id": zod.string(),
-  "provider": zod.string(),
-  "status": zod.enum(['connected', 'available', 'errored']),
-  "accountEmail": zod.string().nullish(),
-  "connectedAt": zod.string().nullish(),
-  "errorMessage": zod.string().nullish()
-})
-
-
-/**
- * @summary Disconnect an integration
- */
-export const DisconnectIntegrationParams = zod.object({
-  "provider": zod.coerce.string()
-})
-
-export const DisconnectIntegrationResponse = zod.object({
+export const DisconnectGmailIntegrationResponse = zod.object({
   "id": zod.string(),
   "provider": zod.string(),
   "status": zod.enum(['connected', 'available', 'errored']),

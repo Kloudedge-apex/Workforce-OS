@@ -706,6 +706,19 @@ paths:
                 items:
                   $ref: "#/components/schemas/Integration"
 
+  /settings/integrations/gmail/auth-url:
+    get:
+      operationId: getGmailAuthorizationUrl
+      tags: [settings]
+      summary: Start the authenticated Gmail OAuth flow
+      responses:
+        "200":
+          description: Google authorization URL bound to an opaque server-side attempt
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GmailAuthorizationUrl"
+
   /settings/integrations/gmail/finalize:
     post:
       operationId: finalizeGmailIntegration
@@ -738,37 +751,14 @@ paths:
               schema:
                 $ref: "#/components/schemas/GmailMailboxVerification"
 
-  /settings/integrations/{provider}/connect:
+  /settings/integrations/gmail/disconnect:
     post:
-      operationId: connectIntegration
+      operationId: disconnectGmailIntegration
       tags: [settings]
-      summary: Request a direct integration connection
-      parameters:
-        - name: provider
-          in: path
-          required: true
-          schema: { type: string }
+      summary: Disconnect the authenticated workspace Gmail account
       responses:
         "200":
-          description: Connected
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Integration"
-
-  /settings/integrations/{provider}/disconnect:
-    post:
-      operationId: disconnectIntegration
-      tags: [settings]
-      summary: Disconnect an integration
-      parameters:
-        - name: provider
-          in: path
-          required: true
-          schema: { type: string }
-      responses:
-        "200":
-          description: Disconnected
+          description: Disconnected Gmail integration
           content:
             application/json:
               schema:
@@ -1639,6 +1629,12 @@ components:
       properties:
         attemptId: { type: string, minLength: 1 }
       required: [attemptId]
+
+    GmailAuthorizationUrl:
+      type: object
+      properties:
+        authUrl: { type: string, format: uri }
+      required: [authUrl]
 
     GmailMailboxVerification:
       type: object

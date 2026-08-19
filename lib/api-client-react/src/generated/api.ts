@@ -35,6 +35,7 @@ import type {
   CreateSuppressionInput,
   CreateSuppressionResult,
   GetActivityStreamParams,
+  GmailAuthorizationUrl,
   GmailMailboxVerification,
   GmailOAuthFinalizeInput,
   GraphRunDetail,
@@ -2493,6 +2494,83 @@ export function useListIntegrations<TData = Awaited<ReturnType<typeof listIntegr
 
 
 
+export const getGetGmailAuthorizationUrlUrl = () => {
+
+
+
+
+  return `/api/settings/integrations/gmail/auth-url`
+}
+
+/**
+ * @summary Start the authenticated Gmail OAuth flow
+ */
+export const getGmailAuthorizationUrl = async ( options?: RequestInit): Promise<GmailAuthorizationUrl> => {
+
+  return customFetch<GmailAuthorizationUrl>(getGetGmailAuthorizationUrlUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetGmailAuthorizationUrlQueryKey = () => {
+    return [
+    `/api/settings/integrations/gmail/auth-url`
+    ] as const;
+    }
+
+
+export const getGetGmailAuthorizationUrlQueryOptions = <TData = Awaited<ReturnType<typeof getGmailAuthorizationUrl>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGmailAuthorizationUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetGmailAuthorizationUrlQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getGmailAuthorizationUrl>>> = ({ signal }) => getGmailAuthorizationUrl({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getGmailAuthorizationUrl>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetGmailAuthorizationUrlQueryResult = NonNullable<Awaited<ReturnType<typeof getGmailAuthorizationUrl>>>
+export type GetGmailAuthorizationUrlQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Start the authenticated Gmail OAuth flow
+ */
+
+export function useGetGmailAuthorizationUrl<TData = Awaited<ReturnType<typeof getGmailAuthorizationUrl>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGmailAuthorizationUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetGmailAuthorizationUrlQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
 export const getFinalizeGmailIntegrationUrl = () => {
 
 
@@ -2633,20 +2711,20 @@ export const useVerifyGmailMailbox = <TError = ErrorType<unknown>,
       return useMutation(getVerifyGmailMailboxMutationOptions(options));
     }
 
-export const getConnectIntegrationUrl = (provider: string,) => {
+export const getDisconnectGmailIntegrationUrl = () => {
 
 
 
 
-  return `/api/settings/integrations/${provider}/connect`
+  return `/api/settings/integrations/gmail/disconnect`
 }
 
 /**
- * @summary Request a direct integration connection
+ * @summary Disconnect the authenticated workspace Gmail account
  */
-export const connectIntegration = async (provider: string, options?: RequestInit): Promise<Integration> => {
+export const disconnectGmailIntegration = async ( options?: RequestInit): Promise<Integration> => {
 
-  return customFetch<Integration>(getConnectIntegrationUrl(provider),
+  return customFetch<Integration>(getDisconnectGmailIntegrationUrl(),
   {
     ...options,
     method: 'POST'
@@ -2658,11 +2736,11 @@ export const connectIntegration = async (provider: string, options?: RequestInit
 
 
 
-export const getConnectIntegrationMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof connectIntegration>>, TError,{provider: string}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof connectIntegration>>, TError,{provider: string}, TContext> => {
+export const getDisconnectGmailIntegrationMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectGmailIntegration>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof disconnectGmailIntegration>>, TError,void, TContext> => {
 
-const mutationKey = ['connectIntegration'];
+const mutationKey = ['disconnectGmailIntegration'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -2672,10 +2750,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof connectIntegration>>, {provider: string}> = (props) => {
-          const {provider} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof disconnectGmailIntegration>>, void> = () => {
 
-          return  connectIntegration(provider,requestOptions)
+
+          return  disconnectGmailIntegration(requestOptions)
         }
 
 
@@ -2685,92 +2763,22 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type ConnectIntegrationMutationResult = NonNullable<Awaited<ReturnType<typeof connectIntegration>>>
+    export type DisconnectGmailIntegrationMutationResult = NonNullable<Awaited<ReturnType<typeof disconnectGmailIntegration>>>
 
-    export type ConnectIntegrationMutationError = ErrorType<unknown>
-
-    /**
- * @summary Request a direct integration connection
- */
-export const useConnectIntegration = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof connectIntegration>>, TError,{provider: string}, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof connectIntegration>>,
-        TError,
-        {provider: string},
-        TContext
-      > => {
-      return useMutation(getConnectIntegrationMutationOptions(options));
-    }
-
-export const getDisconnectIntegrationUrl = (provider: string,) => {
-
-
-
-
-  return `/api/settings/integrations/${provider}/disconnect`
-}
-
-/**
- * @summary Disconnect an integration
- */
-export const disconnectIntegration = async (provider: string, options?: RequestInit): Promise<Integration> => {
-
-  return customFetch<Integration>(getDisconnectIntegrationUrl(provider),
-  {
-    ...options,
-    method: 'POST'
-
-
-  }
-);}
-
-
-
-
-export const getDisconnectIntegrationMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectIntegration>>, TError,{provider: string}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof disconnectIntegration>>, TError,{provider: string}, TContext> => {
-
-const mutationKey = ['disconnectIntegration'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof disconnectIntegration>>, {provider: string}> = (props) => {
-          const {provider} = props ?? {};
-
-          return  disconnectIntegration(provider,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type DisconnectIntegrationMutationResult = NonNullable<Awaited<ReturnType<typeof disconnectIntegration>>>
-
-    export type DisconnectIntegrationMutationError = ErrorType<unknown>
+    export type DisconnectGmailIntegrationMutationError = ErrorType<unknown>
 
     /**
- * @summary Disconnect an integration
+ * @summary Disconnect the authenticated workspace Gmail account
  */
-export const useDisconnectIntegration = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectIntegration>>, TError,{provider: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+export const useDisconnectGmailIntegration = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectGmailIntegration>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
-        Awaited<ReturnType<typeof disconnectIntegration>>,
+        Awaited<ReturnType<typeof disconnectGmailIntegration>>,
         TError,
-        {provider: string},
+        void,
         TContext
       > => {
-      return useMutation(getDisconnectIntegrationMutationOptions(options));
+      return useMutation(getDisconnectGmailIntegrationMutationOptions(options));
     }
 
 export const getGetWelcomeStatusUrl = () => {

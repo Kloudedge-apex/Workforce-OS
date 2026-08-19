@@ -186,7 +186,7 @@ vi.mock("@workspace/api-client-react", async (importOriginal) => {
       mocks.updateOrgOptions = options;
       return { mutate: mocks.updateOrg, isPending: false };
     },
-    useDisconnectIntegration: (options: unknown) => {
+    useDisconnectGmailIntegration: (options: unknown) => {
       mocks.disconnectOptions = options as typeof mocks.disconnectOptions;
       return { mutate: mocks.disconnect, isPending: false };
     },
@@ -391,7 +391,7 @@ describe("Settings Gmail readiness refresh", () => {
       getButton("Disconnect").click();
     });
 
-    expect(mocks.disconnect).toHaveBeenCalledWith({ provider: "gmail" });
+    expect(mocks.disconnect).toHaveBeenCalledWith();
     expect(queryClient.invalidateQueries).toHaveBeenCalledTimes(2);
     expect(queryClient.invalidateQueries).toHaveBeenNthCalledWith(1, {
       queryKey: ["getWelcomeStatus"],

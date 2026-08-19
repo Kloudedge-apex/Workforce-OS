@@ -3,6 +3,8 @@ import type { AddressInfo } from "node:net";
 import { describe, it, expect, vi } from "vitest";
 import { createApp } from "../app";
 import {
+  createGmailAuthorizationRouter,
+  createGmailDisconnectRouter,
   createGmailFinalizeRouter,
   createGmailVerificationRouter,
   parseGmailFinalizeInput,
@@ -16,6 +18,61 @@ import {
   type ApexIntegration,
   type ApexCatalogEntry,
 } from "./settings-extended";
+
+async function requestGmailAuthorization(
+  get: (...args: any[]) => Promise<unknown>,
+): Promise<{ status: number; body: unknown }> {
+  const app = createApp({
+    apiRouter: createGmailAuthorizationRouter({ get }),
+    clerkGuard: (req, _res, next) => {
+      req.orgId = "org_1";
+      req.clerkToken = "clerk-token";
+      next();
+    },
+  });
+  const server = app.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/api/settings/integrations/gmail/auth-url`,
+    );
+    const text = await response.text();
+    return { status: response.status, body: text ? JSON.parse(text) : null };
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+}
+
+async function requestGmailDisconnect(
+  post: (...args: any[]) => Promise<unknown>,
+): Promise<{ status: number; body: unknown }> {
+  const app = createApp({
+    apiRouter: createGmailDisconnectRouter({ post }),
+    clerkGuard: (req, _res, next) => {
+      req.orgId = "org_1";
+      req.clerkToken = "clerk-token";
+      next();
+    },
+  });
+  const server = app.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/api/settings/integrations/gmail/disconnect`,
+      { method: "POST" },
+    );
+    const text = await response.text();
+    return { status: response.status, body: text ? JSON.parse(text) : null };
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+}
 
 async function requestGmailFinalize(
   post: (...args: any[]) => Promise<unknown>,
@@ -272,6 +329,73 @@ describe("shapeAuthUrl", () => {
     expect(shapeAuthUrl({ authUrl: "https://accounts.google.com:8443/path" })).toBeNull();
     expect(shapeAuthUrl({ authUrl: "not-a-url" })).toBeNull();
     expect(shapeAuthUrl("https://raw-string.example")).toBeNull();
+  });
+});
+
+describe("Gmail authorization route", () => {
+  it("forwards the authenticated request and returns only the trusted URL", async () => {
+    const get = vi.fn(async (..._args: any[]) => ({
+      authUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=opaque",
+    }));
+
+    const response = await requestGmailAuthorization(get);
+
+    expect(response).toEqual({
+      status: 200,
+      body: {
+        authUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=opaque",
+      },
+    });
+    expect(get).toHaveBeenCalledOnce();
+    expect(get.mock.calls[0]?.[0]).toBe("/integrations/gmail/auth-url");
+    expect(get.mock.calls[0]?.[1].req).toMatchObject({
+      orgId: "org_1",
+      clerkToken: "clerk-token",
+    });
+  });
+
+  it("fails closed when the backend returns an untrusted URL", async () => {
+    const response = await requestGmailAuthorization(
+      vi.fn(async () => ({ authUrl: "https://example.com/not-google" })),
+    );
+    expect(response).toEqual({
+      status: 502,
+      body: {
+        error: "upstream",
+        message: "The backend did not return a Gmail authorization URL.",
+      },
+    });
+  });
+});
+
+describe("Gmail disconnect route", () => {
+  it("uses the exact Gmail upstream path and returns a disconnected public row", async () => {
+    const post = vi.fn(async (..._args: any[]) => ({
+      id: "int_gmail",
+      provider: "gmail",
+      status: "CONNECTED",
+      createdAt: "2026-08-13T00:00:00.000Z",
+    }));
+
+    const response = await requestGmailDisconnect(post);
+
+    expect(response).toEqual({
+      status: 200,
+      body: {
+        id: "int_gmail",
+        provider: "gmail",
+        status: "available",
+        accountEmail: null,
+        connectedAt: null,
+        errorMessage: null,
+      },
+    });
+    expect(post).toHaveBeenCalledOnce();
+    expect(post.mock.calls[0]?.[0]).toBe("/integrations/gmail/disconnect");
+    expect(post.mock.calls[0]?.[1].req).toMatchObject({
+      orgId: "org_1",
+      clerkToken: "clerk-token",
+    });
   });
 });
 

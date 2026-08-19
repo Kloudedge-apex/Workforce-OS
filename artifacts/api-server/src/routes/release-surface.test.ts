@@ -26,6 +26,8 @@ const unsupportedRoutes = [
   ["POST", "/leads/person_1/trigger-outbound"],
   ["POST", "/artifacts/bulk-approve"],
   ["GET", "/agents"],
+  ["POST", "/settings/integrations/gmail/connect"],
+  ["POST", "/settings/integrations/outlook/disconnect"],
 ] as const;
 
 describe("sellable release surface", () => {
@@ -72,7 +74,9 @@ describe("sellable release surface", () => {
         .replace("/user_1", "/{userId}")
         .replace("/key_1", "/{id}")
         .replace("/run_1", "/{id}")
-        .replace("/person_1", "/{id}");
+        .replace("/person_1", "/{id}")
+        .replace("/gmail/connect", "/{provider}/connect")
+        .replace("/outlook/disconnect", "/{provider}/disconnect");
       expect(openapi).not.toContain(`  ${templated}:`);
     }
   });

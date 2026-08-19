@@ -749,6 +749,10 @@ export interface GmailOAuthFinalizeInput {
   attemptId: string;
 }
 
+export interface GmailAuthorizationUrl {
+  authUrl: string;
+}
+
 export interface GmailMailboxVerification {
   verified: true;
   watchExpiresAt: string;
