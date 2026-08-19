@@ -6,9 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { GraphRun } from './graphRun';
-import type { GraphRunDetailTimeline } from './graphRunDetailTimeline';
+import type { TimelineNode } from './timelineNode';
 
 export interface GraphRunDetail {
   run: GraphRun;
-  timeline: GraphRunDetailTimeline;
+  timeline: TimelineNode[];
 }

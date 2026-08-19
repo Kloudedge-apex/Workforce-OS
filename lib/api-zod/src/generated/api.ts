@@ -874,7 +874,7 @@ export const GetRunResponse = zod.object({
   "startedAt": zod.string(),
   "completedAt": zod.string().nullable()
 }),
-  "timeline": zod.union([zod.array(zod.object({
+  "timeline": zod.array(zod.object({
   "id": zod.string(),
   "nodeType": zod.enum(['agent_run', 'llm_call', 'evaluator', 'tool_call', 'human_action']),
   "label": zod.string(),
@@ -886,10 +886,7 @@ export const GetRunResponse = zod.object({
   "score": zod.number().nullish(),
   "timestamp": zod.string(),
   "children": zod.array(zod.unknown())
-})),zod.object({
-  "unavailable": zod.literal(true),
-  "feature": zod.string()
-})])
+}))
 })
 
 

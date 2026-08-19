@@ -986,14 +986,9 @@ export interface TimelineNode {
   children: TimelineNode[];
 }
 
-export type GraphRunDetailTimeline = TimelineNode[] | {
-  unavailable: true;
-  feature: string;
-};
-
 export interface GraphRunDetail {
   run: GraphRun;
-  timeline: GraphRunDetailTimeline;
+  timeline: TimelineNode[];
 }
 
 export type AgentType = typeof AgentType[keyof typeof AgentType];

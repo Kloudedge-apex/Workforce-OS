@@ -9,6 +9,7 @@ import {
   shapeRun,
   shapeRunsList,
   shapeRunDetail,
+  shapeRunTimeline,
   shapeTrigger,
   upstreamMessage,
   type RunDecisionUpstreamClient,
@@ -36,9 +37,12 @@ async function requestDecision(
   const address = server.address() as AddressInfo;
 
   try {
-    const response = await fetch(`http://127.0.0.1:${address.port}/api${path}`, {
-      method: "POST",
-    });
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/api${path}`,
+      {
+        method: "POST",
+      },
+    );
     const text = await response.text();
     return {
       status: response.status,
@@ -132,8 +136,23 @@ const completedRun: UpstreamGraphRun = {
   status: "COMPLETED",
   state: {
     stagesCompleted: ["supervisor", "sourcing", "scoring"],
+    stageStatuses: { sourcing: "COMPLETE", scoring: "COMPLETE" },
     counts: { companies: 40, people: 120, scored: 25, outreach: 8 },
     approvedBy: "user_42",
+    messages: [
+      {
+        node: "sourcing_agent",
+        ts: "2026-06-10T10:00:10.000Z",
+        level: "info",
+        text: "sourcing for 1 ICP(s)",
+      },
+      {
+        node: "scoring_agent",
+        ts: "2026-06-10T10:03:00.000Z",
+        level: "info",
+        text: "scoring for 1 ICP(s)",
+      },
+    ],
   },
   approvedBy: "user_42",
   startedAt: "2026-06-10T10:00:00.000Z",
@@ -225,12 +244,23 @@ describe("shapeRunsList", () => {
 });
 
 describe("shapeRunDetail", () => {
-  it("wraps the run found in the list window with the timeline gap sentinel", () => {
+  it("wraps the run with its real persisted timeline and approval checkpoint", () => {
     const awaiting: UpstreamGraphRun = {
       id: "gr_hitl",
       status: "AWAITING_APPROVAL",
-      state: { counts: { companies: 12, scored: 9 } },
+      state: {
+        counts: { companies: 12, scored: 9 },
+        stageStatuses: { sourcing: "COMPLETE", scoring: "COMPLETE" },
+        messages: [
+          {
+            node: "scoring_agent",
+            ts: "2026-06-10T10:00:40.000Z",
+            text: "scoring for 1 ICP(s)",
+          },
+        ],
+      },
       startedAt: "2026-06-10T10:00:00.000Z",
+      lastActivityAt: "2026-06-10T10:00:55.000Z",
       completedAt: null,
     };
     const now = Date.parse("2026-06-10T10:01:00.000Z");
@@ -239,15 +269,80 @@ describe("shapeRunDetail", () => {
     expect(out!.run.id).toBe("gr_hitl");
     expect(out!.run.status).toBe("AWAITING_APPROVAL");
     expect(out!.run.leadsScored).toBe(9);
-    // the timeline half stays an honest gap — no fabricated/empty timeline
-    expect(out!.timeline).toEqual({
-      unavailable: true,
-      feature: "run-evidence-timeline",
+    expect(out!.timeline).toHaveLength(1);
+    expect(out!.timeline[0]).toMatchObject({
+      id: "gr_hitl:run",
+      summary:
+        "Pipeline paused before drafting and awaits an authorized reviewer.",
     });
+    expect(out!.timeline[0]?.children).toEqual([
+      expect.objectContaining({
+        nodeType: "evaluator",
+        label: "Lead scoring",
+        summary: "scoring for 1 ICP(s) · complete",
+        timestamp: "2026-06-10T10:00:40.000Z",
+      }),
+      expect.objectContaining({
+        id: "gr_hitl:approval-required",
+        nodeType: "human_action",
+        timestamp: "2026-06-10T10:00:55.000Z",
+      }),
+    ]);
   });
 
   it("returns null when the run is not in the list window", () => {
     expect(shapeRunDetail([completedRun], "gr_unknown")).toBeNull();
+  });
+});
+
+describe("shapeRunTimeline", () => {
+  it("uses persisted stage messages and statuses without exposing raw run errors", () => {
+    const failed: UpstreamGraphRun = {
+      id: "gr_failed",
+      status: "FAILED",
+      state: {
+        stageStatuses: { enrichment: "FAILED" },
+        messages: [
+          {
+            node: "enrichment_agent",
+            ts: "2026-06-10T10:01:00.000Z",
+            text: "enriching for 1 ICP(s)",
+          },
+        ],
+      },
+      error: "provider token rejected for secret@example.com",
+      startedAt: "2026-06-10T10:00:00.000Z",
+      completedAt: "2026-06-10T10:01:30.000Z",
+    };
+
+    const timeline = shapeRunTimeline(failed);
+    expect(timeline[0]?.summary).toBe(
+      "Pipeline failed during lead enrichment.",
+    );
+    expect(timeline[0]?.children[0]?.summary).toBe(
+      "enriching for 1 ICP(s) · failed",
+    );
+    expect(JSON.stringify(timeline)).not.toContain("secret@example.com");
+    expect(JSON.stringify(timeline)).not.toContain("provider token");
+  });
+
+  it("returns an authoritative root for legacy runs without stage messages", () => {
+    const timeline = shapeRunTimeline({
+      id: "gr_legacy",
+      status: "COMPLETED",
+      state: null,
+      startedAt: "2026-06-10T10:00:00.000Z",
+      completedAt: "2026-06-10T10:02:00.000Z",
+    });
+
+    expect(timeline).toEqual([
+      expect.objectContaining({
+        id: "gr_legacy:run",
+        summary: "Pipeline completed.",
+        durationMs: 120_000,
+        children: [],
+      }),
+    ]);
   });
 });
 

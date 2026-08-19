@@ -29,7 +29,28 @@ const awaitingRunDetail = {
     startedAt: "2026-08-13T00:00:00.000Z",
     completedAt: null,
   },
-  timeline: [],
+  timeline: [
+    {
+      id: "run_awaiting:run",
+      nodeType: "agent_run" as const,
+      label: "Pipeline run",
+      summary:
+        "Pipeline paused before drafting and awaits an authorized reviewer.",
+      durationMs: 60_000,
+      timestamp: "2026-08-13T00:00:00.000Z",
+      children: [
+        {
+          id: "run_awaiting:approval-required",
+          nodeType: "human_action" as const,
+          label: "Approval required",
+          summary:
+            "Run paused before outreach drafting; an authorized reviewer must continue or reject it.",
+          timestamp: "2026-08-13T00:01:00.000Z",
+          children: [],
+        },
+      ],
+    },
+  ],
 };
 
 vi.mock("wouter", async (importOriginal) => {
@@ -180,6 +201,15 @@ describe("RunDetail review capability", () => {
     expect(html).toContain('data-testid="approve-run"');
     expect(html).toContain('data-testid="reject-run"');
     expect(html).not.toContain('data-testid="run-review-read-only"');
+  });
+
+  it("renders the persisted run timeline without a gap placeholder", () => {
+    const html = renderRunDetail();
+
+    expect(html).toContain("Run Timeline");
+    expect(html).toContain("Pipeline run");
+    expect(html).toContain("Approval required");
+    expect(html).not.toContain("the run timeline while this release updates");
   });
 
   it("hides run decisions for a known role denial", () => {

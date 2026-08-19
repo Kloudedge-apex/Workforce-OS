@@ -2167,15 +2167,9 @@ components:
         run:
           $ref: "#/components/schemas/GraphRun"
         timeline:
-          anyOf:
-            - type: array
-              items:
-                $ref: "#/components/schemas/TimelineNode"
-            - type: object
-              properties:
-                unavailable: { type: boolean, enum: [true] }
-                feature: { type: string }
-              required: [unavailable, feature]
+          type: array
+          items:
+            $ref: "#/components/schemas/TimelineNode"
       required: [run, timeline]
 
     Agent:

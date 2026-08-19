@@ -53,7 +53,6 @@ export * from './gmailMailboxVerification';
 export * from './gmailOAuthFinalizeInput';
 export * from './graphRun';
 export * from './graphRunDetail';
-export * from './graphRunDetailTimeline';
 export * from './graphRunStatus';
 export * from './healthStatus';
 export * from './icpProfile';
