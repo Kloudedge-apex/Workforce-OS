@@ -11,7 +11,12 @@ const router = Router();
 /** The openapi `GraphRun` shape (one item of PaginatedRuns). */
 export interface GraphRunShape {
   id: string;
-  status: "RUNNING" | "AWAITING_APPROVAL" | "COMPLETED" | "FAILED" | "CANCELLED";
+  status:
+    | "RUNNING"
+    | "AWAITING_APPROVAL"
+    | "COMPLETED"
+    | "FAILED"
+    | "CANCELLED";
   stagesCompleted: string[];
   leadsScored: number | null;
   artifactsGenerated: number | null;
@@ -42,6 +47,7 @@ export interface TriggerResultShape {
 /** The `state` JSON snapshot persisted on a GraphRun (snapshotPublicState). */
 export interface UpstreamGraphRunState {
   stagesCompleted?: string[] | null;
+  stageStatuses?: Record<string, string> | null;
   counts?: {
     companies?: number;
     people?: number;
@@ -49,17 +55,32 @@ export interface UpstreamGraphRunState {
     outreach?: number;
   } | null;
   approvedBy?: string | null;
+  messages?: Array<{
+    node?: string;
+    ts?: string;
+    level?: "info" | "warn" | "error";
+    text?: string;
+  }> | null;
 }
 
 /** A GraphRun row from apex-gtm-api `GET /api/graph/runs`. */
 export interface UpstreamGraphRun {
   id: string;
   graphName?: string | null;
-  status: "RUNNING" | "AWAITING_APPROVAL" | "COMPLETED" | "FAILED" | "CANCELLED";
+  status:
+    | "RUNNING"
+    | "AWAITING_APPROVAL"
+    | "COMPLETED"
+    | "FAILED"
+    | "CANCELLED";
   state?: UpstreamGraphRunState | null;
+  currentNode?: string | null;
   approvedBy?: string | null;
+  approvedAt?: string | null;
   startedAt: string;
+  lastActivityAt?: string | null;
   completedAt?: string | null;
+  error?: string | null;
 }
 
 /** Paginated response returned when the upstream receives page or limit. */
@@ -88,14 +109,29 @@ export interface UpstreamResumeResult {
 
 export type RunDecisionUpstreamClient = Pick<typeof apex, "post">;
 
-/**
- * The GraphRunDetail envelope this BFF can honestly serve today: a REAL run
- * header plus the gap sentinel for the timeline half (the EvidenceEvent rows
- * that would populate `timeline` are exposed by no deployed controller).
- */
+export interface TimelineNodeShape {
+  id: string;
+  nodeType:
+    | "agent_run"
+    | "llm_call"
+    | "evaluator"
+    | "tool_call"
+    | "human_action";
+  label: string;
+  summary: string;
+  reasoning?: string | null;
+  tokensUsed?: number | null;
+  durationMs?: number | null;
+  cost?: number | null;
+  score?: number | null;
+  timestamp: string;
+  children: TimelineNodeShape[];
+}
+
+/** The public run header and its safe projection of persisted stage history. */
 export interface RunDetailShape {
   run: GraphRunShape;
-  timeline: { unavailable: true; feature: string };
+  timeline: TimelineNodeShape[];
 }
 
 // ── pure transforms ──────────────────────────────────────────────────────────
@@ -103,7 +139,9 @@ export interface RunDetailShape {
 /**
  * Return only the stage names explicitly persisted in the public run state.
  */
-function deriveAgents(state: UpstreamGraphRunState | null | undefined): string[] {
+function deriveAgents(
+  state: UpstreamGraphRunState | null | undefined,
+): string[] {
   const stages = state?.stagesCompleted;
   if (Array.isArray(stages) && stages.length > 0) return stages;
   return [];
@@ -120,11 +158,16 @@ function deriveAgents(state: UpstreamGraphRunState | null | undefined): string[]
  *  - approvedBy:     persisted approval actor, not mislabelled as trigger actor
  *  - costUsd:        null (no per-run cost column)
  */
-export function shapeRun(run: UpstreamGraphRun, now: number = Date.now()): GraphRunShape {
+export function shapeRun(
+  run: UpstreamGraphRun,
+  now: number = Date.now(),
+): GraphRunShape {
   const state = run.state ?? null;
   const counts = state?.counts ?? {};
   const startedMs = new Date(run.startedAt).getTime();
-  const completedMs = run.completedAt ? new Date(run.completedAt).getTime() : null;
+  const completedMs = run.completedAt
+    ? new Date(run.completedAt).getTime()
+    : null;
 
   return {
     id: run.id,
@@ -132,11 +175,14 @@ export function shapeRun(run: UpstreamGraphRun, now: number = Date.now()): Graph
     stagesCompleted: deriveAgents(state),
     leadsScored: counts.scored ?? null,
     artifactsGenerated: counts.outreach ?? null,
-    durationMs: completedMs !== null ? completedMs - startedMs : now - startedMs,
+    durationMs:
+      completedMs !== null ? completedMs - startedMs : now - startedMs,
     costUsd: null,
     approvedBy: run.approvedBy ?? state?.approvedBy ?? null,
     startedAt: new Date(run.startedAt).toISOString(),
-    completedAt: run.completedAt ? new Date(run.completedAt).toISOString() : null,
+    completedAt: run.completedAt
+      ? new Date(run.completedAt).toISOString()
+      : null,
   };
 }
 
@@ -175,6 +221,155 @@ export function shapeTrigger(upstream: UpstreamTrigger): TriggerResultShape {
   };
 }
 
+const STAGE_PRESENTATION: Record<
+  string,
+  { label: string; stage: string; nodeType: TimelineNodeShape["nodeType"] }
+> = {
+  sourcing_agent: {
+    label: "Lead sourcing",
+    stage: "sourcing",
+    nodeType: "tool_call",
+  },
+  enrichment_agent: {
+    label: "Lead enrichment",
+    stage: "enrichment",
+    nodeType: "tool_call",
+  },
+  scoring_agent: {
+    label: "Lead scoring",
+    stage: "scoring",
+    nodeType: "evaluator",
+  },
+  research_agent: {
+    label: "Lead research",
+    stage: "research",
+    nodeType: "llm_call",
+  },
+  human_approval: {
+    label: "Human approval",
+    stage: "approval",
+    nodeType: "human_action",
+  },
+  outreach_agent: {
+    label: "Outreach drafting",
+    stage: "outreach",
+    nodeType: "llm_call",
+  },
+};
+
+function safeIso(value: string | null | undefined, fallback: string): string {
+  const candidate = value ? new Date(value) : null;
+  return candidate && Number.isFinite(candidate.getTime())
+    ? candidate.toISOString()
+    : new Date(fallback).toISOString();
+}
+
+function safeStageText(value: string | undefined): string {
+  const oneLine = (value ?? "Stage activity recorded")
+    .replace(/\s+/g, " ")
+    .trim();
+  return oneLine.slice(0, 240) || "Stage activity recorded";
+}
+
+function fallbackPresentation(node: string) {
+  const safeNode = node.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
+  const label = safeNode
+    .replace(/_agent$/, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+  return {
+    label: label || "Pipeline activity",
+    stage: safeNode.replace(/_agent$/, ""),
+    nodeType: "agent_run" as const,
+  };
+}
+
+function runSummary(run: UpstreamGraphRun): string {
+  if (run.status === "AWAITING_APPROVAL") {
+    return "Pipeline paused before drafting and awaits an authorized reviewer.";
+  }
+  if (run.status === "COMPLETED") return "Pipeline completed.";
+  if (run.status === "CANCELLED") return "Pipeline was cancelled.";
+  if (run.status === "FAILED") {
+    const failedStage = Object.entries(run.state?.stageStatuses ?? {}).find(
+      ([, status]) => status === "FAILED",
+    )?.[0];
+    const presentation = failedStage
+      ? Object.values(STAGE_PRESENTATION).find(
+          (item) => item.stage === failedStage,
+        )
+      : undefined;
+    return presentation
+      ? `Pipeline failed during ${presentation.label.toLowerCase()}.`
+      : "Pipeline failed before it could complete.";
+  }
+  const current = run.currentNode
+    ? (
+        STAGE_PRESENTATION[run.currentNode] ??
+        fallbackPresentation(run.currentNode)
+      ).label
+    : null;
+  return current ? `Pipeline is running: ${current}.` : "Pipeline is running.";
+}
+
+/**
+ * Project a GraphRun's timestamped public audit messages into a stable UI
+ * timeline. Raw provider errors, prompts, recipient data, and evidence payloads
+ * are deliberately excluded. Older runs with no messages still receive an
+ * authoritative root event instead of an empty or fabricated stage history.
+ */
+export function shapeRunTimeline(
+  upstream: UpstreamGraphRun,
+  now: number = Date.now(),
+): TimelineNodeShape[] {
+  const run = shapeRun(upstream, now);
+  const state = upstream.state ?? null;
+  const children: TimelineNodeShape[] = [];
+
+  for (const [index, message] of (state?.messages ?? []).entries()) {
+    if (!message || typeof message.node !== "string") continue;
+    const presentation =
+      STAGE_PRESENTATION[message.node] ?? fallbackPresentation(message.node);
+    const status = state?.stageStatuses?.[presentation.stage];
+    const detail = safeStageText(message.text);
+    children.push({
+      id: `${upstream.id}:stage:${index}`,
+      nodeType: presentation.nodeType,
+      label: presentation.label,
+      summary: status ? `${detail} · ${status.toLowerCase()}` : detail,
+      timestamp: safeIso(message.ts, upstream.startedAt),
+      children: [],
+    });
+  }
+
+  if (
+    upstream.status === "AWAITING_APPROVAL" &&
+    !children.some((node) => node.nodeType === "human_action")
+  ) {
+    children.push({
+      id: `${upstream.id}:approval-required`,
+      nodeType: "human_action",
+      label: "Approval required",
+      summary:
+        "Run paused before outreach drafting; an authorized reviewer must continue or reject it.",
+      timestamp: safeIso(upstream.lastActivityAt, upstream.startedAt),
+      children: [],
+    });
+  }
+
+  return [
+    {
+      id: `${upstream.id}:run`,
+      nodeType: "agent_run",
+      label: "Pipeline run",
+      summary: runSummary(upstream),
+      durationMs: run.durationMs,
+      timestamp: run.startedAt,
+      children,
+    },
+  ];
+}
+
 /**
  * PURE: extract the human-readable `message` from an upstream (NestJS) error
  * body, falling back when the body carries none. Nest exception bodies look
@@ -193,15 +388,8 @@ export function upstreamMessage(body: unknown, fallback: string): string {
 }
 
 /**
- * PURE: find one run in the upstream runs LIST and wrap it in the
- * GraphRunDetail envelope. Returns null when the run is not in the window the
- * list exposes (the backend hard-caps the list at the 20 newest rows).
- *
- * The backend provides a dedicated tenant-scoped run read, while the per-run
- * evidence timeline still has no controller. We therefore keep
- * `timeline` as the honest gap sentinel the FE already maps to its
- * "not available" half. Replace with a real per-run proxy once a dedicated
- * upstream endpoint (header + evidence timeline) ships.
+ * PURE: find one run in the supplied upstream rows and wrap its tenant-scoped
+ * header and persisted public stage audit trail in the GraphRunDetail envelope.
  */
 export function shapeRunDetail(
   upstream: UpstreamGraphRun[],
@@ -212,7 +400,7 @@ export function shapeRunDetail(
   if (!found) return null;
   return {
     run: shapeRun(found, now),
-    timeline: { unavailable: true, feature: "run-evidence-timeline" },
+    timeline: shapeRunTimeline(found, now),
   };
 }
 
@@ -227,15 +415,20 @@ router.get("/runs", async (req, res, next) => {
   const { page, limit, status } = parsed.data;
 
   try {
-    const search = new URLSearchParams({ page: String(page), limit: String(limit) });
+    const search = new URLSearchParams({
+      page: String(page),
+      limit: String(limit),
+    });
     if (status) search.set("status", status);
-    const upstream = (await apex.get(
-      `/graph/runs?${search.toString()}`,
-      { req },
-    )) as UpstreamGraphRunPage | UpstreamGraphRun[];
+    const upstream = (await apex.get(`/graph/runs?${search.toString()}`, {
+      req,
+    })) as UpstreamGraphRunPage | UpstreamGraphRun[];
     res.json(shapeRunsList(upstream, { page, limit, status }));
   } catch (err) {
-    if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) {
+    if (
+      err instanceof UpstreamError &&
+      (err.status === 401 || err.status === 403)
+    ) {
       throw err;
     }
     next(err);
@@ -246,7 +439,9 @@ router.post("/runs/trigger", async (req, res, next) => {
   try {
     // openapi /runs/trigger has no request body; pipeline/run accepts an
     // optional {stage} we omit so the backend defaults to a full run.
-    const upstream = (await apex.post("/pipeline/run", { req })) as UpstreamTrigger;
+    const upstream = (await apex.post("/pipeline/run", {
+      req,
+    })) as UpstreamTrigger;
     res.status(202).json(shapeTrigger(upstream));
   } catch (err) {
     if (err instanceof UpstreamError) {
@@ -256,7 +451,10 @@ router.post("/runs/trigger", async (req, res, next) => {
       // id ("… already awaiting_approval for this org (runId=…)"), which the
       // FE parses to point the user at the blocking run.
       if (err.status === 409) {
-        const message = upstreamMessage(err.body, "A pipeline run is already in progress");
+        const message = upstreamMessage(
+          err.body,
+          "A pipeline run is already in progress",
+        );
         res.status(409).json({ runId: "", queued: false, message });
         return;
       }
@@ -265,22 +463,24 @@ router.post("/runs/trigger", async (req, res, next) => {
   }
 });
 
-// GET /runs/:id — real tenant-scoped run header, timeline still a gap. The
-// `timeline` half stays the honest gap sentinel —
-// the EvidenceEvent rows that would populate it are exposed by no deployed
-// controller, and the BFF cannot reach the DB directly.
+// GET /runs/:id — the upstream read is tenant-scoped by the authenticated org;
+// the BFF exposes only the public run header and safe persisted stage history.
 router.get("/runs/:id", async (req, res, next) => {
   try {
     const id = req.params["id"]!;
-    const upstream = (await apex.get(
-      `/graph/runs/${encodeURIComponent(id)}`,
-      { req },
-    )) as UpstreamGraphRun;
+    const upstream = (await apex.get(`/graph/runs/${encodeURIComponent(id)}`, {
+      req,
+    })) as UpstreamGraphRun;
     const detail = shapeRunDetail([upstream], id);
-    if (!detail) throw new Error("Run detail response id did not match the request");
+    if (!detail)
+      throw new Error("Run detail response id did not match the request");
     res.json(detail);
   } catch (err) {
-    if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
+    if (
+      err instanceof UpstreamError &&
+      (err.status === 401 || err.status === 403)
+    )
+      throw err;
     if (err instanceof UpstreamError && err.status === 404) {
       res.status(404).json({ error: "Not found" });
       return;
@@ -309,7 +509,11 @@ export function createRunDecisionRouter(
   const decisionRouter = Router();
 
   function resumeDecisionHandler(decision: "approve" | "reject") {
-    return async (req: Request<{ id: string }>, res: Response, next: NextFunction): Promise<void> => {
+    return async (
+      req: Request<{ id: string }>,
+      res: Response,
+      next: NextFunction,
+    ): Promise<void> => {
       const reviewerId = requireAuthenticatedReviewer(req, res);
       if (reviewerId === null) return;
 
@@ -321,14 +525,21 @@ export function createRunDecisionRouter(
         )) as UpstreamResumeResult;
         res.json(upstream);
       } catch (err) {
-        if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
+        if (
+          err instanceof UpstreamError &&
+          (err.status === 401 || err.status === 403)
+        )
+          throw err;
         if (err instanceof UpstreamError && err.status === 404) {
           res.status(404).json({ error: "Not found" });
           return;
         }
         if (err instanceof UpstreamError && err.status === 409) {
           res.status(409).json({
-            message: upstreamMessage(err.body, "Run is no longer awaiting approval"),
+            message: upstreamMessage(
+              err.body,
+              "Run is no longer awaiting approval",
+            ),
           });
           return;
         }

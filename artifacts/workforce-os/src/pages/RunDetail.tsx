@@ -9,7 +9,21 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, ChevronDown, ChevronRight as ChevronRightIcon, Bot, Zap, FlaskConical, Wrench, User, Activity, UserCheck, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import {
+  ArrowLeft,
+  ChevronDown,
+  ChevronRight as ChevronRightIcon,
+  Bot,
+  Zap,
+  FlaskConical,
+  Wrench,
+  User,
+  Activity,
+  UserCheck,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/states/EmptyState";
@@ -22,7 +36,8 @@ import { isUnavailable, UnavailableState } from "@/lib/unavailable";
 import { decisionErrorMessage } from "@/lib/decisionError";
 
 const STATUS_STYLES: Record<string, string> = {
-  COMPLETED: "bg-signal-positive/10 text-signal-positive border-signal-positive/20",
+  COMPLETED:
+    "bg-signal-positive/10 text-signal-positive border-signal-positive/20",
   RUNNING: "bg-ember-400/15 text-ember-500 border-ember-400/30",
   AWAITING_APPROVAL: "bg-rust-100 text-rust-800 border-rust-200",
   FAILED: "bg-rust-500/10 text-rust-500 border-rust-500/20",
@@ -164,41 +179,62 @@ interface TimelineNodeData {
   children: TimelineNodeData[];
 }
 
-function TimelineNode({ node, depth = 0 }: { node: TimelineNodeData; depth?: number }) {
+function TimelineNode({
+  node,
+  depth = 0,
+}: {
+  node: TimelineNodeData;
+  depth?: number;
+}) {
   const [expanded, setExpanded] = React.useState(depth === 0);
   const hasChildren = (node.children ?? []).length > 0;
 
   return (
-    <div className={cn("relative", depth > 0 && "ml-3 pl-5 border-l-2 border-paper-200")}>
+    <div
+      className={cn(
+        "relative",
+        depth > 0 && "ml-3 pl-5 border-l-2 border-paper-200",
+      )}
+    >
       {/* Type-colored marker pinned on the connector rail. */}
       {depth > 0 && (
         <span
           className={cn(
             "absolute left-[-7px] top-3.5 h-3 w-3 rounded-full ring-4 ring-paper-50",
-            NODE_DOT_COLORS[node.nodeType] ?? "bg-ink-400"
+            NODE_DOT_COLORS[node.nodeType] ?? "bg-ink-400",
           )}
         />
       )}
       <div
         className={cn(
           "flex items-start gap-3 py-2 px-3 rounded-lg transition-colors hover-elevate",
-          hasChildren && "cursor-pointer active-elevate-2"
+          hasChildren && "cursor-pointer active-elevate-2",
         )}
         onClick={() => hasChildren && setExpanded(!expanded)}
       >
         <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
           {hasChildren ? (
-            expanded ? <ChevronDown className="h-3.5 w-3.5 text-ink-400" /> : <ChevronRightIcon className="h-3.5 w-3.5 text-ink-400" />
+            expanded ? (
+              <ChevronDown className="h-3.5 w-3.5 text-ink-400" />
+            ) : (
+              <ChevronRightIcon className="h-3.5 w-3.5 text-ink-400" />
+            )
           ) : (
             <div className="w-3.5" />
           )}
-          <div className="text-ink-500">{NODE_ICONS[node.nodeType] ?? <Bot className="h-3.5 w-3.5" />}</div>
+          <div className="text-ink-500">
+            {NODE_ICONS[node.nodeType] ?? <Bot className="h-3.5 w-3.5" />}
+          </div>
         </div>
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-medium text-ink-900 dark:text-paper-50">{node.label}</span>
-            <span className="text-xs text-ink-400 capitalize">{node.nodeType.replace(/_/g, " ")}</span>
+            <span className="text-sm font-medium text-ink-900 dark:text-paper-50">
+              {node.label}
+            </span>
+            <span className="text-xs text-ink-400 capitalize">
+              {node.nodeType.replace(/_/g, " ")}
+            </span>
             {node.score != null && (
               <span
                 className={cn(
@@ -207,23 +243,32 @@ function TimelineNode({ node, depth = 0 }: { node: TimelineNodeData; depth?: num
                     ? "text-signal-positive bg-signal-positive/10"
                     : node.score >= 0.7
                       ? "text-ember-500 bg-ember-400/15"
-                      : "text-rust-500 bg-rust-500/10"
+                      : "text-rust-500 bg-rust-500/10",
                 )}
               >
                 {Math.round(node.score * 100)}%
               </span>
             )}
             {node.durationMs != null && node.durationMs > 0 && (
-              <span className="text-xs text-ink-400 font-mono">{node.durationMs}ms</span>
+              <span className="text-xs text-ink-400 font-mono">
+                {node.durationMs}ms
+              </span>
             )}
             {node.tokensUsed != null && (
-              <span className="text-xs text-ink-400 font-mono">{node.tokensUsed} tok</span>
+              <span className="text-xs text-ink-400 font-mono">
+                {node.tokensUsed} tok
+              </span>
             )}
             {node.cost != null && (
-              <span className="text-xs text-ink-400 font-mono">${node.cost.toFixed(3)}</span>
+              <span className="text-xs text-ink-400 font-mono">
+                ${node.cost.toFixed(3)}
+              </span>
             )}
           </div>
           <p className="text-xs text-ink-600 mt-0.5">{node.summary}</p>
+          <p className="text-[11px] text-ink-400 mt-1">
+            {new Date(node.timestamp).toLocaleString()}
+          </p>
           {node.reasoning && expanded && (
             <p className="text-xs text-ink-400 mt-1 italic">{node.reasoning}</p>
           )}
@@ -310,67 +355,81 @@ export default function RunDetail() {
     reject.mutate();
   };
 
-  if (isLoading) return (
-    <div className="p-6 space-y-4 max-w-3xl mx-auto">
-      <Skeleton className="h-8 w-40" />
-      <Skeleton className="h-24 w-full" />
-      <Skeleton className="h-64 w-full" />
-    </div>
-  );
+  if (isLoading)
+    return (
+      <div className="p-6 space-y-4 max-w-3xl mx-auto">
+        <Skeleton className="h-8 w-40" />
+        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
 
-  if (isError) return (
-    <div className="flex h-full items-center justify-center bg-paper-50">
-      <ErrorState
-        title="Couldn't load this run"
-        description="The run service didn't respond. Your data is safe — try again."
-        onRetry={() => refetch()}
-      />
-    </div>
-  );
+  if (isError)
+    return (
+      <div className="flex h-full items-center justify-center bg-paper-50">
+        <ErrorState
+          title="Couldn't load this run"
+          description="The run service didn't respond. Your data is safe — try again."
+          onRetry={() => refetch()}
+        />
+      </div>
+    );
 
   // Retain compatibility with an older BFF gap sentinel. Current builds serve
   // the real tenant-scoped run header and mark only the timeline unavailable.
-  if (isUnavailable(data)) return (
-    <div className="flex flex-col h-full bg-paper-50">
-      <div className="sticky top-0 z-10 bg-paper-100 border-b border-paper-200 px-6 py-3 flex items-center gap-3">
-        <Button variant="ghost" size="sm" onClick={() => navigate("/runs")} className="text-ink-600 hover:text-ink-900">
-          <ArrowLeft className="h-4 w-4 mr-1" /> Runs
-        </Button>
-        <span className="text-ink-300">/</span>
-        <span className="text-sm font-mono text-ink-600">{id}</span>
-      </div>
-      <div className="flex-1 flex items-center justify-center">
-        <UnavailableState feature="the run detail view" />
-      </div>
-    </div>
-  );
-
-  if (!data || !data.run) return (
-    <div className="flex h-full items-center justify-center bg-paper-50">
-      <EmptyState
-        icon={Activity}
-        title="Run not found"
-        description="This run may have been deleted or never existed. Head back to your runs to find it."
-        action={
+  if (isUnavailable(data))
+    return (
+      <div className="flex flex-col h-full bg-paper-50">
+        <div className="sticky top-0 z-10 bg-paper-100 border-b border-paper-200 px-6 py-3 flex items-center gap-3">
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
-            className="border-paper-300 hover-elevate active-elevate-2"
             onClick={() => navigate("/runs")}
+            className="text-ink-600 hover:text-ink-900"
           >
-            <ArrowLeft className="h-4 w-4 mr-1.5" /> Back to Runs
+            <ArrowLeft className="h-4 w-4 mr-1" /> Runs
           </Button>
-        }
-      />
-    </div>
-  );
+          <span className="text-ink-300">/</span>
+          <span className="text-sm font-mono text-ink-600">{id}</span>
+        </div>
+        <div className="flex-1 flex items-center justify-center">
+          <UnavailableState feature="the run detail view" />
+        </div>
+      </div>
+    );
+
+  if (!data || !data.run)
+    return (
+      <div className="flex h-full items-center justify-center bg-paper-50">
+        <EmptyState
+          icon={Activity}
+          title="Run not found"
+          description="This run may have been deleted or never existed. Head back to your runs to find it."
+          action={
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-paper-300 hover-elevate active-elevate-2"
+              onClick={() => navigate("/runs")}
+            >
+              <ArrowLeft className="h-4 w-4 mr-1.5" /> Back to Runs
+            </Button>
+          }
+        />
+      </div>
+    );
 
   const { run, timeline } = data;
 
   return (
     <div className="flex flex-col h-full overflow-y-auto bg-paper-50">
       <div className="sticky top-0 z-10 bg-paper-100 border-b border-paper-200 px-6 py-3 flex items-center gap-3">
-        <Button variant="ghost" size="sm" onClick={() => navigate("/runs")} className="text-ink-600 hover:text-ink-900">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => navigate("/runs")}
+          className="text-ink-600 hover:text-ink-900"
+        >
           <ArrowLeft className="h-4 w-4 mr-1" /> Runs
         </Button>
         <span className="text-ink-300">/</span>
@@ -399,11 +458,12 @@ export default function RunDetail() {
               </h2>
             </div>
             <p className="text-sm text-ink-700 mt-2 leading-relaxed">
-              This run stopped at its human checkpoint before writing any outreach. The counts
-              above are what the pipeline has reported so far; no email drafts exist yet, so
-              there is nothing to preview at this stage. Approving resumes the run into
-              drafting — every draft still gets its own individual review before anything can
-              send. Rejecting ends the run here without drafting anything.
+              This run stopped at its human checkpoint before writing any
+              outreach. The counts above are what the pipeline has reported so
+              far; no email drafts exist yet, so there is nothing to preview at
+              this stage. Approving resumes the run into drafting — every draft
+              still gets its own individual review before anything can send.
+              Rejecting ends the run here without drafting anything.
             </p>
             {decisionSettling && (
               <p
@@ -467,9 +527,13 @@ export default function RunDetail() {
                 initial="rest"
                 whileHover="hover"
               >
-                <p className="text-xs text-ink-400 uppercase tracking-wide">Leads scored</p>
+                <p className="text-xs text-ink-400 uppercase tracking-wide">
+                  Leads scored
+                </p>
                 {run.leadsScored == null ? (
-                  <p className="text-xl font-mono font-semibold text-ink-900 dark:text-paper-50 mt-1">Not recorded</p>
+                  <p className="text-xl font-mono font-semibold text-ink-900 dark:text-paper-50 mt-1">
+                    Not recorded
+                  </p>
                 ) : (
                   <CountUp
                     value={run.leadsScored}
@@ -485,9 +549,13 @@ export default function RunDetail() {
                 initial="rest"
                 whileHover="hover"
               >
-                <p className="text-xs text-ink-400 uppercase tracking-wide">Drafts recorded</p>
+                <p className="text-xs text-ink-400 uppercase tracking-wide">
+                  Drafts recorded
+                </p>
                 {run.artifactsGenerated == null ? (
-                  <p className="text-xl font-mono font-semibold text-ink-900 dark:text-paper-50 mt-1">Not recorded</p>
+                  <p className="text-xl font-mono font-semibold text-ink-900 dark:text-paper-50 mt-1">
+                    Not recorded
+                  </p>
                 ) : (
                   <CountUp
                     value={run.artifactsGenerated}
@@ -503,7 +571,9 @@ export default function RunDetail() {
                 initial="rest"
                 whileHover="hover"
               >
-                <p className="text-xs text-ink-400 uppercase tracking-wide">Duration</p>
+                <p className="text-xs text-ink-400 uppercase tracking-wide">
+                  Duration
+                </p>
                 {run.durationMs > 0 ? (
                   <CountUp
                     value={run.durationMs / 1000}
@@ -512,7 +582,9 @@ export default function RunDetail() {
                     className="block text-xl font-mono font-semibold text-ink-900 dark:text-paper-50 mt-1 font-tabular"
                   />
                 ) : (
-                  <p className="text-xl font-mono font-semibold text-ink-900 dark:text-paper-50 mt-1">—</p>
+                  <p className="text-xl font-mono font-semibold text-ink-900 dark:text-paper-50 mt-1">
+                    —
+                  </p>
                 )}
               </motion.div>
             </StaggerItem>
@@ -523,7 +595,9 @@ export default function RunDetail() {
                 initial="rest"
                 whileHover="hover"
               >
-                <p className="text-xs text-ink-400 uppercase tracking-wide">Cost</p>
+                <p className="text-xs text-ink-400 uppercase tracking-wide">
+                  Cost
+                </p>
                 <p className="text-xl font-mono font-semibold text-ink-900 dark:text-paper-50 mt-1 font-tabular">
                   {run.costUsd == null ? (
                     "Not recorded"
@@ -537,22 +611,33 @@ export default function RunDetail() {
             </StaggerItem>
           </Stagger>
           <div className="flex flex-wrap gap-3 text-xs text-ink-500">
-            <span>Stages completed: {run.stagesCompleted.join(", ") || "Not recorded"}</span>
+            <span>
+              Stages completed:{" "}
+              {run.stagesCompleted.join(", ") || "Not recorded"}
+            </span>
             <span>Approved by: {run.approvedBy ?? "Not recorded"}</span>
             <span>Started: {new Date(run.startedAt).toLocaleString()}</span>
-            {run.completedAt && <span>Completed: {new Date(run.completedAt).toLocaleString()}</span>}
+            {run.completedAt && (
+              <span>
+                Completed: {new Date(run.completedAt).toLocaleString()}
+              </span>
+            )}
           </div>
         </div>
 
-        {/* Timeline — gap endpoint (graph-runs/:id/timeline) */}
+        {/* Tenant-scoped timeline projected from the persisted GraphRun audit trail. */}
         {isUnavailable(timeline) ? (
           <div className="bg-ink-0 border border-paper-200 rounded-xl p-5 shadow-sm">
-            <h2 className="font-serif font-semibold text-ink-900 dark:text-paper-50 mb-4">Evidence Timeline</h2>
-            <UnavailableState feature="the run timeline" />
+            <h2 className="font-serif font-semibold text-ink-900 dark:text-paper-50 mb-4">
+              Evidence Timeline
+            </h2>
+            <UnavailableState feature="the run timeline while this release updates" />
           </div>
         ) : Array.isArray(timeline) && timeline.length > 0 ? (
           <div className="bg-ink-0 border border-paper-200 rounded-xl p-5 shadow-sm">
-            <h2 className="font-serif font-semibold text-ink-900 dark:text-paper-50 mb-4">Evidence Timeline</h2>
+            <h2 className="font-serif font-semibold text-ink-900 dark:text-paper-50 mb-4">
+              Run Timeline
+            </h2>
             <Stagger className="space-y-1">
               {(timeline as TimelineNodeData[]).map((node) => (
                 <StaggerItem key={node.id}>
