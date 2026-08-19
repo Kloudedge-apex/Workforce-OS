@@ -39,6 +39,7 @@ import {
   replySubject,
 } from "@/lib/conversationActions";
 import { cn } from "@/lib/utils";
+import { decisionErrorMessage } from "@/lib/decisionError";
 
 interface ConversationActionsProps {
   detail: ConversationDetail;
@@ -114,7 +115,7 @@ export function ConversationActions({
         refreshConversation();
         navigate(`/outbound/${result.runId}`);
       },
-      onError: () => toast.error("Couldn’t save this reply draft"),
+      onError: (error) => toast.error(decisionErrorMessage(error)),
     },
   });
 

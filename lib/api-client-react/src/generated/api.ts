@@ -1824,7 +1824,7 @@ export const getGetRunUrl = (id: string,) => {
 }
 
 /**
- * @summary Get one run and its evidence-timeline availability
+ * @summary Get one run and its persisted timeline
  */
 export const getRun = async (id: string, options?: RequestInit): Promise<GraphRunDetail> => {
 
@@ -1871,7 +1871,7 @@ export type GetRunQueryError = ErrorType<void>
 
 
 /**
- * @summary Get one run and its evidence-timeline availability
+ * @summary Get one run and its persisted timeline
  */
 
 export function useGetRun<TData = Awaited<ReturnType<typeof getRun>>, TError = ErrorType<void>>(

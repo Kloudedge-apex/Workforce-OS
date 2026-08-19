@@ -18,7 +18,6 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/states/EmptyState";
 import { ErrorState } from "@/components/states/ErrorState";
-import { isUnavailable, UnavailableState } from "@/lib/unavailable";
 import { sanitizeHtml } from "@/lib/sanitize";
 import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 import { CountUp } from "@/components/motion/CountUp";
@@ -26,6 +25,7 @@ import { motion } from "framer-motion";
 import { cardEnter, springHover, useReducedMotionSafe } from "@/lib/motion";
 import { ConversationActions } from "@/components/v2/ConversationActions";
 import { CONVERSATION_REFRESH_INTERVAL_MS } from "@/lib/conversationRefresh";
+import { decisionErrorMessage } from "@/lib/decisionError";
 
 const SENTIMENT_STYLES = {
   positive: "bg-green-100 text-green-800 border-green-200",
@@ -51,27 +51,20 @@ export default function ConversationThread() {
   const { mutate: draftReply, isPending: drafting } = useDraftReply({
     mutation: {
       onSuccess: (res) => {
-        if (isUnavailable(res)) {
-          toast("Not available yet — coming soon");
-          return;
-        }
         toast(res.message);
         navigate(`/outbound/${res.runId}`);
       },
-      onError: () => toast.error("Failed to queue draft"),
+      onError: (error) => toast.error(decisionErrorMessage(error)),
     },
   });
 
-  const { mutate: archive } = useArchiveConversation({
+  const { mutate: archive, isPending: archiving } = useArchiveConversation({
     mutation: {
-      onSuccess: (res) => {
-        if (isUnavailable(res)) {
-          toast("Not available yet — coming soon");
-          return;
-        }
+      onSuccess: () => {
         toast.success("Archived");
         navigate("/conversations");
       },
+      onError: (error) => toast.error(decisionErrorMessage(error)),
     },
   });
 
@@ -92,13 +85,6 @@ export default function ConversationThread() {
           description="The conversation service didn't respond. Your data is safe — try again."
           onRetry={() => refetch()}
         />
-      </div>
-    );
-
-  if (isUnavailable(data))
-    return (
-      <div className="flex h-full items-center justify-center bg-paper-50">
-        <UnavailableState feature="conversation detail" />
       </div>
     );
 
@@ -144,7 +130,9 @@ export default function ConversationThread() {
               variant="ghost"
               size="sm"
               onClick={() => archive({ id })}
+              disabled={archiving}
               className="text-ink-500 hover:text-ink-900"
+              aria-label="Archive conversation"
             >
               <Archive className="h-4 w-4" />
             </Button>
@@ -273,8 +261,10 @@ export default function ConversationThread() {
                     className="w-full border-paper-300"
                     size="sm"
                     onClick={() => archive({ id })}
+                    disabled={archiving}
                   >
-                    <Archive className="h-4 w-4 mr-2" /> Archive
+                    <Archive className="h-4 w-4 mr-2" />
+                    {archiving ? "Archiving…" : "Archive"}
                   </Button>
                 </motion.div>
               </div>

@@ -855,7 +855,7 @@ export const TriggerRunResponse = zod.void()
 
 
 /**
- * @summary Get one run and its evidence-timeline availability
+ * @summary Get one run and its persisted timeline
  */
 export const GetRunParams = zod.object({
   "id": zod.coerce.string()

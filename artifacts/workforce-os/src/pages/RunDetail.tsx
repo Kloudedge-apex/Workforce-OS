@@ -32,7 +32,6 @@ import { motion } from "framer-motion";
 import { cardEnter, springHover, useReducedMotionSafe } from "@/lib/motion";
 import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 import { CountUp } from "@/components/motion/CountUp";
-import { isUnavailable, UnavailableState } from "@/lib/unavailable";
 import { decisionErrorMessage } from "@/lib/decisionError";
 
 const STATUS_STYLES: Record<string, string> = {
@@ -375,29 +374,6 @@ export default function RunDetail() {
       </div>
     );
 
-  // Retain compatibility with an older BFF gap sentinel. Current builds serve
-  // the real tenant-scoped run header and mark only the timeline unavailable.
-  if (isUnavailable(data))
-    return (
-      <div className="flex flex-col h-full bg-paper-50">
-        <div className="sticky top-0 z-10 bg-paper-100 border-b border-paper-200 px-6 py-3 flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate("/runs")}
-            className="text-ink-600 hover:text-ink-900"
-          >
-            <ArrowLeft className="h-4 w-4 mr-1" /> Runs
-          </Button>
-          <span className="text-ink-300">/</span>
-          <span className="text-sm font-mono text-ink-600">{id}</span>
-        </div>
-        <div className="flex-1 flex items-center justify-center">
-          <UnavailableState feature="the run detail view" />
-        </div>
-      </div>
-    );
-
   if (!data || !data.run)
     return (
       <div className="flex h-full items-center justify-center bg-paper-50">
@@ -626,14 +602,7 @@ export default function RunDetail() {
         </div>
 
         {/* Tenant-scoped timeline projected from the persisted GraphRun audit trail. */}
-        {isUnavailable(timeline) ? (
-          <div className="bg-ink-0 border border-paper-200 rounded-xl p-5 shadow-sm">
-            <h2 className="font-serif font-semibold text-ink-900 dark:text-paper-50 mb-4">
-              Evidence Timeline
-            </h2>
-            <UnavailableState feature="the run timeline while this release updates" />
-          </div>
-        ) : Array.isArray(timeline) && timeline.length > 0 ? (
+        {Array.isArray(timeline) && timeline.length > 0 ? (
           <div className="bg-ink-0 border border-paper-200 rounded-xl p-5 shadow-sm">
             <h2 className="font-serif font-semibold text-ink-900 dark:text-paper-50 mb-4">
               Run Timeline

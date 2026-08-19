@@ -13,7 +13,6 @@ import RunDetail, {
 
 const mockState = vi.hoisted(() => ({
   reviewCapability: true as boolean | null,
-  runUnavailable: false,
 }));
 
 const awaitingRunDetail = {
@@ -74,29 +73,13 @@ vi.mock("@/components/motion/CountUp", () => ({
     React.createElement("span", null, String(value)),
 }));
 
-vi.mock("@/lib/unavailable", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/unavailable")>();
-  return {
-    ...actual,
-    UnavailableState: ({ feature }: { feature?: string }) =>
-      React.createElement(
-        "div",
-        null,
-        "Not available yet: ",
-        feature ?? "this feature",
-      ),
-  };
-});
-
 vi.mock("@workspace/api-client-react", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@workspace/api-client-react")>();
   return {
     ...actual,
     useGetRun: () => ({
-      data: mockState.runUnavailable
-        ? { unavailable: true, feature: "run detail" }
-        : awaitingRunDetail,
+      data: awaitingRunDetail,
       isLoading: false,
       isError: false,
       refetch: vi.fn(),
@@ -192,7 +175,6 @@ describe("approvalSavedFromError", () => {
 describe("RunDetail review capability", () => {
   beforeEach(() => {
     mockState.reviewCapability = true;
-    mockState.runUnavailable = false;
   });
 
   it("renders run approve and reject controls for an authorized reviewer", () => {
@@ -230,14 +212,6 @@ describe("RunDetail review capability", () => {
     expect(html).toContain('data-testid="run-review-read-only"');
     expect(html).not.toContain('data-testid="approve-run"');
     expect(html).not.toContain('data-testid="reject-run"');
-  });
-
-  it("renders the legacy gap state exactly once", () => {
-    mockState.runUnavailable = true;
-    const html = renderRunDetail();
-
-    expect(html.match(/Not available yet/g)).toHaveLength(1);
-    expect(html).toContain("the run detail view");
   });
 });
 
