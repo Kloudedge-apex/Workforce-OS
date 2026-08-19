@@ -24,8 +24,6 @@ tags:
     description: Organization settings and compliance
   - name: runs
     description: Pipeline run history
-  - name: agents
-    description: Agent roster and status
   - name: welcome
     description: Onboarding wizard
 paths:
@@ -576,21 +574,6 @@ paths:
                 $ref: "#/components/schemas/GraphRunDetail"
         "404":
           description: Not found
-
-  /agents:
-    get:
-      operationId: listAgents
-      tags: [agents]
-      summary: Active agent roster with recent activity
-      responses:
-        "200":
-          description: Agent list
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Agent"
 
   /settings/org:
     get:
@@ -1766,25 +1749,6 @@ components:
           items:
             $ref: "#/components/schemas/TimelineNode"
       required: [run, timeline]
-
-    Agent:
-      type: object
-      properties:
-        id: { type: string }
-        name: { type: string }
-        type:
-          type: string
-          enum: [sdr, content, ops, pipeline, reply, reporting]
-        status:
-          type: string
-          enum: [idle, running, error]
-        lastAction: { type: ["string", "null"] }
-        lastActionAt: { type: ["string", "null"] }
-        recentActivityCount: { type: integer }
-        sparklineData:
-          type: array
-          items: { type: integer }
-      required: [id, name, type, status, recentActivityCount, sparklineData]
 
     TimelineNode:
       type: object

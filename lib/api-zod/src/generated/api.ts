@@ -891,22 +891,6 @@ export const GetRunResponse = zod.object({
 
 
 /**
- * @summary Active agent roster with recent activity
- */
-export const ListAgentsResponseItem = zod.object({
-  "id": zod.string(),
-  "name": zod.string(),
-  "type": zod.enum(['sdr', 'content', 'ops', 'pipeline', 'reply', 'reporting']),
-  "status": zod.enum(['idle', 'running', 'error']),
-  "lastAction": zod.string().nullish(),
-  "lastActionAt": zod.string().nullish(),
-  "recentActivityCount": zod.number(),
-  "sparklineData": zod.array(zod.number())
-})
-export const ListAgentsResponse = zod.array(ListAgentsResponseItem)
-
-
-/**
  * @summary Get organization settings and compliance state
  */
 export const GetOrgSettingsResponse = zod.object({

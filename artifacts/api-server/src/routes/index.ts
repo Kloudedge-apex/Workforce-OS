@@ -8,7 +8,6 @@ import conversationsRouter from "./conversations";
 import settingsRouter from "./settings";
 import settingsExtendedRouter from "./settings-extended";
 import runsRouter from "./runs";
-import agentsRouter from "./agents";
 import welcomeRouter from "./welcome";
 
 const router: IRouter = Router();
@@ -22,7 +21,6 @@ router.use(conversationsRouter);
 router.use(settingsRouter);
 router.use(settingsExtendedRouter);
 router.use(runsRouter);
-router.use(agentsRouter);
 router.use(welcomeRouter);
 
 export default router;

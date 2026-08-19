@@ -8,9 +8,6 @@
 
 export * from './activityEvent';
 export * from './activityEventKind';
-export * from './agent';
-export * from './agentStatus';
-export * from './agentType';
 export * from './artifactApprovalEligibility';
 export * from './artifactApprovalFailure';
 export * from './artifactApprovalFailureStatus';

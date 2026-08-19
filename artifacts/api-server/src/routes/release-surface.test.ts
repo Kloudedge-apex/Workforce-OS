@@ -25,6 +25,7 @@ const unsupportedRoutes = [
   ["GET", "/graph-runs/run_1/timeline"],
   ["POST", "/leads/person_1/trigger-outbound"],
   ["POST", "/artifacts/bulk-approve"],
+  ["GET", "/agents"],
 ] as const;
 
 describe("sellable release surface", () => {
