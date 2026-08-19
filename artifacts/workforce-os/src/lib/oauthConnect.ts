@@ -1,4 +1,4 @@
-import { customFetch } from "@workspace/api-client-react";
+import { getGmailAuthorizationUrl } from "@workspace/api-client-react";
 
 /**
  * GL3 Gmail OAuth connect. OAuth providers cannot use the synchronous
@@ -8,8 +8,6 @@ import { customFetch } from "@workspace/api-client-react";
  * the backend, not on this SPA) and then polls integration status to reflect
  * CONNECTED honestly.
  */
-
-export const GMAIL_AUTH_URL_ENDPOINT = "/api/settings/integrations/gmail/auth-url";
 
 /**
  * PURE: extract the authorization URL from the BFF `{ authUrl }` response.
@@ -44,10 +42,7 @@ export function parseAuthUrlResponse(data: unknown): string | null {
  * (ApiError carries the BFF's verbatim message) and on a malformed payload.
  */
 export async function fetchGmailAuthUrl(): Promise<string> {
-  const data = await customFetch<unknown>(GMAIL_AUTH_URL_ENDPOINT, {
-    method: "GET",
-    responseType: "json",
-  });
+  const data = await getGmailAuthorizationUrl();
   const url = parseAuthUrlResponse(data);
   if (!url) {
     throw new Error("The server did not return a Gmail authorization URL.");

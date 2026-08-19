@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   useGetOrgSettings, useUpdateOrgSettings, useGetOrgHealth,
   useGetIcpProfile, useUpdateIcpProfile,
-  useListIntegrations, useDisconnectIntegration, useFinalizeGmailIntegration, useVerifyGmailMailbox,
+  useListIntegrations, useDisconnectGmailIntegration, useFinalizeGmailIntegration, useVerifyGmailMailbox,
   useGetWelcomeStatus,
   useListSuppressions, useCreateSuppression,
   getListSuppressionsQueryKey,
@@ -687,7 +687,7 @@ function IntegrationsTab() {
   });
   const mailboxManagementCapability = orgSettings?.canManageMailbox ?? null;
   const mailboxReadiness = getSendReadiness(orgSettings)?.mailboxConnected ?? null;
-  const { mutate: disconnect, isPending: disconnecting } = useDisconnectIntegration({
+  const { mutate: disconnect, isPending: disconnecting } = useDisconnectGmailIntegration({
     mutation: {
       onSuccess: () => {
         setGmailWatchExpiresAt(null);
@@ -912,7 +912,7 @@ function IntegrationsTab() {
                       disabled={disconnecting || gmailBusy || verifyingGmail}
                       onClick={() =>
                         hasConnectedRow
-                          ? disconnect({ provider: int.provider })
+                          ? disconnect()
                           : handleConnectGmail()
                       }
                     >

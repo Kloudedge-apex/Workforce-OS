@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseAuthUrlResponse, GMAIL_AUTH_URL_ENDPOINT } from "./oauthConnect";
+import { parseAuthUrlResponse } from "./oauthConnect";
 
 describe("parseAuthUrlResponse", () => {
   it("extracts a well-formed { authUrl }", () => {
@@ -24,10 +24,5 @@ describe("parseAuthUrlResponse", () => {
     expect(parseAuthUrlResponse({ authUrl: "https://accounts.google.com:8443/p" })).toBeNull();
     expect(parseAuthUrlResponse({ authUrl: "accounts.google.com/no-scheme" })).toBeNull();
     expect(parseAuthUrlResponse("https://raw-string.example")).toBeNull();
-  });
-});
-describe("GMAIL_AUTH_URL_ENDPOINT", () => {
-  it("targets the BFF proxy route (org-scoped auth, same prefix as siblings)", () => {
-    expect(GMAIL_AUTH_URL_ENDPOINT).toBe("/api/settings/integrations/gmail/auth-url");
   });
 });

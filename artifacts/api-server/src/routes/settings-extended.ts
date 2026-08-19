@@ -485,74 +485,94 @@ export function createGmailVerificationRouter(
 // opens it and Google redirects to the upstream callback. This proxy uses the
 // same org-scoped auth forwarding as every sibling route.
 
-router.get("/settings/integrations/gmail/auth-url", async (req, res, next) => {
-  try {
-    const raw = await apex.get("/integrations/gmail/auth-url", { req });
-    const authUrl = shapeAuthUrl(raw);
-    if (!authUrl) {
-      res.status(502).json({
-        error: "upstream",
-        message: "The backend did not return a Gmail authorization URL.",
-      });
-      return;
-    }
-    res.json({ authUrl });
-  } catch (err) {
-    if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
-    // Surface upstream config failures verbatim (e.g. Gmail OAuth client not
-    // configured) — never collapse them into a fake success.
-    if (err instanceof UpstreamError && err.status >= 400 && err.status < 500) {
-      res.status(err.status).json({
-        error: "upstream",
-        message:
-          upstreamErrorMessage(err.body) ??
-          "The backend could not start the Gmail authorization flow.",
-      });
-      return;
-    }
-    next(err);
-  }
-});
+export type GmailAuthorizationClient = Pick<typeof apex, "get">;
 
+export function createGmailAuthorizationRouter(
+  client: GmailAuthorizationClient = apex,
+): Router {
+  const gmailRouter = Router();
+  gmailRouter.get(
+    "/settings/integrations/gmail/auth-url",
+    async (req, res, next) => {
+      try {
+        const raw = await client.get("/integrations/gmail/auth-url", { req });
+        const authUrl = shapeAuthUrl(raw);
+        if (!authUrl) {
+          res.status(502).json({
+            error: "upstream",
+            message: "The backend did not return a Gmail authorization URL.",
+          });
+          return;
+        }
+        res.json({ authUrl });
+      } catch (err) {
+        if (
+          err instanceof UpstreamError &&
+          (err.status === 401 || err.status === 403)
+        ) {
+          throw err;
+        }
+        // Surface upstream config failures verbatim (e.g. Gmail OAuth client
+        // not configured) — never collapse them into a fake success.
+        if (
+          err instanceof UpstreamError &&
+          err.status >= 400 &&
+          err.status < 500
+        ) {
+          res.status(err.status).json({
+            error: "upstream",
+            message:
+              upstreamErrorMessage(err.body) ??
+              "The backend could not start the Gmail authorization flow.",
+          });
+          return;
+        }
+        next(err);
+      }
+    },
+  );
+  return gmailRouter;
+}
+
+router.use(createGmailAuthorizationRouter());
 router.use(createGmailFinalizeRouter());
 router.use(createGmailVerificationRouter());
 
-router.post("/settings/integrations/:provider/connect", (req, res) => {
-  const { provider } = req.params;
-  if (provider === "gmail") {
-    res.status(409).json({
-      error: "oauth_required",
-      message: "Gmail must be connected through the Google authorization flow.",
-    });
-    return;
-  }
-  res.status(404).json({
-    error: "unsupported_provider",
-    message: "This release supports Gmail only.",
-  });
-});
+export type GmailDisconnectClient = Pick<typeof apex, "post">;
 
-router.post("/settings/integrations/:provider/disconnect", async (req, res, next) => {
-  const { provider } = req.params;
-  if (provider !== "gmail") {
-    res.status(404).json({
-      error: "unsupported_provider",
-      message: "This release supports Gmail only.",
-    });
-    return;
-  }
-  try {
-    // Upstream hard-deletes the row and returns it; the integration no longer
-    // exists, so force status='available' for the FE (audit endpoint 7, FULL).
-    const row = (await apex.post(
-      `/integrations/${provider}/disconnect`,
-      { req },
-    )) as ApexIntegration;
-    res.json({ ...shapeIntegration(row), status: "available", connectedAt: null, errorMessage: null });
-  } catch (err) {
-    if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) throw err;
-    next(err);
-  }
-});
+export function createGmailDisconnectRouter(
+  client: GmailDisconnectClient = apex,
+): Router {
+  const gmailRouter = Router();
+  gmailRouter.post(
+    "/settings/integrations/gmail/disconnect",
+    async (req, res, next) => {
+      try {
+        // Upstream hard-deletes the row and returns it; the integration no
+        // longer exists, so force status='available' for the FE.
+        const row = (await client.post("/integrations/gmail/disconnect", {
+          req,
+        })) as ApexIntegration;
+        res.json({
+          ...shapeIntegration(row),
+          status: "available",
+          connectedAt: null,
+          errorMessage: null,
+        });
+      } catch (err) {
+        if (
+          err instanceof UpstreamError &&
+          (err.status === 401 || err.status === 403)
+        ) {
+          throw err;
+        }
+        next(err);
+      }
+    },
+  );
+  return gmailRouter;
+}
+
+router.use(createGmailDisconnectRouter());
 
 export default router;

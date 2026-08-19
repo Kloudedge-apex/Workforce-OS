@@ -41,6 +41,7 @@ export * from './evidenceEventSummary';
 export * from './factCitation';
 export * from './getActivityStreamFilter';
 export * from './getActivityStreamParams';
+export * from './gmailAuthorizationUrl';
 export * from './gmailMailboxVerification';
 export * from './gmailOAuthFinalizeInput';
 export * from './graphRun';
