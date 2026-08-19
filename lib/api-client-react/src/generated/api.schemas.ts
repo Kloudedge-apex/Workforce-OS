@@ -754,127 +754,6 @@ export interface GmailMailboxVerification {
   watchExpiresAt: string;
 }
 
-export interface CadenceStage {
-  id: string;
-  dayOffset: number;
-  channel: string;
-  label: string;
-  enabled: boolean;
-  position: number;
-}
-
-export interface StyleConfig {
-  voice: string;
-  toneValue: number;
-  signatureHtml: string;
-}
-
-export type TeamMemberRole = typeof TeamMemberRole[keyof typeof TeamMemberRole];
-
-
-export const TeamMemberRole = {
-  OWNER: 'OWNER',
-  ADMIN: 'ADMIN',
-  MEMBER: 'MEMBER',
-} as const;
-
-export interface TeamMember {
-  id: string;
-  email: string;
-  name: string;
-  role: TeamMemberRole;
-  status: string;
-  invitedAt: string;
-  /** @nullable */
-  joinedAt?: string | null;
-}
-
-export type InviteInputRole = typeof InviteInputRole[keyof typeof InviteInputRole];
-
-
-export const InviteInputRole = {
-  ADMIN: 'ADMIN',
-  MEMBER: 'MEMBER',
-} as const;
-
-export interface InviteInput {
-  email: string;
-  name: string;
-  role: InviteInputRole;
-}
-
-export interface Invoice {
-  id: string;
-  date: string;
-  amount: number;
-  status: string;
-  downloadUrl: string;
-}
-
-export interface BillingInfo {
-  plan: string;
-  /** @nullable */
-  creditsRemaining: number | null;
-  /** @nullable */
-  creditsTotal: number | null;
-  /** @nullable */
-  sendsThisMonth: number | null;
-  /** @nullable */
-  sendsLimit: number | null;
-  seats: number;
-  /** @nullable */
-  seatsLimit: number | null;
-  /** @nullable */
-  invoices: Invoice[] | null;
-}
-
-export interface ApiKey {
-  id: string;
-  prefix: string;
-  name: string;
-  /** @nullable */
-  lastUsedAt?: string | null;
-  createdAt: string;
-}
-
-export interface CreateApiKeyInput {
-  name: string;
-}
-
-export interface ApiKeyCreated {
-  id: string;
-  prefix: string;
-  name: string;
-  fullKey: string;
-  createdAt: string;
-}
-
-export interface NotificationPrefs {
-  emailEnabled: boolean;
-  slackEnabled: boolean;
-  approvalQueueFull: boolean;
-  sendFailed: boolean;
-  suppressionHit: boolean;
-  weeklyReport: boolean;
-  newReply: boolean;
-}
-
-export interface Notification {
-  id: string;
-  type: string;
-  title: string;
-  body: string;
-  read: boolean;
-  /** @nullable */
-  link?: string | null;
-  createdAt: string;
-}
-
-export interface NotificationList {
-  items: Notification[];
-  unreadCount: number;
-}
-
 export type WelcomeStatusOrganization = {
   nameSet: boolean;
   websiteSet: boolean;
@@ -1023,10 +902,6 @@ export interface Agent {
   lastActionAt?: string | null;
   recentActivityCount: number;
   sparklineData: number[];
-}
-
-export interface UpdateCadenceInput {
-  stages: CadenceStage[];
 }
 
 export type ListPendingArtifactsParams = {

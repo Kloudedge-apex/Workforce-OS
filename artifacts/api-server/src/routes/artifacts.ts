@@ -2,7 +2,6 @@ import { Router } from "express";
 import { apex } from "../upstream/apex-client";
 import { UpstreamError } from "../upstream/apex-client";
 import { requireAuthenticatedReviewer } from "../lib/authenticated-reviewer";
-import { gapResponse } from "../lib/unavailable";
 
 const router = Router();
 
@@ -828,13 +827,6 @@ router.post("/artifacts/:id/suppress", async (req, res, next) => {
     }
     next(err);
   }
-});
-
-// POST /artifacts/bulk-approve — GAP. No bulk-approve controller/service method,
-// and no queryable per-artifact evaluator score in the DB to gate on (the
-// "approve artifacts that pass evaluators" semantics cannot be honored).
-router.post("/artifacts/bulk-approve", (_req, res) => {
-  return gapResponse(res, "artifact-bulk-approve");
 });
 
 export default router;

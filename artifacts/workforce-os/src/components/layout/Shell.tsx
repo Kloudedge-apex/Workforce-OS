@@ -1,16 +1,15 @@
 import React from "react";
 import { UserButton } from "@clerk/clerk-react";
 import { Link, useLocation } from "wouter";
-import { 
-  Activity, 
-  Inbox, 
-  Settings, 
-  LayoutDashboard, 
-  Target, 
+import {
+  Activity,
+  Inbox,
+  Settings,
+  LayoutDashboard,
+  Target,
   BarChart2,
 } from "lucide-react";
 import { CommandPalette } from "@/components/layout/CommandPalette";
-import { NotificationBell } from "@/components/v2/NotificationBell";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { Logo, Wordmark } from "@/components/brand/Logo";
 import { useWorkspace, useCurrentUser } from "@/lib/workspace";
@@ -46,20 +45,22 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <aside className="hidden md:flex w-[220px] flex-col border-r border-paper-200 bg-paper-100 flex-shrink-0">
         <div className="p-4 border-b border-paper-200">
           <Wordmark />
-          <p className="mt-1 text-xs text-ink-400 font-mono uppercase truncate">{workspace.name}</p>
+          <p className="mt-1 text-xs text-ink-400 font-mono uppercase truncate">
+            {workspace.name}
+          </p>
         </div>
         <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
           {NAV_ITEMS.map((item) => {
             const active = location.startsWith(item.href);
             return (
-              <Link 
-                key={item.href} 
+              <Link
+                key={item.href}
                 href={item.href}
                 className={cn(
                   "flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors",
                   active
                     ? "bg-rust-500 text-white shadow-sm"
-                    : "text-ink-700 hover:bg-paper-200 hover:text-ink-900 dark:text-ink-300 dark:hover:text-paper-50"
+                    : "text-ink-700 hover:bg-paper-200 hover:text-ink-900 dark:text-ink-300 dark:hover:text-paper-50",
                 )}
               >
                 <item.icon className="h-4 w-4" />
@@ -74,7 +75,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
             appearance={{ elements: { avatarBox: "h-8 w-8" } }}
           />
           <div className="min-w-0">
-            <p className="text-sm font-medium text-ink-900 dark:text-paper-50 truncate">{user.name}</p>
+            <p className="text-sm font-medium text-ink-900 dark:text-paper-50 truncate">
+              {user.name}
+            </p>
             <p className="text-xs text-ink-400 truncate">{user.email}</p>
           </div>
         </div>
@@ -87,7 +90,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-2">
             <Logo size={20} className="md:hidden" />
             <div className="hidden md:flex items-center text-xs text-ink-400">
-              <span>{NAV_ITEMS.find(i => location.startsWith(i.href))?.label || "Workspace"}</span>
+              <span>
+                {NAV_ITEMS.find((i) => location.startsWith(i.href))?.label ||
+                  "Workspace"}
+              </span>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -98,7 +104,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
               className="hidden md:flex items-center gap-2 px-2 py-1 text-xs text-ink-400 bg-paper-100 border border-paper-200 rounded shadow-sm hover-elevate active-elevate-2 transition-colors mr-2"
             >
               <span>Search</span>
-              <kbd className="font-mono bg-paper-200 px-1 rounded text-[10px]">⌘K</kbd>
+              <kbd className="font-mono bg-paper-200 px-1 rounded text-[10px]">
+                ⌘K
+              </kbd>
             </button>
             <div className="md:hidden">
               <UserButton
@@ -107,14 +115,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
               />
             </div>
             <ThemeToggle />
-            <NotificationBell />
           </div>
         </header>
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto">
-          {children}
-        </div>
+        <div className="flex-1 overflow-y-auto">{children}</div>
       </main>
 
       <CommandPalette />
@@ -124,12 +129,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
         {MOBILE_NAV_ITEMS.map((item) => {
           const active = location.startsWith(item.href);
           return (
-            <Link 
-              key={item.href} 
+            <Link
+              key={item.href}
               href={item.href}
               className={cn(
                 "flex flex-col items-center gap-1 p-3 text-[10px] font-medium flex-1 transition-colors",
-                active ? "text-rust-500" : "text-ink-400"
+                active ? "text-rust-500" : "text-ink-400",
               )}
             >
               <item.icon className="h-5 w-5" />

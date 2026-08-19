@@ -4,7 +4,6 @@ import {
   GetLeadParams,
 } from "@workspace/api-zod";
 import { apex, UpstreamError } from "../upstream/apex-client";
-import { gapResponse } from "../lib/unavailable";
 
 const router = Router();
 
@@ -359,22 +358,6 @@ router.get(
       }
       next(err);
     }
-  },
-);
-
-// GAP: no per-lead outbound trigger exists on apex-gtm-api. The only
-// orchestration entry is POST /api/pipeline/run, which is org-wide / all-ICP
-// and single-flight — aliasing it to one lead id is semantically wrong and
-// dangerous (audit). Surface honestly as unavailable.
-router.post(
-  "/leads/:id/trigger-outbound",
-  (req: Request, res: Response): void => {
-    const parsed = GetLeadParams.safeParse(req.params);
-    if (!parsed.success) {
-      res.status(400).json({ error: "Invalid params" });
-      return;
-    }
-    gapResponse(res, "lead-trigger-outbound");
   },
 );
 

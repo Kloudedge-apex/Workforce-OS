@@ -9,7 +9,6 @@ import settingsRouter from "./settings";
 import settingsExtendedRouter from "./settings-extended";
 import runsRouter from "./runs";
 import agentsRouter from "./agents";
-import notificationsRouter from "./notifications";
 import welcomeRouter from "./welcome";
 
 const router: IRouter = Router();
@@ -24,7 +23,6 @@ router.use(settingsRouter);
 router.use(settingsExtendedRouter);
 router.use(runsRouter);
 router.use(agentsRouter);
-router.use(notificationsRouter);
 router.use(welcomeRouter);
 
 export default router;
