@@ -2,11 +2,11 @@ import { Router, type Request } from "express";
 import {
   CreateSuppressionBody,
   CreateSuppressionResponse,
+  GetOrgHealthResponse,
   ListSuppressionsQueryParams,
   ListSuppressionsResponse,
 } from "@workspace/api-zod";
 import { apex, UpstreamError } from "../upstream/apex-client";
-import { gapResponse } from "../lib/unavailable";
 import { fetchWelcomeStatus } from "./welcome";
 
 const router = Router();
@@ -50,6 +50,26 @@ export interface SendReadiness {
   countrySet: boolean;
   mailboxConnected: boolean;
   dailyCapRemaining: number | null;
+}
+
+export interface OrgHealth {
+  liveSendEnabled: boolean;
+  postalAddressConfigured: boolean;
+  unsubscribeConfigured: boolean;
+  suppressionCount: number;
+  blockers: string[];
+}
+
+export function parseOrgHealth(raw: unknown): OrgHealth | null {
+  const parsed = GetOrgHealthResponse.safeParse(raw);
+  if (!parsed.success) return null;
+  if (
+    !Number.isSafeInteger(parsed.data.suppressionCount) ||
+    parsed.data.suppressionCount < 0
+  ) {
+    return null;
+  }
+  return parsed.data;
 }
 
 /**
@@ -466,13 +486,30 @@ router.put("/settings/org", async (req, res, next) => {
   }
 });
 
-// ─── Org health (GAP) ────────────────────────────────────────────────────────
-// No org compliance/health route exists upstream (audit endpoint 2). The signals
-// (liveSendEnabled / unsubscribeConfigured) have no source of truth, so we degrade
-// honestly rather than synthesize a misleading compliance verdict.
-
-router.get("/settings/org/health", (_req, res) => {
-  return gapResponse(res, "org-health");
+// ─── Org health ─────────────────────────────────────────────────────────────
+// Pass through the backend's tenant-scoped projection. Malformed upstream
+// health must not become a green customer-facing status.
+router.get("/settings/org/health", async (req, res, next) => {
+  try {
+    const upstream = await apex.get("/orgs/me/health", { req });
+    const health = parseOrgHealth(upstream);
+    if (!health) {
+      res.status(502).json({
+        error: "invalid_upstream_response",
+        message: "Workspace health could not be verified",
+      });
+      return;
+    }
+    res.json(health);
+  } catch (err) {
+    if (
+      err instanceof UpstreamError &&
+      (err.status === 401 || err.status === 403)
+    ) {
+      throw err;
+    }
+    next(err);
+  }
 });
 
 // ─── Authoritative suppression registry ────────────────────────────────────

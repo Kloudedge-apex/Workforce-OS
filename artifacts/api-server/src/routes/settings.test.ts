@@ -5,6 +5,7 @@ import {
   fetchReviewCapability,
   legacyOrgCapabilities,
   parseOrgCapabilities,
+  parseOrgHealth,
   parseSendReadiness,
   shapeOrgSettings,
   upstreamErrorMessage,
@@ -150,6 +151,27 @@ describe("shapeOrgSettings", () => {
     expect(out.senderName).toBeNull();
     expect(out.postalAddress).toBeNull();
     expect(out.plan).toBeNull();
+  });
+});
+
+describe("parseOrgHealth", () => {
+  const healthy = {
+    liveSendEnabled: true,
+    postalAddressConfigured: true,
+    unsubscribeConfigured: true,
+    suppressionCount: 4,
+    blockers: [],
+  };
+
+  it("accepts the exact server-authoritative health contract", () => {
+    expect(parseOrgHealth(healthy)).toEqual(healthy);
+  });
+
+  it("fails malformed or impossible health projections closed", () => {
+    expect(parseOrgHealth({ ...healthy, liveSendEnabled: "true" })).toBeNull();
+    expect(parseOrgHealth({ ...healthy, suppressionCount: -1 })).toBeNull();
+    expect(parseOrgHealth({ ...healthy, suppressionCount: 1.5 })).toBeNull();
+    expect(parseOrgHealth({ ...healthy, blockers: [null] })).toBeNull();
   });
 });
 

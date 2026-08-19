@@ -131,8 +131,9 @@ export default function Settings() {
 function HealthBar() {
   const { data: health, isLoading, isError } = useGetOrgHealth({ query: { queryKey: ["getOrgHealth"] } });
   if (isLoading) return <div className="h-10 bg-ink-900 animate-pulse" />;
-  // Gap endpoint: org/health backend isn't wired up yet. Stay neutral — hide the
-  // bar rather than showing a scary "health unavailable" banner.
+  // Rolling-deploy compatibility: hide the bar while an older backend still
+  // reports the capability as unavailable. The current backend returns a
+  // tenant-scoped, server-authoritative projection.
   if (isUnavailable(health)) return null;
   if (isError || !health)
     return (

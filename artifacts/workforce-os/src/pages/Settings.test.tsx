@@ -13,6 +13,7 @@ import Settings, {
 const mocks = vi.hoisted(() => ({
   location: "/settings/integrations",
   integrationStatus: "available" as "available" | "connected",
+  integrationProviders: ["gmail"] as string[],
   mailboxReady: true as boolean | null,
   mailboxCapability: true as boolean | null,
   orgCapability: true as boolean | null,
@@ -97,16 +98,16 @@ vi.mock("@workspace/api-client-react", async (importOriginal) => {
       isError: false,
     }),
     useListIntegrations: () => ({
-      data: [
-        {
-          id: "gmail",
-          provider: "gmail",
+      data: mocks.integrationProviders.map((provider) =>
+        ({
+          id: provider,
+          provider,
           status: mocks.integrationStatus,
           accountEmail: null,
           connectedAt: null,
           errorMessage: null,
-        },
-      ],
+        }),
+      ),
       isLoading: false,
       isError: false,
       refetch: mocks.refetchIntegrations,
@@ -251,6 +252,7 @@ describe("Settings Gmail readiness refresh", () => {
   beforeEach(() => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
     mocks.integrationStatus = "available";
+    mocks.integrationProviders = ["gmail"];
     mocks.mailboxReady = true;
     mocks.location = "/settings/integrations";
     mocks.welcomeError = false;
@@ -324,6 +326,16 @@ describe("Settings Gmail readiness refresh", () => {
       expect.arrayContaining(["flex-col", "md:flex-row"]),
     );
     expect(mobileTabs?.className.split(" ")).toContain("w-full");
+  });
+
+  it("exposes only the supported Gmail connector", async () => {
+    mocks.integrationProviders = ["gmail", "outlook", "hubspot"];
+
+    await renderSettings();
+
+    expect(container.textContent).toContain("Gmail");
+    expect(container.textContent).not.toContain("Outlook");
+    expect(container.textContent).not.toContain("HubSpot");
   });
 
   it("shows a bounded setup error without automatically refetching on remount", async () => {
