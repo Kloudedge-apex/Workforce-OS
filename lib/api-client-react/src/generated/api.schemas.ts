@@ -870,40 +870,6 @@ export interface GraphRunDetail {
   timeline: TimelineNode[];
 }
 
-export type AgentType = typeof AgentType[keyof typeof AgentType];
-
-
-export const AgentType = {
-  sdr: 'sdr',
-  content: 'content',
-  ops: 'ops',
-  pipeline: 'pipeline',
-  reply: 'reply',
-  reporting: 'reporting',
-} as const;
-
-export type AgentStatus = typeof AgentStatus[keyof typeof AgentStatus];
-
-
-export const AgentStatus = {
-  idle: 'idle',
-  running: 'running',
-  error: 'error',
-} as const;
-
-export interface Agent {
-  id: string;
-  name: string;
-  type: AgentType;
-  status: AgentStatus;
-  /** @nullable */
-  lastAction?: string | null;
-  /** @nullable */
-  lastActionAt?: string | null;
-  recentActivityCount: number;
-  sparklineData: number[];
-}
-
 export type ListPendingArtifactsParams = {
 page?: number;
 limit?: number;
