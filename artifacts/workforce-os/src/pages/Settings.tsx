@@ -580,6 +580,12 @@ function IcpTab() {
         <ChipField label="Intent Signals" chips={profile.intentSignals} onChange={v => setProfile(p => ({ ...p, intentSignals: v }))} placeholder="e.g. hiring engineers" />
         <Separator />
         <ChipField label="Seed Domains" chips={profile.seedDomains} onChange={v => setProfile(p => ({ ...p, seedDomains: v }))} placeholder="e.g. acme.com" />
+        <ChipField label="Exclusion Domains" chips={profile.exclusionDomains} onChange={v => setProfile(p => ({ ...p, exclusionDomains: v }))} placeholder="e.g. competitor.com" />
+        <p className="text-xs leading-relaxed text-ink-500">
+          Excluded domains and their subdomains are removed before lead persistence
+          and follow-on enrichment. Add competitors, customers, partners, and your
+          own company domain here.
+        </p>
       </SettingsCard>
       <div className="flex justify-end">
         <Button className="bg-rust-500 hover:bg-rust-600 text-white" disabled={isPending} onClick={() => update({ data: profile })}>
