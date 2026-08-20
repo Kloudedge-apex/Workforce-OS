@@ -66,6 +66,11 @@ describe("ConversationActions archive recovery", () => {
 
     expect(markup).toContain("Archive");
     expect(markup).not.toContain("Restore");
+    const writeDraft = markup.match(
+      /<button[^>]*data-testid="conversation-write-draft"[^>]*>/,
+    )?.[0];
+    expect(writeDraft).toBeDefined();
+    expect(writeDraft).not.toContain(' disabled=""');
   });
 
   it("offers restore for an archived desktop thread", () => {
@@ -76,5 +81,19 @@ describe("ConversationActions archive recovery", () => {
 
     expect(markup).toContain("Restore");
     expect(markup).not.toContain("Archiving…");
+    expect(markup).toContain(
+      "Restore this conversation before writing another reply.",
+    );
+    expect(markup).toContain(
+      "Archiving stops any reply that had not started provider delivery.",
+    );
+    const writeDraft = markup.match(
+      /<button[^>]*data-testid="conversation-write-draft"[^>]*>/,
+    )?.[0];
+    expect(writeDraft).toBeDefined();
+    expect(writeDraft).toContain(' disabled=""');
+    expect(writeDraft).toContain(
+      'title="Restore this conversation before writing a reply"',
+    );
   });
 });

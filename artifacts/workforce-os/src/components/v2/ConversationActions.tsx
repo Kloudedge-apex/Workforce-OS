@@ -95,6 +95,10 @@ export function ConversationActions({
     }));
   }, [conversation.id, conversation.leadName, conversation.subject]);
 
+  React.useEffect(() => {
+    if (conversation.archived) setReplyOpen(false);
+  }, [conversation.archived]);
+
   const refreshConversation = React.useCallback(() => {
     void queryClient.invalidateQueries({
       queryKey: ["getConversation", conversation.id],
@@ -115,7 +119,7 @@ export function ConversationActions({
   const archive = useArchiveConversation({
     mutation: {
       onSuccess: () => {
-        toast.success("Archived");
+        toast.success("Archived; any unsent reply draft was stopped");
         refreshConversation();
       },
       onError: (error) => toast.error(decisionErrorMessage(error)),
@@ -192,6 +196,10 @@ export function ConversationActions({
   });
 
   const submitReply = () => {
+    if (conversation.archived) {
+      toast.error("Restore this conversation before writing another reply");
+      return;
+    }
     const subject = replyDraft.subject.trim();
     const body = replyDraft.body.trim();
     if (!subject || !body) {
@@ -265,6 +273,16 @@ export function ConversationActions({
           </div>
         )}
 
+        {conversation.archived && (
+          <p
+            className="rounded-lg border border-paper-200 bg-paper-100 p-3 text-xs text-ink-600"
+            role="status"
+          >
+            Restore this conversation before writing another reply. Archiving
+            stops any reply that had not started provider delivery.
+          </p>
+        )}
+
         <div className="grid grid-cols-2 gap-2">
           {showArchiveControl && conversation.archived ? (
             <Button
@@ -306,7 +324,14 @@ export function ConversationActions({
               type="button"
               variant="outline"
               size="sm"
+              data-testid="conversation-write-draft"
               onClick={() => setReplyOpen(true)}
+              disabled={conversation.archived}
+              title={
+                conversation.archived
+                  ? "Restore this conversation before writing a reply"
+                  : undefined
+              }
             >
               <PenLine className="mr-1.5 h-3.5 w-3.5" /> Write draft
             </Button>
