@@ -49,6 +49,18 @@ const mocks = vi.hoisted(() => ({
     | undefined,
   updateOrg: vi.fn(),
   updateOrgOptions: undefined as any,
+  icpProfile: {
+    industries: ["SaaS"],
+    titles: ["VP Sales"],
+    geos: ["US"],
+    sizeBand: "50-500",
+    techStackSignals: ["Salesforce"],
+    intentSignals: ["hiring"],
+    seedDomains: ["target.example"],
+    exclusionDomains: ["competitor.com"],
+  },
+  updateIcp: vi.fn(),
+  updateIcpOptions: undefined as any,
   refetchIntegrations: vi.fn(),
   fetchGmailAuthUrl: vi.fn(),
   toastSuccess: vi.fn(),
@@ -185,6 +197,16 @@ vi.mock("@workspace/api-client-react", async (importOriginal) => {
     useUpdateOrgSettings: (options: unknown) => {
       mocks.updateOrgOptions = options;
       return { mutate: mocks.updateOrg, isPending: false };
+    },
+    useGetIcpProfile: () => ({
+      data: mocks.icpProfile,
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    }),
+    useUpdateIcpProfile: (options: unknown) => {
+      mocks.updateIcpOptions = options;
+      return { mutate: mocks.updateIcp, isPending: false };
     },
     useDisconnectGmailIntegration: (options: unknown) => {
       mocks.disconnectOptions = options as typeof mocks.disconnectOptions;
@@ -615,6 +637,70 @@ describe("Settings organization capability", () => {
         postalAddress: "1 Main St",
         country: "IN",
       },
+    });
+  });
+});
+
+describe("Settings ICP exclusions", () => {
+  beforeEach(() => {
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+    mocks.location = "/settings/icp";
+    mocks.updateIcp.mockReset();
+    mocks.updateIcpOptions = undefined;
+    mocks.icpProfile = {
+      industries: ["SaaS"],
+      titles: ["VP Sales"],
+      geos: ["US"],
+      sizeBand: "50-500",
+      techStackSignals: ["Salesforce"],
+      intentSignals: ["hiring"],
+      seedDomains: ["target.example"],
+      exclusionDomains: ["competitor.com"],
+    };
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+    queryClient.clear();
+    vi.restoreAllMocks();
+  });
+
+  it("shows persisted exclusions and submits newly added domains", async () => {
+    await renderSettings();
+
+    expect(container.textContent).toContain("competitor.com");
+    expect(container.textContent).toContain(
+      "removed before lead persistence and follow-on enrichment",
+    );
+
+    const input = container.querySelector(
+      'input[aria-label="Exclusion Domains"]',
+    );
+    expect(input).toBeInstanceOf(HTMLInputElement);
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setValue?.call(input, "partner.example");
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+      input?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+    await act(async () => getButton("Save ICP").click());
+
+    expect(mocks.updateIcp).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        exclusionDomains: ["competitor.com", "partner.example"],
+      }),
     });
   });
 });

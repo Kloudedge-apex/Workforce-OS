@@ -21,7 +21,6 @@ export interface ApexIcpProfile {
   techStackSignals?: string[];
   intentKeywords?: string[];
   seedDomains?: string[];
-  /** Not yet a Prisma column on every deployed backend — read tolerantly. */
   exclusionDomains?: string[];
 }
 
@@ -58,12 +57,9 @@ function deriveSizeBand(min?: number | null, max?: number | null): string {
 /**
  * Pure mapper: apex IcpProfile list → FE IcpProfile (singleton = most recent).
  *
- * exclusionDomains maps from the upstream row when present; backends that
- * don't persist the column yet return rows without it → [] (HONEST: the FE
- * sees exactly what is stored, so a save that silently dropped exclusions
- * reads back empty instead of echoing the user's input). sizeBand is derived
- * from minEmployees/maxEmployees. Empty list → empty-default profile (audit
- * endpoint 3).
+ * exclusionDomains maps from the persisted upstream row. Older backends are
+ * read tolerantly as [] during a governed migration. sizeBand is derived from
+ * minEmployees/maxEmployees. Empty list → empty-default profile.
  */
 export function shapeIcpProfile(profiles: ApexIcpProfile[]): IcpProfile {
   const p = profiles[0];
@@ -101,10 +97,7 @@ function parseSizeBand(sizeBand?: string): { minEmployees: number | null; maxEmp
 }
 
 /**
- * Pure mapper: FE IcpProfile input → apex POST /api/leads/icp create body.
- *
- * The release backend has no exclusionDomains column, so that unsupported
- * field is not forwarded or shown in the minimum setup flow.
+ * Pure mapper: FE IcpProfile input → apex current-profile upsert body.
  */
 export function toIcpCreateBody(input: Partial<IcpProfile>): {
   name: string;
@@ -114,6 +107,7 @@ export function toIcpCreateBody(input: Partial<IcpProfile>): {
   intentKeywords: string[];
   techStackSignals: string[];
   seedDomains: string[];
+  exclusionDomains: string[];
   minEmployees: number | null;
   maxEmployees: number | null;
 } {
@@ -126,6 +120,7 @@ export function toIcpCreateBody(input: Partial<IcpProfile>): {
     techStackSignals: input.techStackSignals ?? [],
     intentKeywords: input.intentSignals ?? [],
     seedDomains: input.seedDomains ?? [],
+    exclusionDomains: input.exclusionDomains ?? [],
     minEmployees,
     maxEmployees,
   };

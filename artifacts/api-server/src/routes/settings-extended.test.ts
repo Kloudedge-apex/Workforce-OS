@@ -150,6 +150,7 @@ describe("shapeIcpProfile", () => {
         techStackSignals: ["Salesforce"],
         intentKeywords: ["hiring_spike"],
         seedDomains: ["acme.com"],
+        exclusionDomains: ["competitor.com"],
         minEmployees: 200,
         maxEmployees: 2000,
       },
@@ -163,7 +164,7 @@ describe("shapeIcpProfile", () => {
     expect(out.intentSignals).toEqual(["hiring_spike"]);
     expect(out.seedDomains).toEqual(["acme.com"]);
     expect(out.sizeBand).toBe("200-2000");
-    expect(out.exclusionDomains).toEqual([]); // row carries none → honest empty
+    expect(out.exclusionDomains).toEqual(["competitor.com"]);
   });
 
   it("derives sizeBand variants and defaults empty list", () => {
@@ -197,6 +198,7 @@ describe("toIcpCreateBody", () => {
       intentSignals: ["funding"],
       techStackSignals: ["HubSpot"],
       seedDomains: ["a.com"],
+      exclusionDomains: ["competitor.com", "partner.example"],
       sizeBand: "11-50",
     });
     expect(body.name).toBe("Default ICP");
@@ -206,6 +208,10 @@ describe("toIcpCreateBody", () => {
     expect(body.intentKeywords).toEqual(["funding"]);
     expect(body.techStackSignals).toEqual(["HubSpot"]);
     expect(body.seedDomains).toEqual(["a.com"]);
+    expect(body.exclusionDomains).toEqual([
+      "competitor.com",
+      "partner.example",
+    ]);
     expect(body.minEmployees).toBe(11);
     expect(body.maxEmployees).toBe(50);
   });
@@ -226,11 +232,12 @@ describe("toIcpCreateBody", () => {
     );
   });
 
-  it("does not forward the unsupported exclusionDomains field", () => {
+  it("forwards explicit domain exclusions to the current-profile upsert", () => {
     expect(
-      "exclusionDomains" in
-        toIcpCreateBody({ exclusionDomains: ["competitor.com", "spam.io"] }),
-    ).toBe(false);
+      toIcpCreateBody({
+        exclusionDomains: ["competitor.com", "spam.io"],
+      }).exclusionDomains,
+    ).toEqual(["competitor.com", "spam.io"]);
   });
 
   it("parses an open-ended size band", () => {
