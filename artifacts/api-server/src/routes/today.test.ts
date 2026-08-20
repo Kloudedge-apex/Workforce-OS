@@ -10,7 +10,6 @@ describe("shapeTodayKpis", () => {
     leadsSourced: 42,
     leadsQualified: 17,
     emailsSent: 120,
-    replyRate: null,
     meetingsBooked: 6,
   };
   const quality: QualityKpiUpstream = {
@@ -28,28 +27,25 @@ describe("shapeTodayKpis", () => {
     expect(shapeTodayKpis(stats, quality)).toEqual({
       artifactsPending: 9,
       artifactsSentToday: 13,
-      replyRate7d: null,
       qualifiedMeetingsBooked: 6,
-      leadsSourcedToday: null,
       leadsScored: 42,
     });
   });
 
-  it("does not present an ungrounded upstream reply rate as measured telemetry", () => {
-    expect(shapeTodayKpis({ ...stats, replyRate: 0 }, quality).replyRate7d).toBeNull();
-    expect(shapeTodayKpis({ ...stats, replyRate: 0.73 }, quality).replyRate7d).toBeNull();
+  it("does not publish unmeasured reply-rate or calendar-day lead placeholders", () => {
+    const out = shapeTodayKpis(stats, quality);
+    expect(out).not.toHaveProperty("replyRate7d");
+    expect(out).not.toHaveProperty("leadsSourcedToday");
   });
 
-  it("returns only the six contract keys (no extra upstream leakage)", () => {
+  it("returns only the four measured contract keys (no extra upstream leakage)", () => {
     const out = shapeTodayKpis(stats, quality);
     expect(Object.keys(out).sort()).toEqual(
       [
         "artifactsPending",
         "artifactsSentToday",
         "leadsScored",
-        "leadsSourcedToday",
         "qualifiedMeetingsBooked",
-        "replyRate7d",
       ].sort(),
     );
   });

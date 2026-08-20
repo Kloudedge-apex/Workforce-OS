@@ -1164,17 +1164,13 @@ components:
       properties:
         artifactsPending: { type: integer }
         artifactsSentToday: { type: integer }
-        replyRate7d: { type: [number, "null"] }
         qualifiedMeetingsBooked: { type: integer }
-        leadsSourcedToday: { type: [integer, "null"] }
         leadsScored: { type: integer }
       required:
         [
           artifactsPending,
           artifactsSentToday,
-          replyRate7d,
           qualifiedMeetingsBooked,
-          leadsSourcedToday,
           leadsScored,
         ]
 

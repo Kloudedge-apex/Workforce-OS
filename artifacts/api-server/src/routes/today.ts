@@ -8,7 +8,6 @@ export interface DashboardStatsUpstream {
   leadsSourced: number;
   leadsQualified: number;
   emailsSent: number;
-  replyRate: number | null;
   meetingsBooked: number;
 }
 
@@ -28,9 +27,7 @@ export interface QualityKpiUpstream {
 export interface TodayKpis {
   artifactsPending: number;
   artifactsSentToday: number;
-  replyRate7d: number | null;
   qualifiedMeetingsBooked: number;
-  leadsSourcedToday: number | null;
   leadsScored: number;
 }
 
@@ -42,8 +39,6 @@ export interface TodayKpis {
  * - artifactsSentToday <- kpis.quality.outreach_artifacts.sent (windowDays=1 ~= "today")
  * - qualifiedMeetingsBooked <- dashboard.stats.meetingsBooked
  * - leadsScored <- sum of the all-time lead-score distribution
- * - replyRate7d <- null: no durable time-windowed reply metric exists yet
- * - leadsSourcedToday <- null: no calendar-day sourcing query exists
  */
 export function shapeTodayKpis(
   stats: DashboardStatsUpstream,
@@ -52,9 +47,7 @@ export function shapeTodayKpis(
   return {
     artifactsPending: quality.outreach_artifacts.pending_review,
     artifactsSentToday: quality.outreach_artifacts.sent,
-    replyRate7d: null,
     qualifiedMeetingsBooked: stats.meetingsBooked,
-    leadsSourcedToday: null,
     leadsScored:
       quality.lead_score_distribution.A +
       quality.lead_score_distribution.B +
