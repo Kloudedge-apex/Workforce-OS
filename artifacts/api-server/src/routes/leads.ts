@@ -157,6 +157,7 @@ export interface UpstreamPersonDetail {
   bestEmail: string | null;
   score: number | null;
   qualifiedAt: string | null;
+  stage?: string | null;
   lastContactedAt: string | null;
   emails: Array<{
     email: string;
@@ -270,8 +271,11 @@ export function shapePersonAsLead(u: UpstreamPersonDetail): Lead {
     companyLogoUrl: null,
     avatarUrl: null,
     score: u.score == null ? null : Math.trunc(u.score),
-    // Derive only from persisted qualification/email evidence.
-    stage: u.qualifiedAt ? "qualified" : u.bestEmail ? "enriched" : "sourced",
+    // Current backends return the same persisted customer-outcome stage as
+    // the Pipeline list. Keep a fallback for a staggered console/API rollout.
+    stage:
+      emptyToNull(u.stage) ??
+      (u.qualifiedAt ? "qualified" : u.bestEmail ? "enriched" : "sourced"),
     geo: emptyToNull(u.location),
     country: emptyToNull(u.country),
     industry: emptyToNull(u.industry),

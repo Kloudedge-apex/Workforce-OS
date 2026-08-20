@@ -174,6 +174,7 @@ const samplePerson: UpstreamPersonDetail = {
   bestEmail: "sam@globex.io",
   score: 91,
   qualifiedAt: "2026-06-02T09:00:00.000Z",
+  stage: "replied",
   lastContactedAt: "2026-06-03T10:30:00.000Z",
   emails: [
     {
@@ -206,7 +207,7 @@ describe("shapePersonAsLead", () => {
     expect(lead.company).toBe("Globex");
     expect(lead.domain).toBe("globex.io");
     expect(lead.score).toBe(91);
-    expect(lead.stage).toBe("qualified"); // qualifiedAt set
+    expect(lead.stage).toBe("replied");
     expect(lead.cohort).toBeNull();
     expect(lead.emailStatus).toBe("DELIVERABLE");
     expect(lead.geo).toBe("Austin, TX");
@@ -220,7 +221,7 @@ describe("shapePersonAsLead", () => {
 
   it("derives stage 'enriched' when not qualified", () => {
     expect(
-      shapePersonAsLead({ ...samplePerson, qualifiedAt: null }).stage,
+      shapePersonAsLead({ ...samplePerson, stage: null, qualifiedAt: null }).stage,
     ).toBe("enriched");
   });
 
@@ -228,6 +229,7 @@ describe("shapePersonAsLead", () => {
     expect(
       shapePersonAsLead({
         ...samplePerson,
+        stage: null,
         qualifiedAt: null,
         bestEmail: null,
         emails: [],
