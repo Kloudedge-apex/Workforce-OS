@@ -499,6 +499,108 @@ paths:
               schema:
                 $ref: "#/components/schemas/ConversationMeeting"
 
+  /meetings/{meetingId}:
+    patch:
+      operationId: updateConversationMeeting
+      tags: [conversations]
+      summary: Edit a proposed or confirmed meeting ledger entry
+      parameters:
+        - name: meetingId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateConversationMeetingInput"
+      responses:
+        "200":
+          description: Meeting ledger entry updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationMeeting"
+
+  /meetings/{meetingId}/confirm:
+    post:
+      operationId: confirmConversationMeeting
+      tags: [conversations]
+      summary: Confirm a proposed meeting
+      parameters:
+        - name: meetingId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Meeting confirmed or already confirmed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationMeeting"
+
+  /meetings/{meetingId}/cancel:
+    post:
+      operationId: cancelConversationMeeting
+      tags: [conversations]
+      summary: Cancel a proposed or confirmed meeting
+      parameters:
+        - name: meetingId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelConversationMeetingInput"
+      responses:
+        "200":
+          description: Meeting cancelled or already cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationMeeting"
+
+  /meetings/{meetingId}/complete:
+    post:
+      operationId: completeConversationMeeting
+      tags: [conversations]
+      summary: Mark a confirmed meeting completed
+      parameters:
+        - name: meetingId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Meeting completed or already completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationMeeting"
+
+  /meetings/{meetingId}/no-show:
+    post:
+      operationId: markConversationMeetingNoShow
+      tags: [conversations]
+      summary: Mark a confirmed meeting no-show
+      parameters:
+        - name: meetingId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Meeting marked no-show or already no-show
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationMeeting"
+
   /conversations/{id}/archive:
     post:
       operationId: archiveConversation
@@ -1313,6 +1415,32 @@ components:
           type: string
           maxLength: 2000
       required: [scheduledFor]
+
+    UpdateConversationMeetingInput:
+      type: object
+      minProperties: 1
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        scheduledFor:
+          type: string
+          format: date-time
+        durationMinutes:
+          type: integer
+          minimum: 1
+          maximum: 1440
+        notes:
+          type: [string, "null"]
+          maxLength: 2000
+
+    CancelConversationMeetingInput:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 2000
 
     ConversationMeeting:
       type: object

@@ -801,6 +801,139 @@ export const CreateConversationMeetingResponse = zod.void()
 
 
 /**
+ * @summary Edit a proposed or confirmed meeting ledger entry
+ */
+export const UpdateConversationMeetingParams = zod.object({
+  "meetingId": zod.coerce.string()
+})
+
+export const updateConversationMeetingBodyTitleMax = 200;
+
+export const updateConversationMeetingBodyDurationMinutesMax = 1440;
+
+export const updateConversationMeetingBodyNotesMax = 2000;
+
+
+
+export const UpdateConversationMeetingBody = zod.object({
+  "title": zod.string().min(1).max(updateConversationMeetingBodyTitleMax).optional(),
+  "scheduledFor": zod.coerce.date().optional(),
+  "durationMinutes": zod.number().min(1).max(updateConversationMeetingBodyDurationMinutesMax).optional(),
+  "notes": zod.string().max(updateConversationMeetingBodyNotesMax).nullish()
+})
+
+export const UpdateConversationMeetingResponse = zod.object({
+  "id": zod.string(),
+  "conversationId": zod.string().nullish(),
+  "title": zod.string(),
+  "scheduledFor": zod.string(),
+  "durationMinutes": zod.number(),
+  "attendeeEmails": zod.array(zod.string()),
+  "notes": zod.string().nullish(),
+  "status": zod.enum(['PROPOSED', 'CONFIRMED', 'CANCELLED', 'COMPLETED', 'NO_SHOW']),
+  "source": zod.enum(['AGENT_PROPOSED', 'HUMAN_LOGGED', 'IMPORTED']),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Confirm a proposed meeting
+ */
+export const ConfirmConversationMeetingParams = zod.object({
+  "meetingId": zod.coerce.string()
+})
+
+export const ConfirmConversationMeetingResponse = zod.object({
+  "id": zod.string(),
+  "conversationId": zod.string().nullish(),
+  "title": zod.string(),
+  "scheduledFor": zod.string(),
+  "durationMinutes": zod.number(),
+  "attendeeEmails": zod.array(zod.string()),
+  "notes": zod.string().nullish(),
+  "status": zod.enum(['PROPOSED', 'CONFIRMED', 'CANCELLED', 'COMPLETED', 'NO_SHOW']),
+  "source": zod.enum(['AGENT_PROPOSED', 'HUMAN_LOGGED', 'IMPORTED']),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Cancel a proposed or confirmed meeting
+ */
+export const CancelConversationMeetingParams = zod.object({
+  "meetingId": zod.coerce.string()
+})
+
+export const cancelConversationMeetingBodyReasonMax = 2000;
+
+
+
+export const CancelConversationMeetingBody = zod.object({
+  "reason": zod.string().max(cancelConversationMeetingBodyReasonMax).optional()
+})
+
+export const CancelConversationMeetingResponse = zod.object({
+  "id": zod.string(),
+  "conversationId": zod.string().nullish(),
+  "title": zod.string(),
+  "scheduledFor": zod.string(),
+  "durationMinutes": zod.number(),
+  "attendeeEmails": zod.array(zod.string()),
+  "notes": zod.string().nullish(),
+  "status": zod.enum(['PROPOSED', 'CONFIRMED', 'CANCELLED', 'COMPLETED', 'NO_SHOW']),
+  "source": zod.enum(['AGENT_PROPOSED', 'HUMAN_LOGGED', 'IMPORTED']),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Mark a confirmed meeting completed
+ */
+export const CompleteConversationMeetingParams = zod.object({
+  "meetingId": zod.coerce.string()
+})
+
+export const CompleteConversationMeetingResponse = zod.object({
+  "id": zod.string(),
+  "conversationId": zod.string().nullish(),
+  "title": zod.string(),
+  "scheduledFor": zod.string(),
+  "durationMinutes": zod.number(),
+  "attendeeEmails": zod.array(zod.string()),
+  "notes": zod.string().nullish(),
+  "status": zod.enum(['PROPOSED', 'CONFIRMED', 'CANCELLED', 'COMPLETED', 'NO_SHOW']),
+  "source": zod.enum(['AGENT_PROPOSED', 'HUMAN_LOGGED', 'IMPORTED']),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Mark a confirmed meeting no-show
+ */
+export const MarkConversationMeetingNoShowParams = zod.object({
+  "meetingId": zod.coerce.string()
+})
+
+export const MarkConversationMeetingNoShowResponse = zod.object({
+  "id": zod.string(),
+  "conversationId": zod.string().nullish(),
+  "title": zod.string(),
+  "scheduledFor": zod.string(),
+  "durationMinutes": zod.number(),
+  "attendeeEmails": zod.array(zod.string()),
+  "notes": zod.string().nullish(),
+  "status": zod.enum(['PROPOSED', 'CONFIRMED', 'CANCELLED', 'COMPLETED', 'NO_SHOW']),
+  "source": zod.enum(['AGENT_PROPOSED', 'HUMAN_LOGGED', 'IMPORTED']),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
  * @summary Archive a conversation thread
  */
 export const ArchiveConversationParams = zod.object({

@@ -18,16 +18,29 @@ vi.mock("@workspace/api-client-react", () => {
   const mutation = () => ({ mutate: vi.fn(), isPending: false });
   return {
     useArchiveConversation: mutation,
+    useCancelConversationMeeting: mutation,
+    useCompleteConversationMeeting: mutation,
+    useConfirmConversationMeeting: mutation,
     useCreateConversationFollowUp: mutation,
     useCreateConversationMeeting: mutation,
     useCreateConversationReply: mutation,
+    useMarkConversationMeetingNoShow: mutation,
     useMarkConversationRead: mutation,
     useUnarchiveConversation: mutation,
     useUpdateConversationFollowUp: mutation,
+    useUpdateConversationMeeting: mutation,
   };
 });
 
-function detail(archived: boolean): ConversationDetail {
+function detail(
+  archived: boolean,
+  meetingStatus?:
+    | "PROPOSED"
+    | "CONFIRMED"
+    | "CANCELLED"
+    | "COMPLETED"
+    | "NO_SHOW",
+): ConversationDetail {
   return {
     conversation: {
       id: "conv_1",
@@ -53,7 +66,23 @@ function detail(archived: boolean): ConversationDetail {
     pendingDraftId: null,
     replyArtifacts: [],
     followUps: [],
-    meetings: [],
+    meetings: meetingStatus
+      ? [
+          {
+            id: "meeting_1",
+            conversationId: "conv_1",
+            title: "Technical review",
+            scheduledFor: "2026-08-21T10:00:00.000Z",
+            durationMinutes: 45,
+            attendeeEmails: ["buyer@example.com"],
+            notes: "Review security",
+            status: meetingStatus,
+            source: "HUMAN_LOGGED",
+            createdAt: "2026-08-12T09:00:00.000Z",
+            updatedAt: "2026-08-12T09:00:00.000Z",
+          },
+        ]
+      : [],
   } as ConversationDetail;
 }
 
@@ -96,4 +125,48 @@ describe("ConversationActions archive recovery", () => {
       'title="Restore this conversation before writing a reply"',
     );
   });
+});
+
+describe("ConversationActions meeting lifecycle", () => {
+  it("offers edit, confirm, and cancel for a proposed meeting", () => {
+    Object.assign(globalThis, { React });
+    const markup = renderToStaticMarkup(
+      <ConversationActions detail={detail(false, "PROPOSED")} />,
+    );
+
+    expect(markup).toContain('data-testid="meeting-edit-meeting_1"');
+    expect(markup).toContain('data-testid="meeting-confirm-meeting_1"');
+    expect(markup).toContain('data-testid="meeting-cancel-meeting_1"');
+    expect(markup).not.toContain('data-testid="meeting-complete-meeting_1"');
+    expect(markup).not.toContain('data-testid="meeting-no-show-meeting_1"');
+  });
+
+  it("offers final outcomes for a confirmed meeting", () => {
+    Object.assign(globalThis, { React });
+    const markup = renderToStaticMarkup(
+      <ConversationActions detail={detail(false, "CONFIRMED")} />,
+    );
+
+    expect(markup).toContain('data-testid="meeting-edit-meeting_1"');
+    expect(markup).toContain('data-testid="meeting-complete-meeting_1"');
+    expect(markup).toContain('data-testid="meeting-no-show-meeting_1"');
+    expect(markup).toContain('data-testid="meeting-cancel-meeting_1"');
+    expect(markup).not.toContain('data-testid="meeting-confirm-meeting_1"');
+  });
+
+  it.each(["CANCELLED", "COMPLETED", "NO_SHOW"] as const)(
+    "does not offer lifecycle mutations for a terminal %s meeting",
+    (status) => {
+      Object.assign(globalThis, { React });
+      const markup = renderToStaticMarkup(
+        <ConversationActions detail={detail(false, status)} />,
+      );
+
+      expect(markup).not.toContain('data-testid="meeting-edit-meeting_1"');
+      expect(markup).not.toContain('data-testid="meeting-confirm-meeting_1"');
+      expect(markup).not.toContain('data-testid="meeting-cancel-meeting_1"');
+      expect(markup).not.toContain('data-testid="meeting-complete-meeting_1"');
+      expect(markup).not.toContain('data-testid="meeting-no-show-meeting_1"');
+    },
+  );
 });
