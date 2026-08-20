@@ -316,7 +316,7 @@ export default function Pipeline() {
                   <EmptyState
                     icon={Search}
                     title="No leads found"
-                    description="No leads match your current search, stage, or filters. Try widening them — or clear filters to see everything."
+                    description="No leads match your current search or score filter. Try widening them or clear the filter to see everything."
                   />
                 </td>
               </tr>
