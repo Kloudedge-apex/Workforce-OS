@@ -9,10 +9,6 @@
 export interface TodayKpis {
   artifactsPending: number;
   artifactsSentToday: number;
-  /** @nullable */
-  replyRate7d: number | null;
   qualifiedMeetingsBooked: number;
-  /** @nullable */
-  leadsSourcedToday: number | null;
   leadsScored: number;
 }

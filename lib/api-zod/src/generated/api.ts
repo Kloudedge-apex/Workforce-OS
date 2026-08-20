@@ -416,9 +416,7 @@ export const GetActivityStreamResponse = zod.array(GetActivityStreamResponseItem
 export const GetTodayKpisResponse = zod.object({
   "artifactsPending": zod.number(),
   "artifactsSentToday": zod.number(),
-  "replyRate7d": zod.number().nullable(),
   "qualifiedMeetingsBooked": zod.number(),
-  "leadsSourcedToday": zod.number().nullable(),
   "leadsScored": zod.number()
 })
 
