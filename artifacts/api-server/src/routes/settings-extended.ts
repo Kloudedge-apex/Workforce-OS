@@ -195,8 +195,8 @@ export interface Integration {
 
 function mapIntegrationStatus(status: string): "connected" | "available" | "errored" {
   if (status === "CONNECTED") return "connected";
-  if (status === "ERROR" || status === "REVOKED") return "errored";
-  return "available"; // PENDING / anything else
+  if (status === "ERROR") return "errored";
+  return "available"; // PENDING / REVOKED / anything else
 }
 
 /** Pure mapper: a single apex Integration row → FE Integration. */
@@ -543,8 +543,9 @@ export function createGmailDisconnectRouter(
     "/settings/integrations/gmail/disconnect",
     async (req, res, next) => {
       try {
-        // Upstream hard-deletes the row and returns it; the integration no
-        // longer exists, so force status='available' for the FE.
+        // The upstream retains a credential-free REVOKED tombstone so durable
+        // conversations keep their integration identity. Present that local
+        // revocation as available to reconnect, never as a connector error.
         const row = (await client.post("/integrations/gmail/disconnect", {
           req,
         })) as ApexIntegration;
