@@ -23,6 +23,7 @@ const FILTERS = [
   { label: "Needs Reply", value: "needs_reply" },
   { label: "Positive", value: "positive" },
   { label: "Objection", value: "objection" },
+  { label: "Archived", value: "archived" },
 ];
 
 const PAGE_SIZE = 20;
@@ -57,6 +58,7 @@ export default function Conversations() {
     queryParams.sentiment = "positive" as ListConversationsSentiment;
   if (activeFilter === "objection")
     queryParams.sentiment = "objection" as ListConversationsSentiment;
+  if (activeFilter === "archived") queryParams.archived = true;
   if (debouncedSearch) queryParams.search = debouncedSearch;
 
   const {

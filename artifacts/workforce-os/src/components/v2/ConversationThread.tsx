@@ -192,7 +192,12 @@ export function ConversationThread({
             size="sm"
             className="bg-rust-500 hover:bg-rust-500/90 text-white shadow-sm"
             onClick={handleDraftReply}
-            disabled={draftReplyMut.isPending}
+            disabled={draftReplyMut.isPending || conversation.archived}
+            title={
+              conversation.archived
+                ? "Restore this conversation before drafting a reply"
+                : undefined
+            }
           >
             <Sparkles className="h-3 w-3 mr-2" />
             Draft Reply

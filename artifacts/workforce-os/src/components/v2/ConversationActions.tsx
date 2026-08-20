@@ -4,13 +4,17 @@ import {
   useCreateConversationFollowUp,
   useCreateConversationMeeting,
   useCreateConversationReply,
+  useArchiveConversation,
   useMarkConversationRead,
+  useUnarchiveConversation,
   useUpdateConversationFollowUp,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import {
   CalendarPlus,
+  Archive,
+  ArchiveRestore,
   Check,
   CheckCheck,
   Clock3,
@@ -44,6 +48,7 @@ import { decisionErrorMessage } from "@/lib/decisionError";
 interface ConversationActionsProps {
   detail: ConversationDetail;
   className?: string;
+  showArchiveControl?: boolean;
 }
 
 function optionalText(value: string): string | undefined {
@@ -54,6 +59,7 @@ function optionalText(value: string): string | undefined {
 export function ConversationActions({
   detail,
   className,
+  showArchiveControl = true,
 }: ConversationActionsProps) {
   const { conversation, pendingDraftId } = detail;
   const followUps = detail.followUps ?? [];
@@ -103,6 +109,26 @@ export function ConversationActions({
         refreshConversation();
       },
       onError: () => toast.error("Couldn’t mark this conversation as read"),
+    },
+  });
+
+  const archive = useArchiveConversation({
+    mutation: {
+      onSuccess: () => {
+        toast.success("Archived");
+        refreshConversation();
+      },
+      onError: (error) => toast.error(decisionErrorMessage(error)),
+    },
+  });
+
+  const unarchive = useUnarchiveConversation({
+    mutation: {
+      onSuccess: () => {
+        toast.success("Restored to inbox");
+        refreshConversation();
+      },
+      onError: (error) => toast.error(decisionErrorMessage(error)),
     },
   });
 
@@ -240,6 +266,29 @@ export function ConversationActions({
         )}
 
         <div className="grid grid-cols-2 gap-2">
+          {showArchiveControl && conversation.archived ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => unarchive.mutate({ id: conversation.id })}
+              disabled={unarchive.isPending}
+            >
+              <ArchiveRestore className="mr-1.5 h-3.5 w-3.5" />
+              {unarchive.isPending ? "Restoring…" : "Restore"}
+            </Button>
+          ) : showArchiveControl ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => archive.mutate({ id: conversation.id })}
+              disabled={archive.isPending}
+            >
+              <Archive className="mr-1.5 h-3.5 w-3.5" />
+              {archive.isPending ? "Archiving…" : "Archive"}
+            </Button>
+          ) : null}
           {conversation.unread && (
             <Button
               type="button"

@@ -4,6 +4,7 @@ import {
   useGetConversation,
   useDraftReply,
   useArchiveConversation,
+  useUnarchiveConversation,
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -11,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   ArrowLeft,
   Archive,
+  ArchiveRestore,
   Sparkles,
   MessageSquareDashed,
 } from "lucide-react";
@@ -67,6 +69,17 @@ export default function ConversationThread() {
       onError: (error) => toast.error(decisionErrorMessage(error)),
     },
   });
+
+  const { mutate: unarchive, isPending: unarchiving } =
+    useUnarchiveConversation({
+      mutation: {
+        onSuccess: () => {
+          toast.success("Restored to inbox");
+          navigate("/conversations");
+        },
+        onError: (error) => toast.error(decisionErrorMessage(error)),
+      },
+    });
 
   if (isLoading)
     return (
@@ -125,7 +138,18 @@ export default function ConversationThread() {
           {conv.subject}
         </span>
         <div className="flex items-center gap-2">
-          {!conv.archived && (
+          {conv.archived ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => unarchive({ id })}
+              disabled={unarchiving}
+              className="text-ink-500 hover:text-ink-900"
+            >
+              <ArchiveRestore className="h-4 w-4 mr-1.5" />
+              {unarchiving ? "Restoring…" : "Restore"}
+            </Button>
+          ) : (
             <Button
               variant="ghost"
               size="sm"
@@ -271,6 +295,7 @@ export default function ConversationThread() {
 
               <ConversationActions
                 detail={data}
+                showArchiveControl={false}
                 className="border-t border-paper-200 pt-4"
               />
             </div>

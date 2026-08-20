@@ -16,6 +16,7 @@ import {
   GetConversationParams,
   ListConversationsQueryParams,
   MarkConversationReadParams,
+  UnarchiveConversationParams,
   UpdateConversationFollowUpBody,
   UpdateConversationFollowUpParams,
   type BulkActionResult,
@@ -541,6 +542,27 @@ export function createConversationsRouter(
       try {
         const upstream = (await upstreamClient.post(
           `/conversations/${encodeURIComponent(parsed.data.id)}/archive`,
+          { req },
+        )) as BulkActionResult;
+        res.json(upstream);
+      } catch (error) {
+        forwardUpstreamError(error, res, next);
+      }
+    },
+  );
+
+  router.post(
+    "/conversations/:id/unarchive",
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      const parsed = UnarchiveConversationParams.safeParse(req.params);
+      if (!parsed.success) {
+        res.status(400).json({ error: "Invalid params" });
+        return;
+      }
+
+      try {
+        const upstream = (await upstreamClient.post(
+          `/conversations/${encodeURIComponent(parsed.data.id)}/unarchive`,
           { req },
         )) as BulkActionResult;
         res.json(upstream);
