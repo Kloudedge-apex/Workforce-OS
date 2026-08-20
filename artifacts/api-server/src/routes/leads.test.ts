@@ -49,6 +49,7 @@ const sampleUiLead: UpstreamUiLead = {
   source: "discovery",
   emailStatus: "not_sent",
   timeline: [],
+  lastContactedAt: "2026-06-03T10:30:00.000Z",
   createdAt: "2026-06-01T12:00:00.000Z",
 };
 
@@ -93,7 +94,7 @@ describe("shapeLead", () => {
       cohort: null,
       emailStatus: null,
       intentSignals: null,
-      lastContactedAt: null,
+      lastContactedAt: "2026-06-03T10:30:00.000Z",
       sendPolicy: null,
       createdAt: "2026-06-01T12:00:00.000Z",
     });
@@ -124,6 +125,10 @@ describe("shapeLead", () => {
 
   it("preserves an unscored lead as unknown instead of inventing zero", () => {
     expect(shapeLead({ ...sampleUiLead, score: null }).score).toBeNull();
+  });
+
+  it("preserves missing contact history as unknown", () => {
+    expect(shapeLead({ ...sampleUiLead, lastContactedAt: "  " }).lastContactedAt).toBeNull();
   });
 });
 
@@ -169,6 +174,7 @@ const samplePerson: UpstreamPersonDetail = {
   bestEmail: "sam@globex.io",
   score: 91,
   qualifiedAt: "2026-06-02T09:00:00.000Z",
+  lastContactedAt: "2026-06-03T10:30:00.000Z",
   emails: [
     {
       email: "sam@globex.io",
@@ -207,6 +213,7 @@ describe("shapePersonAsLead", () => {
     expect(lead.industry).toBe("Software");
     expect(lead.headcountEstimate).toBe("51-200");
     expect(lead.intentSignals).toEqual(samplePerson.intentSignals);
+    expect(lead.lastContactedAt).toBe("2026-06-03T10:30:00.000Z");
     expect(lead.createdAt).toBe("2026-06-01T12:00:00.000Z");
     expect(lead.sendPolicy).toBeNull(); // no policy source — never fabricated
   });
@@ -230,6 +237,12 @@ describe("shapePersonAsLead", () => {
 
   it("preserves a missing person score as unknown", () => {
     expect(shapePersonAsLead({ ...samplePerson, score: null }).score).toBeNull();
+  });
+
+  it("preserves missing person contact history as unknown", () => {
+    expect(
+      shapePersonAsLead({ ...samplePerson, lastContactedAt: null }).lastContactedAt,
+    ).toBeNull();
   });
 });
 

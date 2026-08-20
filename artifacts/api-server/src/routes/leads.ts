@@ -127,6 +127,7 @@ export interface UpstreamUiLead {
   source: string;
   emailStatus: "not_sent" | "sent" | "opened" | "replied" | "bounced";
   timeline: Array<{ stage: string; at: string }>;
+  lastContactedAt: string | null;
   createdAt: string;
 }
 
@@ -156,6 +157,7 @@ export interface UpstreamPersonDetail {
   bestEmail: string | null;
   score: number | null;
   qualifiedAt: string | null;
+  lastContactedAt: string | null;
   emails: Array<{
     email: string;
     pattern: string | null;
@@ -218,8 +220,7 @@ export function shapeLead(u: UpstreamUiLead): Lead {
     cohort: null,
     emailStatus: null,
     intentSignals: null,
-    // timeline is always [] upstream and sentAt is not surfaced.
-    lastContactedAt: null,
+    lastContactedAt: emptyToNull(u.lastContactedAt),
     // No per-recipient send-policy source upstream (liveSendEnabled is the
     // env gate OUTREACH_LIVE_FOR_ORGS, unsubscribe config has no API, postal
     // address only lives on /orgs/me) — null, never a fabricated all-false.
@@ -280,7 +281,7 @@ export function shapePersonAsLead(u: UpstreamPersonDetail): Lead {
       u.emails.find((email) => email.email === u.bestEmail) ?? u.emails[0],
     ),
     intentSignals: u.intentSignals,
-    lastContactedAt: null,
+    lastContactedAt: emptyToNull(u.lastContactedAt),
     // Same honesty rule as shapeLead: no real policy source → null.
     sendPolicy: null,
     createdAt: u.createdAt,
