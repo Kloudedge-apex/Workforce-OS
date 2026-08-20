@@ -1,13 +1,19 @@
 import React from "react";
 import {
   type ConversationDetail,
+  type ConversationMeeting,
+  useCancelConversationMeeting,
+  useCompleteConversationMeeting,
+  useConfirmConversationMeeting,
   useCreateConversationFollowUp,
   useCreateConversationMeeting,
   useCreateConversationReply,
   useArchiveConversation,
+  useMarkConversationMeetingNoShow,
   useMarkConversationRead,
   useUnarchiveConversation,
   useUpdateConversationFollowUp,
+  useUpdateConversationMeeting,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -56,6 +62,27 @@ function optionalText(value: string): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+interface MeetingDraft {
+  title: string;
+  scheduledFor: string;
+  durationMinutes: string;
+  notes: string;
+}
+
+function meetingDraftFrom(meeting: ConversationMeeting): MeetingDraft {
+  return {
+    title: meeting.title,
+    scheduledFor: format(new Date(meeting.scheduledFor), "yyyy-MM-dd'T'HH:mm"),
+    durationMinutes: String(meeting.durationMinutes),
+    notes: meeting.notes ?? "",
+  };
+}
+
+function localDateTimeToIso(value: string): string | null {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
 export function ConversationActions({
   detail,
   className,
@@ -69,6 +96,15 @@ export function ConversationActions({
   const [replyOpen, setReplyOpen] = React.useState(false);
   const [followUpOpen, setFollowUpOpen] = React.useState(false);
   const [meetingOpen, setMeetingOpen] = React.useState(false);
+  const [meetingToEdit, setMeetingToEdit] =
+    React.useState<ConversationMeeting | null>(null);
+  const [meetingToCancel, setMeetingToCancel] =
+    React.useState<ConversationMeeting | null>(null);
+  const [terminalMeetingAction, setTerminalMeetingAction] = React.useState<{
+    meeting: ConversationMeeting;
+    outcome: "complete" | "no-show";
+  } | null>(null);
+  const [cancellationReason, setCancellationReason] = React.useState("");
   const [replyDraft, setReplyDraft] = React.useState({
     subject: replySubject(conversation.subject),
     body: "",
@@ -80,6 +116,12 @@ export function ConversationActions({
   const [meetingDraft, setMeetingDraft] = React.useState({
     title: `Meeting with ${conversation.leadName}`,
     scheduledFor: defaultLocalDateTime(24 * 60),
+    durationMinutes: "30",
+    notes: "",
+  });
+  const [meetingEditDraft, setMeetingEditDraft] = React.useState<MeetingDraft>({
+    title: "",
+    scheduledFor: "",
     durationMinutes: "30",
     notes: "",
   });
@@ -195,6 +237,68 @@ export function ConversationActions({
     },
   });
 
+  const updateMeeting = useUpdateConversationMeeting({
+    mutation: {
+      onSuccess: () => {
+        setMeetingToEdit(null);
+        toast.success("Meeting details updated");
+        refreshConversation();
+      },
+      onError: (error) => toast.error(decisionErrorMessage(error)),
+    },
+  });
+
+  const confirmMeeting = useConfirmConversationMeeting({
+    mutation: {
+      onSuccess: () => {
+        toast.success("Meeting confirmed in the internal ledger");
+        refreshConversation();
+      },
+      onError: (error) => toast.error(decisionErrorMessage(error)),
+    },
+  });
+
+  const cancelMeeting = useCancelConversationMeeting({
+    mutation: {
+      onSuccess: () => {
+        setMeetingToCancel(null);
+        setCancellationReason("");
+        toast.success("Meeting cancelled");
+        refreshConversation();
+      },
+      onError: (error) => toast.error(decisionErrorMessage(error)),
+    },
+  });
+
+  const completeMeeting = useCompleteConversationMeeting({
+    mutation: {
+      onSuccess: () => {
+        setTerminalMeetingAction(null);
+        toast.success("Meeting marked completed");
+        refreshConversation();
+      },
+      onError: (error) => toast.error(decisionErrorMessage(error)),
+    },
+  });
+
+  const markMeetingNoShow = useMarkConversationMeetingNoShow({
+    mutation: {
+      onSuccess: () => {
+        setTerminalMeetingAction(null);
+        toast.success("Meeting marked no-show");
+        refreshConversation();
+      },
+      onError: (error) => toast.error(decisionErrorMessage(error)),
+    },
+  });
+
+  const meetingMutationPending =
+    updateMeeting.isPending ||
+    confirmMeeting.isPending ||
+    cancelMeeting.isPending ||
+    completeMeeting.isPending ||
+    markMeetingNoShow.isPending;
+
   const submitReply = () => {
     if (conversation.archived) {
       toast.error("Restore this conversation before writing another reply");
@@ -247,6 +351,62 @@ export function ConversationActions({
         durationMinutes,
         notes: optionalText(meetingDraft.notes),
       },
+    });
+  };
+
+  const openMeetingEdit = (meeting: ConversationMeeting) => {
+    setMeetingEditDraft(meetingDraftFrom(meeting));
+    setMeetingToEdit(meeting);
+  };
+
+  const submitMeetingEdit = () => {
+    if (!meetingToEdit) return;
+    const title = meetingEditDraft.title.trim();
+    const scheduledFor = localDateTimeToIso(meetingEditDraft.scheduledFor);
+    const durationMinutes = Number(meetingEditDraft.durationMinutes);
+    if (!title) {
+      toast.error("Add a title for the meeting");
+      return;
+    }
+    if (!scheduledFor) {
+      toast.error("Choose a valid date and time for the meeting");
+      return;
+    }
+    if (
+      !Number.isInteger(durationMinutes) ||
+      durationMinutes < 1 ||
+      durationMinutes > 1440
+    ) {
+      toast.error("Meeting duration must be between 1 and 1,440 minutes");
+      return;
+    }
+    updateMeeting.mutate({
+      meetingId: meetingToEdit.id,
+      data: {
+        title,
+        scheduledFor,
+        durationMinutes,
+        notes: optionalText(meetingEditDraft.notes) ?? null,
+      },
+    });
+  };
+
+  const submitMeetingCancellation = () => {
+    if (!meetingToCancel) return;
+    cancelMeeting.mutate({
+      meetingId: meetingToCancel.id,
+      data: { reason: optionalText(cancellationReason) },
+    });
+  };
+
+  const submitTerminalMeetingAction = () => {
+    if (!terminalMeetingAction) return;
+    if (terminalMeetingAction.outcome === "complete") {
+      completeMeeting.mutate({ meetingId: terminalMeetingAction.meeting.id });
+      return;
+    }
+    markMeetingNoShow.mutate({
+      meetingId: terminalMeetingAction.meeting.id,
     });
   };
 
@@ -425,7 +585,7 @@ export function ConversationActions({
         {meetings.length > 0 && (
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">
-              Meeting proposals
+              Meetings
             </p>
             <div className="space-y-2">
               {meetings.map((meeting) => (
@@ -447,9 +607,90 @@ export function ConversationActions({
                       </p>
                     </div>
                     <Badge variant="outline" className="text-[10px]">
-                      {meeting.status.toLowerCase()}
+                      {meeting.status.toLowerCase().replace("_", "-")}
                     </Badge>
                   </div>
+                  {(meeting.status === "PROPOSED" ||
+                    meeting.status === "CONFIRMED") && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        data-testid={`meeting-edit-${meeting.id}`}
+                        disabled={meetingMutationPending}
+                        onClick={() => openMeetingEdit(meeting)}
+                      >
+                        Edit
+                      </Button>
+                      {meeting.status === "PROPOSED" && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          data-testid={`meeting-confirm-${meeting.id}`}
+                          disabled={meetingMutationPending}
+                          onClick={() =>
+                            confirmMeeting.mutate({ meetingId: meeting.id })
+                          }
+                        >
+                          Confirm
+                        </Button>
+                      )}
+                      {meeting.status === "CONFIRMED" && (
+                        <>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            data-testid={`meeting-complete-${meeting.id}`}
+                            disabled={meetingMutationPending}
+                            onClick={() =>
+                              setTerminalMeetingAction({
+                                meeting,
+                                outcome: "complete",
+                              })
+                            }
+                          >
+                            Complete
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs text-ink-500"
+                            data-testid={`meeting-no-show-${meeting.id}`}
+                            disabled={meetingMutationPending}
+                            onClick={() =>
+                              setTerminalMeetingAction({
+                                meeting,
+                                outcome: "no-show",
+                              })
+                            }
+                          >
+                            No-show
+                          </Button>
+                        </>
+                      )}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs text-ink-500"
+                        data-testid={`meeting-cancel-${meeting.id}`}
+                        disabled={meetingMutationPending}
+                        onClick={() => {
+                          setCancellationReason("");
+                          setMeetingToCancel(meeting);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -655,6 +896,209 @@ export function ConversationActions({
             </Button>
             <Button onClick={submitMeeting} disabled={createMeeting.isPending}>
               {createMeeting.isPending ? "Recording…" : "Record proposal"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={meetingToEdit !== null}
+        onOpenChange={(open) => {
+          if (!open && !updateMeeting.isPending) setMeetingToEdit(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="font-serif">Edit meeting</DialogTitle>
+            <DialogDescription>
+              Update the internal ledger entry. This does not change an external
+              calendar event or send an invite.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <Label htmlFor="conversation-meeting-edit-title">Title</Label>
+              <Input
+                id="conversation-meeting-edit-title"
+                className="mt-1.5"
+                maxLength={200}
+                value={meetingEditDraft.title}
+                onChange={(event) =>
+                  setMeetingEditDraft((current) => ({
+                    ...current,
+                    title: event.target.value,
+                  }))
+                }
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="conversation-meeting-edit-time">
+                  Date and time
+                </Label>
+                <Input
+                  id="conversation-meeting-edit-time"
+                  type="datetime-local"
+                  className="mt-1.5"
+                  value={meetingEditDraft.scheduledFor}
+                  onChange={(event) =>
+                    setMeetingEditDraft((current) => ({
+                      ...current,
+                      scheduledFor: event.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div>
+                <Label htmlFor="conversation-meeting-edit-duration">
+                  Duration (minutes)
+                </Label>
+                <Input
+                  id="conversation-meeting-edit-duration"
+                  type="number"
+                  min={1}
+                  max={1440}
+                  className="mt-1.5"
+                  value={meetingEditDraft.durationMinutes}
+                  onChange={(event) =>
+                    setMeetingEditDraft((current) => ({
+                      ...current,
+                      durationMinutes: event.target.value,
+                    }))
+                  }
+                />
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="conversation-meeting-edit-notes">Notes</Label>
+              <Textarea
+                id="conversation-meeting-edit-notes"
+                className="mt-1.5"
+                maxLength={2000}
+                value={meetingEditDraft.notes}
+                onChange={(event) =>
+                  setMeetingEditDraft((current) => ({
+                    ...current,
+                    notes: event.target.value,
+                  }))
+                }
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setMeetingToEdit(null)}
+              disabled={updateMeeting.isPending}
+            >
+              Keep unchanged
+            </Button>
+            <Button
+              onClick={submitMeetingEdit}
+              disabled={updateMeeting.isPending}
+            >
+              {updateMeeting.isPending ? "Saving…" : "Save changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={meetingToCancel !== null}
+        onOpenChange={(open) => {
+          if (!open && !cancelMeeting.isPending) {
+            setMeetingToCancel(null);
+            setCancellationReason("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="font-serif">Cancel meeting</DialogTitle>
+            <DialogDescription>
+              This closes the meeting in the internal ledger. It does not cancel
+              an external calendar event or notify attendees.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-2">
+            <Label htmlFor="conversation-meeting-cancel-reason">
+              Reason (optional)
+            </Label>
+            <Textarea
+              id="conversation-meeting-cancel-reason"
+              className="mt-1.5"
+              maxLength={2000}
+              placeholder="Why was this meeting cancelled?"
+              value={cancellationReason}
+              onChange={(event) => setCancellationReason(event.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setMeetingToCancel(null)}
+              disabled={cancelMeeting.isPending}
+            >
+              Keep meeting
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={submitMeetingCancellation}
+              disabled={cancelMeeting.isPending}
+            >
+              {cancelMeeting.isPending ? "Cancelling…" : "Cancel meeting"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={terminalMeetingAction !== null}
+        onOpenChange={(open) => {
+          if (
+            !open &&
+            !completeMeeting.isPending &&
+            !markMeetingNoShow.isPending
+          ) {
+            setTerminalMeetingAction(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="font-serif">
+              Mark meeting{" "}
+              {terminalMeetingAction?.outcome === "no-show"
+                ? "no-show"
+                : "completed"}
+              ?
+            </DialogTitle>
+            <DialogDescription>
+              This records a final outcome in the internal ledger. It does not
+              update an external calendar.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setTerminalMeetingAction(null)}
+              disabled={
+                completeMeeting.isPending || markMeetingNoShow.isPending
+              }
+            >
+              Go back
+            </Button>
+            <Button
+              onClick={submitTerminalMeetingAction}
+              disabled={
+                completeMeeting.isPending || markMeetingNoShow.isPending
+              }
+            >
+              {completeMeeting.isPending || markMeetingNoShow.isPending
+                ? "Saving…"
+                : terminalMeetingAction?.outcome === "no-show"
+                  ? "Mark no-show"
+                  : "Mark completed"}
             </Button>
           </DialogFooter>
         </DialogContent>

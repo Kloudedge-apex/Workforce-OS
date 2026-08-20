@@ -6,6 +6,10 @@ import {
 } from "express";
 import {
   ArchiveConversationParams,
+  CancelConversationMeetingBody,
+  CancelConversationMeetingParams,
+  CompleteConversationMeetingParams,
+  ConfirmConversationMeetingParams,
   CreateConversationFollowUpBody,
   CreateConversationFollowUpParams,
   CreateConversationMeetingBody,
@@ -15,8 +19,11 @@ import {
   DraftReplyParams,
   GetConversationParams,
   ListConversationsQueryParams,
+  MarkConversationMeetingNoShowParams,
   MarkConversationReadParams,
   UnarchiveConversationParams,
+  UpdateConversationMeetingBody,
+  UpdateConversationMeetingParams,
   UpdateConversationFollowUpBody,
   UpdateConversationFollowUpParams,
   type BulkActionResult,
@@ -524,6 +531,124 @@ export function createConversationsRouter(
           body.data,
         )) as ConversationMeeting;
         res.status(201).json(upstream);
+      } catch (error) {
+        forwardUpstreamError(error, res, next);
+      }
+    },
+  );
+
+  router.patch(
+    "/meetings/:meetingId",
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      const params = UpdateConversationMeetingParams.safeParse(req.params);
+      const body = UpdateConversationMeetingBody.safeParse(req.body);
+      if (
+        !params.success ||
+        !body.success ||
+        Object.keys(body.data).length === 0 ||
+        (req.body?.scheduledFor !== undefined &&
+          typeof req.body.scheduledFor !== "string") ||
+        (body.data.durationMinutes !== undefined &&
+          !Number.isInteger(body.data.durationMinutes)) ||
+        (body.data.title !== undefined && body.data.title.trim().length === 0)
+      ) {
+        res.status(400).json({ error: "Invalid meeting update" });
+        return;
+      }
+
+      try {
+        const upstream = (await upstreamClient.patch(
+          `/meetings/${encodeURIComponent(params.data.meetingId)}`,
+          { req },
+          body.data,
+        )) as ConversationMeeting;
+        res.json(upstream);
+      } catch (error) {
+        forwardUpstreamError(error, res, next);
+      }
+    },
+  );
+
+  router.post(
+    "/meetings/:meetingId/confirm",
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      const params = ConfirmConversationMeetingParams.safeParse(req.params);
+      if (!params.success) {
+        res.status(400).json({ error: "Invalid meeting" });
+        return;
+      }
+
+      try {
+        const upstream = (await upstreamClient.post(
+          `/meetings/${encodeURIComponent(params.data.meetingId)}/confirm`,
+          { req },
+        )) as ConversationMeeting;
+        res.json(upstream);
+      } catch (error) {
+        forwardUpstreamError(error, res, next);
+      }
+    },
+  );
+
+  router.post(
+    "/meetings/:meetingId/cancel",
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      const params = CancelConversationMeetingParams.safeParse(req.params);
+      const body = CancelConversationMeetingBody.safeParse(req.body ?? {});
+      if (!params.success || !body.success) {
+        res.status(400).json({ error: "Invalid meeting cancellation" });
+        return;
+      }
+
+      try {
+        const upstream = (await upstreamClient.post(
+          `/meetings/${encodeURIComponent(params.data.meetingId)}/cancel`,
+          { req },
+          body.data,
+        )) as ConversationMeeting;
+        res.json(upstream);
+      } catch (error) {
+        forwardUpstreamError(error, res, next);
+      }
+    },
+  );
+
+  router.post(
+    "/meetings/:meetingId/complete",
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      const params = CompleteConversationMeetingParams.safeParse(req.params);
+      if (!params.success) {
+        res.status(400).json({ error: "Invalid meeting" });
+        return;
+      }
+
+      try {
+        const upstream = (await upstreamClient.post(
+          `/meetings/${encodeURIComponent(params.data.meetingId)}/complete`,
+          { req },
+        )) as ConversationMeeting;
+        res.json(upstream);
+      } catch (error) {
+        forwardUpstreamError(error, res, next);
+      }
+    },
+  );
+
+  router.post(
+    "/meetings/:meetingId/no-show",
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      const params = MarkConversationMeetingNoShowParams.safeParse(req.params);
+      if (!params.success) {
+        res.status(400).json({ error: "Invalid meeting" });
+        return;
+      }
+
+      try {
+        const upstream = (await upstreamClient.post(
+          `/meetings/${encodeURIComponent(params.data.meetingId)}/no-show`,
+          { req },
+        )) as ConversationMeeting;
+        res.json(upstream);
       } catch (error) {
         forwardUpstreamError(error, res, next);
       }

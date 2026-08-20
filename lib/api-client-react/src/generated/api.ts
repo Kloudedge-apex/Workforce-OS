@@ -26,6 +26,7 @@ import type {
   BulkActionResult,
   BulkLeadIds,
   BulkPersonSuppressionResult,
+  CancelConversationMeetingInput,
   ConversationDetail,
   ConversationFollowUp,
   ConversationMeeting,
@@ -61,6 +62,7 @@ import type {
   TodayKpis,
   TriggerResult,
   UpdateConversationFollowUpInput,
+  UpdateConversationMeetingInput,
   UpdateOrgInput,
   WelcomeStatus
 } from './api.schemas';
@@ -1589,6 +1591,358 @@ export const useCreateConversationMeeting = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getCreateConversationMeetingMutationOptions(options));
+    }
+
+export const getUpdateConversationMeetingUrl = (meetingId: string,) => {
+
+
+
+
+  return `/api/meetings/${meetingId}`
+}
+
+/**
+ * @summary Edit a proposed or confirmed meeting ledger entry
+ */
+export const updateConversationMeeting = async (meetingId: string,
+    updateConversationMeetingInput: UpdateConversationMeetingInput, options?: RequestInit): Promise<ConversationMeeting> => {
+
+  return customFetch<ConversationMeeting>(getUpdateConversationMeetingUrl(meetingId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateConversationMeetingInput)
+  }
+);}
+
+
+
+
+export const getUpdateConversationMeetingMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateConversationMeeting>>, TError,{meetingId: string;data: BodyType<UpdateConversationMeetingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateConversationMeeting>>, TError,{meetingId: string;data: BodyType<UpdateConversationMeetingInput>}, TContext> => {
+
+const mutationKey = ['updateConversationMeeting'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateConversationMeeting>>, {meetingId: string;data: BodyType<UpdateConversationMeetingInput>}> = (props) => {
+          const {meetingId,data} = props ?? {};
+
+          return  updateConversationMeeting(meetingId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateConversationMeetingMutationResult = NonNullable<Awaited<ReturnType<typeof updateConversationMeeting>>>
+    export type UpdateConversationMeetingMutationBody = BodyType<UpdateConversationMeetingInput>
+    export type UpdateConversationMeetingMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Edit a proposed or confirmed meeting ledger entry
+ */
+export const useUpdateConversationMeeting = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateConversationMeeting>>, TError,{meetingId: string;data: BodyType<UpdateConversationMeetingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateConversationMeeting>>,
+        TError,
+        {meetingId: string;data: BodyType<UpdateConversationMeetingInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateConversationMeetingMutationOptions(options));
+    }
+
+export const getConfirmConversationMeetingUrl = (meetingId: string,) => {
+
+
+
+
+  return `/api/meetings/${meetingId}/confirm`
+}
+
+/**
+ * @summary Confirm a proposed meeting
+ */
+export const confirmConversationMeeting = async (meetingId: string, options?: RequestInit): Promise<ConversationMeeting> => {
+
+  return customFetch<ConversationMeeting>(getConfirmConversationMeetingUrl(meetingId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getConfirmConversationMeetingMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof confirmConversationMeeting>>, TError,{meetingId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof confirmConversationMeeting>>, TError,{meetingId: string}, TContext> => {
+
+const mutationKey = ['confirmConversationMeeting'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof confirmConversationMeeting>>, {meetingId: string}> = (props) => {
+          const {meetingId} = props ?? {};
+
+          return  confirmConversationMeeting(meetingId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ConfirmConversationMeetingMutationResult = NonNullable<Awaited<ReturnType<typeof confirmConversationMeeting>>>
+
+    export type ConfirmConversationMeetingMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Confirm a proposed meeting
+ */
+export const useConfirmConversationMeeting = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof confirmConversationMeeting>>, TError,{meetingId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof confirmConversationMeeting>>,
+        TError,
+        {meetingId: string},
+        TContext
+      > => {
+      return useMutation(getConfirmConversationMeetingMutationOptions(options));
+    }
+
+export const getCancelConversationMeetingUrl = (meetingId: string,) => {
+
+
+
+
+  return `/api/meetings/${meetingId}/cancel`
+}
+
+/**
+ * @summary Cancel a proposed or confirmed meeting
+ */
+export const cancelConversationMeeting = async (meetingId: string,
+    cancelConversationMeetingInput: CancelConversationMeetingInput, options?: RequestInit): Promise<ConversationMeeting> => {
+
+  return customFetch<ConversationMeeting>(getCancelConversationMeetingUrl(meetingId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(cancelConversationMeetingInput)
+  }
+);}
+
+
+
+
+export const getCancelConversationMeetingMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelConversationMeeting>>, TError,{meetingId: string;data: BodyType<CancelConversationMeetingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof cancelConversationMeeting>>, TError,{meetingId: string;data: BodyType<CancelConversationMeetingInput>}, TContext> => {
+
+const mutationKey = ['cancelConversationMeeting'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof cancelConversationMeeting>>, {meetingId: string;data: BodyType<CancelConversationMeetingInput>}> = (props) => {
+          const {meetingId,data} = props ?? {};
+
+          return  cancelConversationMeeting(meetingId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CancelConversationMeetingMutationResult = NonNullable<Awaited<ReturnType<typeof cancelConversationMeeting>>>
+    export type CancelConversationMeetingMutationBody = BodyType<CancelConversationMeetingInput>
+    export type CancelConversationMeetingMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Cancel a proposed or confirmed meeting
+ */
+export const useCancelConversationMeeting = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelConversationMeeting>>, TError,{meetingId: string;data: BodyType<CancelConversationMeetingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof cancelConversationMeeting>>,
+        TError,
+        {meetingId: string;data: BodyType<CancelConversationMeetingInput>},
+        TContext
+      > => {
+      return useMutation(getCancelConversationMeetingMutationOptions(options));
+    }
+
+export const getCompleteConversationMeetingUrl = (meetingId: string,) => {
+
+
+
+
+  return `/api/meetings/${meetingId}/complete`
+}
+
+/**
+ * @summary Mark a confirmed meeting completed
+ */
+export const completeConversationMeeting = async (meetingId: string, options?: RequestInit): Promise<ConversationMeeting> => {
+
+  return customFetch<ConversationMeeting>(getCompleteConversationMeetingUrl(meetingId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getCompleteConversationMeetingMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeConversationMeeting>>, TError,{meetingId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof completeConversationMeeting>>, TError,{meetingId: string}, TContext> => {
+
+const mutationKey = ['completeConversationMeeting'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof completeConversationMeeting>>, {meetingId: string}> = (props) => {
+          const {meetingId} = props ?? {};
+
+          return  completeConversationMeeting(meetingId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CompleteConversationMeetingMutationResult = NonNullable<Awaited<ReturnType<typeof completeConversationMeeting>>>
+
+    export type CompleteConversationMeetingMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Mark a confirmed meeting completed
+ */
+export const useCompleteConversationMeeting = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeConversationMeeting>>, TError,{meetingId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof completeConversationMeeting>>,
+        TError,
+        {meetingId: string},
+        TContext
+      > => {
+      return useMutation(getCompleteConversationMeetingMutationOptions(options));
+    }
+
+export const getMarkConversationMeetingNoShowUrl = (meetingId: string,) => {
+
+
+
+
+  return `/api/meetings/${meetingId}/no-show`
+}
+
+/**
+ * @summary Mark a confirmed meeting no-show
+ */
+export const markConversationMeetingNoShow = async (meetingId: string, options?: RequestInit): Promise<ConversationMeeting> => {
+
+  return customFetch<ConversationMeeting>(getMarkConversationMeetingNoShowUrl(meetingId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getMarkConversationMeetingNoShowMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof markConversationMeetingNoShow>>, TError,{meetingId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof markConversationMeetingNoShow>>, TError,{meetingId: string}, TContext> => {
+
+const mutationKey = ['markConversationMeetingNoShow'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof markConversationMeetingNoShow>>, {meetingId: string}> = (props) => {
+          const {meetingId} = props ?? {};
+
+          return  markConversationMeetingNoShow(meetingId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type MarkConversationMeetingNoShowMutationResult = NonNullable<Awaited<ReturnType<typeof markConversationMeetingNoShow>>>
+
+    export type MarkConversationMeetingNoShowMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Mark a confirmed meeting no-show
+ */
+export const useMarkConversationMeetingNoShow = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof markConversationMeetingNoShow>>, TError,{meetingId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof markConversationMeetingNoShow>>,
+        TError,
+        {meetingId: string},
+        TContext
+      > => {
+      return useMutation(getMarkConversationMeetingNoShowMutationOptions(options));
     }
 
 export const getArchiveConversationUrl = (id: string,) => {

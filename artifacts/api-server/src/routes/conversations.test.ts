@@ -61,6 +61,20 @@ const detailResponse: UpstreamConversationDetail = {
   meetings: [],
 };
 
+const meetingResponse = {
+  id: "meeting_1",
+  conversationId: "conv_1",
+  title: "Technical review",
+  scheduledFor: "2026-08-21T10:00:00.000Z",
+  durationMinutes: 45,
+  attendeeEmails: ["avery@example.com"],
+  notes: "Review security",
+  status: "PROPOSED",
+  source: "HUMAN_LOGGED",
+  createdAt: "2026-08-12T09:00:00.000Z",
+  updatedAt: "2026-08-12T09:00:00.000Z",
+};
+
 async function request(
   router: Router,
   path: string,
@@ -642,20 +656,7 @@ describe("conversations router", () => {
   });
 
   it("records a meeting proposal without forwarding send fields", async () => {
-    const meeting = {
-      id: "meeting_1",
-      conversationId: "conv_1",
-      title: "Technical review",
-      scheduledFor: "2026-08-21T10:00:00.000Z",
-      durationMinutes: 45,
-      attendeeEmails: ["avery@example.com"],
-      notes: "Review security",
-      status: "PROPOSED",
-      source: "HUMAN_LOGGED",
-      createdAt: "2026-08-12T09:00:00.000Z",
-      updatedAt: "2026-08-12T09:00:00.000Z",
-    };
-    const { client, post } = clientWith({ post: async () => meeting });
+    const { client, post } = clientWith({ post: async () => meetingResponse });
     const result = await request(
       createConversationsRouter(client),
       "/conversations/conv_1/meetings",
@@ -663,23 +664,105 @@ describe("conversations router", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          title: meeting.title,
-          scheduledFor: meeting.scheduledFor,
-          durationMinutes: meeting.durationMinutes,
-          notes: meeting.notes,
+          title: meetingResponse.title,
+          scheduledFor: meetingResponse.scheduledFor,
+          durationMinutes: meetingResponse.durationMinutes,
+          notes: meetingResponse.notes,
           sendInvite: true,
         }),
       },
     );
 
-    expect(result).toEqual({ status: 201, body: meeting });
+    expect(result).toEqual({ status: 201, body: meetingResponse });
     expect(post.mock.calls[0][0]).toBe("/conversations/conv_1/meetings");
     expect(post.mock.calls[0][2]).toEqual({
-      title: meeting.title,
-      scheduledFor: new Date(meeting.scheduledFor),
+      title: meetingResponse.title,
+      scheduledFor: new Date(meetingResponse.scheduledFor),
       durationMinutes: 45,
-      notes: meeting.notes,
+      notes: meetingResponse.notes,
     });
+  });
+
+  it("edits an active meeting without forwarding unknown fields", async () => {
+    const updatedMeeting = { ...meetingResponse, status: "CONFIRMED" };
+    const { client, patch } = clientWith({ patch: async () => updatedMeeting });
+    const result = await request(
+      createConversationsRouter(client),
+      "/meetings/meeting%201",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          title: "Updated review",
+          scheduledFor: "2026-08-22T11:30:00.000Z",
+          durationMinutes: 60,
+          notes: null,
+          status: "COMPLETED",
+        }),
+      },
+    );
+
+    expect(result).toEqual({ status: 200, body: updatedMeeting });
+    expect(patch.mock.calls[0][0]).toBe("/meetings/meeting%201");
+    expect(patch.mock.calls[0][2]).toEqual({
+      title: "Updated review",
+      scheduledFor: new Date("2026-08-22T11:30:00.000Z"),
+      durationMinutes: 60,
+      notes: null,
+    });
+  });
+
+  it("rejects an empty or malformed meeting update", async () => {
+    const { client, patch } = clientWith({});
+    const router = createConversationsRouter(client);
+    const empty = await request(router, "/meetings/meeting_1", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "COMPLETED" }),
+    });
+    const fractionalDuration = await request(router, "/meetings/meeting_1", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ durationMinutes: 30.5 }),
+    });
+
+    expect(empty).toEqual({
+      status: 400,
+      body: { error: "Invalid meeting update" },
+    });
+    expect(fractionalDuration).toEqual({
+      status: 400,
+      body: { error: "Invalid meeting update" },
+    });
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["confirm", undefined],
+    ["cancel", { reason: "Prospect rescheduled" }],
+    ["complete", undefined],
+    ["no-show", undefined],
+  ])("forwards the meeting %s lifecycle action", async (action, body) => {
+    const { client, post } = clientWith({
+      post: async () => ({ ...meetingResponse, status: "CONFIRMED" }),
+    });
+    const result = await request(
+      createConversationsRouter(client),
+      `/meetings/meeting%201/${action}`,
+      {
+        method: "POST",
+        ...(body
+          ? {
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(body),
+            }
+          : {}),
+      },
+    );
+
+    expect(result.status).toBe(200);
+    expect(post.mock.calls[0][0]).toBe(`/meetings/meeting%201/${action}`);
+    expect(post.mock.calls[0][2]).toEqual(body);
   });
 
   it("preserves an upstream error's status and JSON body", async () => {

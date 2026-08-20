@@ -454,6 +454,30 @@ export interface CreateConversationMeetingInput {
   notes?: string;
 }
 
+export interface UpdateConversationMeetingInput {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  title?: string;
+  scheduledFor?: string;
+  /**
+     * @minimum 1
+     * @maximum 1440
+     */
+  durationMinutes?: number;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  notes?: string | null;
+}
+
+export interface CancelConversationMeetingInput {
+  /** @maxLength 2000 */
+  reason?: string;
+}
+
 export type ConversationMeetingStatus = typeof ConversationMeetingStatus[keyof typeof ConversationMeetingStatus];
 
 
