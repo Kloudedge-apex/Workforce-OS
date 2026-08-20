@@ -268,9 +268,9 @@ describe("shapeIntegration", () => {
     });
   });
 
-  it("maps ERROR/REVOKED to errored and PENDING to available", () => {
+  it("maps ERROR to errored and PENDING/REVOKED to available", () => {
     expect(shapeIntegration({ id: "a", provider: "x", status: "ERROR", lastErrorMessage: "boom" }).status).toBe("errored");
-    expect(shapeIntegration({ id: "a", provider: "x", status: "REVOKED" }).status).toBe("errored");
+    expect(shapeIntegration({ id: "a", provider: "x", status: "REVOKED" }).status).toBe("available");
     expect(shapeIntegration({ id: "a", provider: "x", status: "PENDING" }).status).toBe("available");
     expect(shapeIntegration({ id: "a", provider: "x", status: "ERROR", lastErrorMessage: "boom" }).errorMessage).toBe("boom");
   });
@@ -380,7 +380,7 @@ describe("Gmail disconnect route", () => {
     const post = vi.fn(async (..._args: any[]) => ({
       id: "int_gmail",
       provider: "gmail",
-      status: "CONNECTED",
+      status: "REVOKED",
       createdAt: "2026-08-13T00:00:00.000Z",
     }));
 
