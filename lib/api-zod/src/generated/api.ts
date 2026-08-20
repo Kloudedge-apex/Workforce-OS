@@ -813,6 +813,18 @@ export const ArchiveConversationResponse = zod.object({
 
 
 /**
+ * @summary Restore an archived conversation thread
+ */
+export const UnarchiveConversationParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const UnarchiveConversationResponse = zod.object({
+  "affected": zod.number()
+})
+
+
+/**
  * @summary Paginated GraphRun history
  */
 export const listRunsQueryPageDefault = 1;

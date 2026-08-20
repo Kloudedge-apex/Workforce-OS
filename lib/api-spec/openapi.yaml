@@ -517,6 +517,24 @@ paths:
               schema:
                 $ref: "#/components/schemas/BulkActionResult"
 
+  /conversations/{id}/unarchive:
+    post:
+      operationId: unarchiveConversation
+      tags: [conversations]
+      summary: Restore an archived conversation thread
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Restored or already active
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkActionResult"
+
   /runs:
     get:
       operationId: listRuns

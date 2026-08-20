@@ -1661,6 +1661,76 @@ export const useArchiveConversation = <TError = ErrorType<unknown>,
       return useMutation(getArchiveConversationMutationOptions(options));
     }
 
+export const getUnarchiveConversationUrl = (id: string,) => {
+
+
+
+
+  return `/api/conversations/${id}/unarchive`
+}
+
+/**
+ * @summary Restore an archived conversation thread
+ */
+export const unarchiveConversation = async (id: string, options?: RequestInit): Promise<BulkActionResult> => {
+
+  return customFetch<BulkActionResult>(getUnarchiveConversationUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getUnarchiveConversationMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof unarchiveConversation>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof unarchiveConversation>>, TError,{id: string}, TContext> => {
+
+const mutationKey = ['unarchiveConversation'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof unarchiveConversation>>, {id: string}> = (props) => {
+          const {id} = props ?? {};
+
+          return  unarchiveConversation(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UnarchiveConversationMutationResult = NonNullable<Awaited<ReturnType<typeof unarchiveConversation>>>
+
+    export type UnarchiveConversationMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Restore an archived conversation thread
+ */
+export const useUnarchiveConversation = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof unarchiveConversation>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof unarchiveConversation>>,
+        TError,
+        {id: string},
+        TContext
+      > => {
+      return useMutation(getUnarchiveConversationMutationOptions(options));
+    }
+
 export const getListRunsUrl = (params?: ListRunsParams,) => {
   const normalizedParams = new URLSearchParams();
 

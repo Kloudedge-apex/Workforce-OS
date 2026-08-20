@@ -426,6 +426,20 @@ describe("conversations router", () => {
     expect(post.mock.calls[0][0]).toBe("/conversations/conv_1/archive");
   });
 
+  it("proxies archive restoration and preserves the affected count", async () => {
+    const { client, post } = clientWith({
+      post: async () => ({ affected: 1 }),
+    });
+    const result = await request(
+      createConversationsRouter(client),
+      "/conversations/conv_1/unarchive",
+      { method: "POST" },
+    );
+
+    expect(result).toEqual({ status: 200, body: { affected: 1 } });
+    expect(post.mock.calls[0][0]).toBe("/conversations/conv_1/unarchive");
+  });
+
   it("marks a conversation read through the tenant-forwarding client", async () => {
     const { client, post } = clientWith({
       post: async () => ({ affected: 1 }),

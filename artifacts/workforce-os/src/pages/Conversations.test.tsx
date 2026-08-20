@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   detailQueryOptions: undefined as
     | { query?: { refetchInterval?: number } }
     | undefined,
+  listQueryParams: undefined as Record<string, unknown> | undefined,
 }));
 
 vi.mock("wouter", () => ({
@@ -58,18 +59,21 @@ vi.mock("@/components/v2/ConversationThread", () => ({
 }));
 
 vi.mock("@workspace/api-client-react", () => ({
-  useListConversations: () => ({
-    data: {
-      items: [{ id: "conv_1" }],
-      total: 1,
-      page: 1,
-      limit: 20,
-    },
-    isLoading: false,
-    isFetching: false,
-    isError: false,
-    refetch: vi.fn(),
-  }),
+  useListConversations: (params: Record<string, unknown>) => {
+    mocks.listQueryParams = params;
+    return {
+      data: {
+        items: [{ id: "conv_1" }],
+        total: 1,
+        page: 1,
+        limit: 20,
+      },
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      refetch: vi.fn(),
+    };
+  },
   useGetConversation: (
     _id: string,
     options: { query?: { refetchInterval?: number } },
@@ -101,6 +105,7 @@ describe("Conversations observation loop", () => {
     mocks.detailData = undefined;
     mocks.detailRefetch.mockReset();
     mocks.detailQueryOptions = undefined;
+    mocks.listQueryParams = undefined;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -139,8 +144,15 @@ describe("Conversations observation loop", () => {
   it("uses native pressed buttons for inbox filters", async () => {
     await act(async () => root.render(<Conversations />));
     const filters = container.querySelectorAll("button[aria-pressed]");
-    expect(filters).toHaveLength(4);
+    expect(filters).toHaveLength(5);
     expect(filters[0]?.getAttribute("aria-pressed")).toBe("true");
+
+    const archived = Array.from(filters).find(
+      (button) => button.textContent === "Archived",
+    );
+    expect(archived).toBeInstanceOf(HTMLButtonElement);
+    await act(async () => (archived as HTMLButtonElement).click());
+    expect(mocks.listQueryParams).toMatchObject({ archived: true });
   });
 
   it("keeps cached detail visible when a polling refresh fails", async () => {

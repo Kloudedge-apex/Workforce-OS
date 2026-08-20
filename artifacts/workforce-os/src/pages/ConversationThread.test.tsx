@@ -43,6 +43,7 @@ vi.mock("@workspace/api-client-react", () => ({
   },
   useDraftReply: () => ({ mutate: vi.fn(), isPending: false }),
   useArchiveConversation: () => ({ mutate: vi.fn() }),
+  useUnarchiveConversation: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 describe("ConversationThread observation loop", () => {
@@ -96,5 +97,41 @@ describe("ConversationThread observation loop", () => {
 
     expect(markup).toContain("Cached conversation subject");
     expect(markup).not.toContain("Couldn&#x27;t load this conversation");
+  });
+
+  it("offers a restore action for an archived mobile thread", () => {
+    mocks.detailData = {
+      conversation: {
+        id: "conv_1",
+        leadId: null,
+        leadName: "Buyer",
+        leadCompany: "Example",
+        leadAvatarUrl: null,
+        subject: "Archived conversation",
+        lastMessagePreview: "Stored safely",
+        lastMessageAt: "2026-08-13T12:00:00.000Z",
+        unread: false,
+        needsReply: false,
+        archived: true,
+        replyIntelligence: {
+          analysisStatus: "PENDING",
+          sentiment: null,
+          sentimentConfidence: null,
+          nextBestAction: null,
+          nextBestActionType: null,
+        },
+      },
+      messages: [],
+      pendingDraftId: null,
+      followUps: [],
+      meetings: [],
+    };
+    mocks.detailLoading = false;
+
+    Object.assign(globalThis, { React });
+    const markup = renderToStaticMarkup(<ConversationThread />);
+
+    expect(markup).toContain("Restore");
+    expect(markup).not.toContain('aria-label="Archive conversation"');
   });
 });
