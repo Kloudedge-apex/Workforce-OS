@@ -139,6 +139,8 @@ export interface OrgSettings {
   welcomeComplete: boolean;
   /** true = reviewer guard confirmed; false = guard denied; null = unavailable/unknown. */
   canReviewArtifacts: boolean | null;
+  /** true = ICP/run mutation guard confirmed; false = denied; null = unavailable/unknown. */
+  canManageWorkflow: boolean | null;
   /** true = mailbox mutation guard confirmed; false = denied; null = unavailable/unknown. */
   canManageMailbox: boolean | null;
   /** true = organization mutation guard confirmed; false = denied; null = unavailable/unknown. */
@@ -151,6 +153,7 @@ export interface OrgSettings {
 
 export interface OrgCapabilities {
   canReviewArtifacts: boolean | null;
+  canManageWorkflow: boolean | null;
   canManageMailbox: boolean | null;
   canManageOrg: boolean | null;
   canManageSuppressions: boolean | null;
@@ -163,6 +166,7 @@ interface LegacyAuthUser {
 function unknownOrgCapabilities(): OrgCapabilities {
   return {
     canReviewArtifacts: null,
+    canManageWorkflow: null,
     canManageMailbox: null,
     canManageOrg: null,
     canManageSuppressions: null,
@@ -184,6 +188,7 @@ export function parseOrgCapabilities(raw: unknown): OrgCapabilities {
     typeof rec[key] === "boolean" ? (rec[key] as boolean) : null;
   return {
     canReviewArtifacts: capability("canReviewArtifacts"),
+    canManageWorkflow: capability("canManageWorkflow"),
     canManageMailbox: capability("canManageMailbox"),
     canManageOrg: capability("canManageOrg"),
     canManageSuppressions: capability("canManageSuppressions"),
@@ -228,6 +233,7 @@ export function legacyOrgCapabilities(
   const canAdministerOrg = permitted(["OWNER", "ADMIN"]);
   return {
     canReviewArtifacts: canAdministerWork,
+    canManageWorkflow: canAdministerWork,
     canManageMailbox: canAdministerWork,
     canManageOrg: canAdministerOrg,
     canManageSuppressions: canAdministerOrg,
@@ -246,6 +252,7 @@ async function fetchLegacyOrgCapabilities(
     if (err instanceof UpstreamError && err.status === 403) {
       return {
         canReviewArtifacts: false,
+        canManageWorkflow: false,
         canManageMailbox: false,
         canManageOrg: false,
         canManageSuppressions: false,
@@ -353,6 +360,7 @@ export async function fetchOrgCapabilities(
     if (err instanceof UpstreamError && err.status === 403) {
       return {
         canReviewArtifacts: false,
+        canManageWorkflow: false,
         canManageMailbox: false,
         canManageOrg: false,
         canManageSuppressions: false,

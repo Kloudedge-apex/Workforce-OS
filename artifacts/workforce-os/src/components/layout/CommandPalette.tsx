@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { useLocation } from "wouter";
 import {
   useGetWelcomeStatus,
+  useGetOrgSettings,
   useTriggerRun,
 } from "@workspace/api-client-react";
 import { toast } from "sonner";
@@ -11,9 +12,15 @@ import { LayoutDashboard, Target, Activity, Inbox, Settings, PlayCircle, History
 import { staggerContainer, staggerItem, cardEnter, useReducedMotionSafe } from "@/lib/motion";
 import { isCompleteWelcomeStatus } from "@/lib/onboarding";
 import { showTriggerError } from "@/lib/runTrigger";
+import { canManageWorkflow } from "@/lib/workflowAuthority";
 
-export function canTriggerPipelineFromCommand(status: unknown): boolean {
-  return isCompleteWelcomeStatus(status);
+export function canTriggerPipelineFromCommand(
+  status: unknown,
+  workflowCapability: unknown,
+): boolean {
+  return isCompleteWelcomeStatus(status) && canManageWorkflow(
+    typeof workflowCapability === "boolean" ? workflowCapability : null,
+  );
 }
 
 export function CommandPalette() {
@@ -23,7 +30,15 @@ export function CommandPalette() {
   const { data: welcomeStatus } = useGetWelcomeStatus({
     query: { queryKey: ["getWelcomeStatus"] },
   });
-  const setupComplete = canTriggerPipelineFromCommand(welcomeStatus);
+  const { data: orgSettings } = useGetOrgSettings({
+    query: { queryKey: ["getOrgSettings"] },
+  });
+  const setupComplete = isCompleteWelcomeStatus(welcomeStatus);
+  const workflowCapability = orgSettings?.canManageWorkflow ?? null;
+  const triggerAllowed = canTriggerPipelineFromCommand(
+    welcomeStatus,
+    workflowCapability,
+  );
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -138,13 +153,19 @@ export function CommandPalette() {
               <motion.div variants={reduce ? undefined : staggerItem}>
                 <CommandItem
                   className="hover-elevate active-elevate-2"
-                  disabled={triggering || !setupComplete}
+                  disabled={triggering || !triggerAllowed}
                   onSelect={() => {
-                    if (setupComplete) runCommand(() => triggerRun());
+                    if (triggerAllowed) runCommand(() => triggerRun());
                   }}
                 >
                   <PlayCircle className="mr-2 h-4 w-4 text-rust-500" />
-                  <span>{setupComplete ? "Trigger Pipeline" : "Complete setup to trigger"}</span>
+                  <span>{!setupComplete
+                    ? "Complete setup to trigger"
+                    : workflowCapability === false
+                      ? "Admin or manager required"
+                      : workflowCapability === true
+                        ? "Trigger Pipeline"
+                        : "Run permission unavailable"}</span>
                   {triggering && <span className="ml-auto text-xs text-ink-400">Starting…</span>}
                 </CommandItem>
               </motion.div>

@@ -46,6 +46,7 @@ describe("shapeOrgSettings", () => {
     expect(out.creditsRemaining).toBeNull();
     expect(out.welcomeComplete).toBe(false);
     expect(out.canReviewArtifacts).toBeNull();
+    expect(out.canManageWorkflow).toBeNull();
     expect(out.canManageMailbox).toBeNull();
     expect(out.canManageOrg).toBeNull();
     expect(out.canManageSuppressions).toBeNull();
@@ -135,6 +136,7 @@ describe("shapeOrgSettings", () => {
   it("threads the caller-supplied granular capabilities through", () => {
     const capabilities = {
       canReviewArtifacts: true,
+      canManageWorkflow: false,
       canManageMailbox: false,
       canManageOrg: true,
       canManageSuppressions: false,
@@ -180,12 +182,14 @@ describe("parseOrgCapabilities", () => {
     expect(
       parseOrgCapabilities({
         canReviewArtifacts: true,
+        canManageWorkflow: false,
         canManageMailbox: false,
         canManageOrg: false,
         canManageSuppressions: true,
       }),
     ).toEqual({
       canReviewArtifacts: true,
+      canManageWorkflow: false,
       canManageMailbox: false,
       canManageOrg: false,
       canManageSuppressions: true,
@@ -196,18 +200,21 @@ describe("parseOrgCapabilities", () => {
     expect(
       parseOrgCapabilities({
         canReviewArtifacts: "true",
+        canManageWorkflow: "false",
         canManageMailbox: true,
         canManageOrg: undefined,
         canManageSuppressions: 1,
       }),
     ).toEqual({
       canReviewArtifacts: null,
+      canManageWorkflow: null,
       canManageMailbox: true,
       canManageOrg: null,
       canManageSuppressions: null,
     });
     expect(parseOrgCapabilities(null)).toEqual({
       canReviewArtifacts: null,
+      canManageWorkflow: null,
       canManageMailbox: null,
       canManageOrg: null,
       canManageSuppressions: null,
@@ -219,18 +226,21 @@ describe("legacyOrgCapabilities", () => {
   it("mirrors the legacy write guards for personal-session roles", () => {
     expect(legacyOrgCapabilities({ role: "OWNER" }, undefined)).toEqual({
       canReviewArtifacts: true,
+      canManageWorkflow: true,
       canManageMailbox: true,
       canManageOrg: true,
       canManageSuppressions: true,
     });
     expect(legacyOrgCapabilities({ role: "MANAGER" }, undefined)).toEqual({
       canReviewArtifacts: true,
+      canManageWorkflow: true,
       canManageMailbox: true,
       canManageOrg: false,
       canManageSuppressions: false,
     });
     expect(legacyOrgCapabilities({ role: "MEMBER" }, undefined)).toEqual({
       canReviewArtifacts: false,
+      canManageWorkflow: false,
       canManageMailbox: false,
       canManageOrg: false,
       canManageSuppressions: false,
@@ -240,18 +250,21 @@ describe("legacyOrgCapabilities", () => {
   it("uses the signed Clerk role only as a privilege veto", () => {
     expect(legacyOrgCapabilities({ role: "OWNER" }, "org:manager")).toEqual({
       canReviewArtifacts: true,
+      canManageWorkflow: true,
       canManageMailbox: true,
       canManageOrg: false,
       canManageSuppressions: false,
     });
     expect(legacyOrgCapabilities({ role: "MEMBER" }, "org:admin")).toEqual({
       canReviewArtifacts: false,
+      canManageWorkflow: false,
       canManageMailbox: false,
       canManageOrg: false,
       canManageSuppressions: false,
     });
     expect(legacyOrgCapabilities({ role: "OWNER" }, "org:member")).toEqual({
       canReviewArtifacts: false,
+      canManageWorkflow: false,
       canManageMailbox: false,
       canManageOrg: false,
       canManageSuppressions: false,
@@ -261,6 +274,7 @@ describe("legacyOrgCapabilities", () => {
   it("keeps malformed legacy role projections unknown", () => {
     expect(legacyOrgCapabilities({ role: "SUPERUSER" }, undefined)).toEqual({
       canReviewArtifacts: null,
+      canManageWorkflow: null,
       canManageMailbox: null,
       canManageOrg: null,
       canManageSuppressions: null,
@@ -368,6 +382,7 @@ describe("fetchOrgCapabilities", () => {
   it("uses the granular endpoint and does not probe the legacy route when review is explicit", async () => {
     const response = {
       canReviewArtifacts: false,
+      canManageWorkflow: true,
       canManageMailbox: true,
       canManageOrg: false,
       canManageSuppressions: true,
@@ -388,6 +403,7 @@ describe("fetchOrgCapabilities", () => {
     });
     await expect(fetchOrgCapabilities(req, { get })).resolves.toEqual({
       canReviewArtifacts: true,
+      canManageWorkflow: true,
       canManageMailbox: true,
       canManageOrg: true,
       canManageSuppressions: true,
@@ -411,6 +427,7 @@ describe("fetchOrgCapabilities", () => {
     });
     await expect(fetchOrgCapabilities(signedReq, { get })).resolves.toEqual({
       canReviewArtifacts: true,
+      canManageWorkflow: true,
       canManageMailbox: true,
       canManageOrg: false,
       canManageSuppressions: false,
@@ -426,6 +443,7 @@ describe("fetchOrgCapabilities", () => {
     });
     await expect(fetchOrgCapabilities(req, { get })).resolves.toEqual({
       canReviewArtifacts: true,
+      canManageWorkflow: null,
       canManageMailbox: null,
       canManageOrg: null,
       canManageSuppressions: null,
@@ -444,6 +462,7 @@ describe("fetchOrgCapabilities", () => {
     });
     await expect(fetchOrgCapabilities(req, { get })).resolves.toEqual({
       canReviewArtifacts: false,
+      canManageWorkflow: null,
       canManageMailbox: null,
       canManageOrg: true,
       canManageSuppressions: null,

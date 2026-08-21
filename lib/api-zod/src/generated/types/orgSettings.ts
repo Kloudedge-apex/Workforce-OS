@@ -35,6 +35,8 @@ export interface OrgSettings {
   /** @nullable */
   canReviewArtifacts: boolean | null;
   /** @nullable */
+  canManageWorkflow: boolean | null;
+  /** @nullable */
   canManageMailbox: boolean | null;
   /** @nullable */
   canManageOrg: boolean | null;

@@ -39,6 +39,7 @@ describe("TodayRunAction", () => {
         isLoading={false}
         isError={false}
         isStarting={false}
+        workflowCapability={true}
       />,
     );
     expect(html).toContain("A pipeline run needs approval");
@@ -55,9 +56,27 @@ describe("TodayRunAction", () => {
         isLoading={false}
         isError={false}
         isStarting={false}
+        workflowCapability={true}
       />,
     );
     expect(html).toContain("Ready for the next pipeline run");
     expect(html).toContain("Start run");
+  });
+
+  it("keeps run start disabled for a regular workspace member", () => {
+    const html = renderToStaticMarkup(
+      <TodayRunAction
+        {...handlers}
+        awaitingRunId={null}
+        runningRunId={null}
+        isLoading={false}
+        isError={false}
+        isStarting={false}
+        workflowCapability={false}
+      />,
+    );
+    expect(html).toContain("Run start restricted");
+    expect(html).toContain("Admin or manager required");
+    expect(html).toContain("disabled");
   });
 });
