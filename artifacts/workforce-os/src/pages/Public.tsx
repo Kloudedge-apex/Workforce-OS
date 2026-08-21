@@ -186,17 +186,19 @@ export function PublicHome() {
 function PolicyPage({
   title,
   introduction,
+  lastUpdated,
   children,
 }: {
   title: string;
   introduction: string;
+  lastUpdated: string;
   children: ReactNode;
 }) {
   return (
     <PublicShell title={`${title} | Workforce OS`}>
       <main className="mx-auto w-full max-w-4xl px-5 py-16 sm:px-8 sm:py-20">
         <p className="text-sm font-semibold uppercase tracking-[0.16em] text-rust-600">
-          Last updated August 17, 2026
+          Last updated {lastUpdated}
         </p>
         <h1 className="mt-4 font-serif text-4xl font-semibold tracking-tight sm:text-5xl">
           {title}
@@ -215,6 +217,7 @@ export function PrivacyPolicy() {
     <PolicyPage
       title="Privacy Policy"
       introduction="This policy explains how Workforce OS, operated under the Kloudedge name, handles account, workspace, and connected-service data."
+      lastUpdated="August 21, 2026"
     >
       <section>
         <h2>Information we handle</h2>
@@ -300,8 +303,11 @@ export function PrivacyPolicy() {
         <p>
           We retain information only for as long as needed to provide the
           service, meet security and legal obligations, resolve disputes, and
-          enforce agreements. Disconnecting Gmail deletes the stored integration
-          record and OAuth credentials and stops new Gmail access. Workspace
+          enforce agreements. Disconnecting Gmail deletes Workforce OS&apos;s
+          stored OAuth credentials and mailbox synchronization state, and stops
+          new Gmail access. Workforce OS retains a credential-free integration
+          identifier when it is needed to preserve existing conversation
+          history; that identifier cannot authorize Gmail access. Workspace
           content already created from the integration may remain until it is
           deleted or the workspace is closed, subject to required retention.
         </p>
@@ -335,6 +341,7 @@ export function TermsOfService() {
     <PolicyPage
       title="Terms of Service"
       introduction="These terms govern access to Workforce OS. By using the service, you agree to use it lawfully and remain accountable for every external action taken through your workspace."
+      lastUpdated="August 17, 2026"
     >
       <section>
         <h2>Accounts and authority</h2>
