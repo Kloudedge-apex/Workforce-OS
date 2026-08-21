@@ -524,7 +524,8 @@ export const GetLeadResponse = zod.object({
   "id": zod.string(),
   "eventType": zod.string(),
   "description": zod.string(),
-  "timestamp": zod.string()
+  "timestamp": zod.string(),
+  "sourceUrl": zod.string().url().nullable()
 }))
 })
 

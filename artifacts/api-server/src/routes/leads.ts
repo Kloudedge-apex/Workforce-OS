@@ -99,6 +99,15 @@ export interface EvidenceEventSummary {
   eventType: string;
   description: string;
   timestamp: string;
+  sourceUrl: string | null;
+}
+
+interface UpstreamEvidenceEventSummary {
+  id: string;
+  eventType: string;
+  description: string;
+  timestamp: string;
+  sourceUrl?: string | null;
 }
 
 export interface LeadDetail {
@@ -169,7 +178,7 @@ export interface UpstreamPersonDetail {
   }>;
   researchBrief: string | null;
   scoreBreakdown: ScoreBreakdown | null;
-  recentEvidenceEvents: EvidenceEventSummary[];
+  recentEvidenceEvents: UpstreamEvidenceEventSummary[];
   intentSignals: IntentSignal[] | null;
 }
 
@@ -259,6 +268,39 @@ export function shapePersonScoreBreakdown(
   };
 }
 
+/** Admit only safe, absolute reviewer links from the upstream citation. */
+export function safeEvidenceSourceUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const candidate = value.trim();
+  if (!candidate || candidate.length > 2_048) return null;
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:")
+      return null;
+    if (!parsed.hostname || parsed.username || parsed.password) return null;
+    return candidate;
+  } catch {
+    return null;
+  }
+}
+
+export function shapeEvidenceEventSummary(
+  event: UpstreamEvidenceEventSummary,
+): EvidenceEventSummary {
+  const sourceUrl = safeEvidenceSourceUrl(event.sourceUrl);
+  const sourceSuffix = sourceUrl ? ` Source: ${sourceUrl}` : "";
+  return {
+    id: event.id,
+    eventType: event.eventType,
+    description:
+      sourceSuffix && event.description.endsWith(sourceSuffix)
+        ? event.description.slice(0, -sourceSuffix.length)
+        : event.description,
+    timestamp: event.timestamp,
+    sourceUrl,
+  };
+}
+
 /** Map upstream person detail → the openapi Lead embedded in LeadDetail. */
 export function shapePersonAsLead(u: UpstreamPersonDetail): Lead {
   return {
@@ -298,7 +340,9 @@ export function shapeLeadDetail(u: UpstreamPersonDetail): LeadDetail {
     lead: shapePersonAsLead(u),
     researchBrief: emptyToNull(u.researchBrief),
     scoreBreakdown: shapePersonScoreBreakdown(u),
-    recentEvidenceEvents: u.recentEvidenceEvents ?? [],
+    recentEvidenceEvents: (u.recentEvidenceEvents ?? []).map(
+      shapeEvidenceEventSummary,
+    ),
   };
 }
 

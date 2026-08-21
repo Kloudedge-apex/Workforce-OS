@@ -11,4 +11,6 @@ export interface EvidenceEventSummary {
   eventType: string;
   description: string;
   timestamp: string;
+  /** @nullable */
+  sourceUrl: string | null;
 }
