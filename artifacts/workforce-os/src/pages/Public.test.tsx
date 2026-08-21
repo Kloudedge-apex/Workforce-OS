@@ -34,14 +34,20 @@ describe("public Workforce OS surfaces", () => {
     expect(html).toContain('href="/sign-in"');
   });
 
-  it("publishes the Google Limited Use and Gmail deletion disclosures", () => {
+  it("publishes accurate Google Limited Use and Gmail disconnection disclosures", () => {
     const html = renderToStaticMarkup(<PrivacyPolicy />);
 
+    expect(html).toContain("Last updated August 21, 2026");
     expect(html).toContain("Google API Services User Data Policy");
     expect(html).toContain("Limited Use");
     expect(html).toContain(
-      "Disconnecting Gmail deletes the stored integration record",
+      "Disconnecting Gmail deletes Workforce OS&#x27;s stored OAuth credentials and mailbox synchronization state",
     );
+    expect(html).toContain(
+      "retains a credential-free integration identifier when it is needed to preserve existing conversation history",
+    );
+    expect(html).toContain("that identifier cannot authorize Gmail access");
+    expect(html).not.toContain("deletes the stored integration record");
     expect(html).toContain(
       "do not sell personal information or Google user data",
     );
