@@ -1247,7 +1247,8 @@ components:
         eventType: { type: string }
         description: { type: string }
         timestamp: { type: string }
-      required: [id, eventType, description, timestamp]
+        sourceUrl: { type: ["string", "null"], format: uri }
+      required: [id, eventType, description, timestamp, sourceUrl]
 
     LeadDetail:
       type: object

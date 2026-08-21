@@ -14,21 +14,34 @@ import {
 
 describe("manual suppression route contract", () => {
   it("targets the server-side Person-id bulk suppression endpoint", () => {
-    expect(BULK_PERSON_SUPPRESSION_PATH).toBe("/outreach/suppression/people/bulk");
+    expect(BULK_PERSON_SUPPRESSION_PATH).toBe(
+      "/outreach/suppression/people/bulk",
+    );
   });
 
   it("accepts only bounded Person ids and rejects the legacy ids/email shape", () => {
-    expect(parseBulkPersonSuppressionBody({ personIds: [" person_1 "] })).toEqual({
+    expect(
+      parseBulkPersonSuppressionBody({ personIds: [" person_1 "] }),
+    ).toEqual({
       personIds: ["person_1"],
     });
     expect(parseBulkPersonSuppressionBody({ personIds: [] })).toBeNull();
     expect(parseBulkPersonSuppressionBody({ ids: ["person_1"] })).toBeNull();
     expect(
-      parseBulkPersonSuppressionBody({ personIds: ["person_1"], email: "victim@example.com" }),
+      parseBulkPersonSuppressionBody({
+        personIds: ["person_1"],
+        email: "victim@example.com",
+      }),
     ).toBeNull();
     expect(parseBulkPersonSuppressionBody({ personIds: ["   "] })).toBeNull();
-    expect(parseBulkPersonSuppressionBody({ personIds: ["x".repeat(257)] })).toBeNull();
-    expect(parseBulkPersonSuppressionBody({ personIds: Array(201).fill("person_1") })).toBeNull();
+    expect(
+      parseBulkPersonSuppressionBody({ personIds: ["x".repeat(257)] }),
+    ).toBeNull();
+    expect(
+      parseBulkPersonSuppressionBody({
+        personIds: Array(201).fill("person_1"),
+      }),
+    ).toBeNull();
   });
 });
 
@@ -128,17 +141,15 @@ describe("shapeLead", () => {
   });
 
   it("preserves missing contact history as unknown", () => {
-    expect(shapeLead({ ...sampleUiLead, lastContactedAt: "  " }).lastContactedAt).toBeNull();
+    expect(
+      shapeLead({ ...sampleUiLead, lastContactedAt: "  " }).lastContactedAt,
+    ).toBeNull();
   });
 });
 
 describe("shapeLeadsList", () => {
   it("renames {leads,total} to {items,total,page,limit}", () => {
-    const out = shapeLeadsList(
-      { leads: [sampleUiLead], total: 1 },
-      2,
-      25,
-    );
+    const out = shapeLeadsList({ leads: [sampleUiLead], total: 1 }, 2, 25);
     expect(out.total).toBe(1);
     expect(out.page).toBe(2);
     expect(out.limit).toBe(25);
@@ -147,9 +158,12 @@ describe("shapeLeadsList", () => {
   });
 
   it("handles an empty list defensively", () => {
-    expect(
-      shapeLeadsList({ leads: [], total: 0 }, 1, 25),
-    ).toEqual({ items: [], total: 0, page: 1, limit: 25 });
+    expect(shapeLeadsList({ leads: [], total: 0 }, 1, 25)).toEqual({
+      items: [],
+      total: 0,
+      page: 1,
+      limit: 25,
+    });
   });
 });
 
@@ -188,13 +202,19 @@ const samplePerson: UpstreamPersonDetail = {
   ],
   researchBrief: "Sam Rivera leads revenue operations at Globex.",
   scoreBreakdown: { fit: 96, intent: 84, engagement: 90, timing: 78 },
-  recentEvidenceEvents: [{
-    id: "evidence_1",
-    eventType: "Recent Hire",
-    description: "Hiring for an account executive.",
-    timestamp: "2026-06-02T08:00:00.000Z",
-  }],
-  intentSignals: [{ label: "Hiring for an account executive", confidence: 0.92 }],
+  recentEvidenceEvents: [
+    {
+      id: "evidence_1",
+      eventType: "Recent Hire",
+      description:
+        "Hiring for an account executive. Source: https://jobs.globex.io/ae",
+      timestamp: "2026-06-01T00:00:00.000Z",
+      sourceUrl: "https://jobs.globex.io/ae",
+    },
+  ],
+  intentSignals: [
+    { label: "Hiring for an account executive", confidence: 0.92 },
+  ],
 };
 
 describe("shapePersonAsLead", () => {
@@ -221,7 +241,8 @@ describe("shapePersonAsLead", () => {
 
   it("derives stage 'enriched' when not qualified", () => {
     expect(
-      shapePersonAsLead({ ...samplePerson, stage: null, qualifiedAt: null }).stage,
+      shapePersonAsLead({ ...samplePerson, stage: null, qualifiedAt: null })
+        .stage,
     ).toBe("enriched");
   });
 
@@ -238,12 +259,15 @@ describe("shapePersonAsLead", () => {
   });
 
   it("preserves a missing person score as unknown", () => {
-    expect(shapePersonAsLead({ ...samplePerson, score: null }).score).toBeNull();
+    expect(
+      shapePersonAsLead({ ...samplePerson, score: null }).score,
+    ).toBeNull();
   });
 
   it("preserves missing person contact history as unknown", () => {
     expect(
-      shapePersonAsLead({ ...samplePerson, lastContactedAt: null }).lastContactedAt,
+      shapePersonAsLead({ ...samplePerson, lastContactedAt: null })
+        .lastContactedAt,
     ).toBeNull();
   });
 });
@@ -259,10 +283,17 @@ describe("shapePersonScoreBreakdown", () => {
   });
 
   it("clamps malformed upstream percentages", () => {
-    expect(shapePersonScoreBreakdown({
-      ...samplePerson,
-      scoreBreakdown: { fit: 140, intent: -5, engagement: 67.8, timing: Number.NaN },
-    })).toEqual({ fit: 100, intent: 0, engagement: 68, timing: 0 });
+    expect(
+      shapePersonScoreBreakdown({
+        ...samplePerson,
+        scoreBreakdown: {
+          fit: 140,
+          intent: -5,
+          engagement: 67.8,
+          timing: Number.NaN,
+        },
+      }),
+    ).toEqual({ fit: 100, intent: 0, engagement: 68, timing: 0 });
   });
 });
 
@@ -270,11 +301,40 @@ describe("shapeLeadDetail", () => {
   it("composes LeadDetail from persisted intelligence", () => {
     const detail = shapeLeadDetail(samplePerson);
     expect(detail.lead.id).toBe("person_42");
-    expect(detail.researchBrief).toBe("Sam Rivera leads revenue operations at Globex.");
-    expect(detail.recentEvidenceEvents).toEqual(samplePerson.recentEvidenceEvents);
+    expect(detail.researchBrief).toBe(
+      "Sam Rivera leads revenue operations at Globex.",
+    );
+    expect(detail.recentEvidenceEvents).toHaveLength(1);
     // sendPolicy has no upstream source on the detail path either — null,
     // never the old fabricated all-false policy.
     expect(detail.lead.sendPolicy).toBeNull();
     expect(detail.scoreBreakdown).toEqual(samplePerson.scoreBreakdown);
+  });
+
+  it("returns a structured safe citation and removes its duplicate text suffix", () => {
+    const detail = shapeLeadDetail(samplePerson);
+    expect(detail.recentEvidenceEvents).toEqual([
+      {
+        id: "evidence_1",
+        eventType: "Recent Hire",
+        description: "Hiring for an account executive.",
+        timestamp: "2026-06-01T00:00:00.000Z",
+        sourceUrl: "https://jobs.globex.io/ae",
+      },
+    ]);
+  });
+
+  it.each([
+    "javascript:alert(1)",
+    "https://user:secret@jobs.globex.io/ae",
+    "jobs.globex.io/ae",
+  ])("drops unsafe evidence source %s", (sourceUrl) => {
+    const detail = shapeLeadDetail({
+      ...samplePerson,
+      recentEvidenceEvents: [
+        { ...samplePerson.recentEvidenceEvents[0]!, sourceUrl },
+      ],
+    });
+    expect(detail.recentEvidenceEvents[0]?.sourceUrl).toBeNull();
   });
 });
