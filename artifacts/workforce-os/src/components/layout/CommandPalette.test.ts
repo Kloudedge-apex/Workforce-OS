@@ -26,19 +26,24 @@ const completeStatus = {
 
 describe("command palette pipeline trigger", () => {
   it("enables the trigger only after the persisted setup contract is complete", () => {
-    expect(canTriggerPipelineFromCommand(completeStatus)).toBe(true);
+    expect(canTriggerPipelineFromCommand(completeStatus, true)).toBe(true);
     expect(
-      canTriggerPipelineFromCommand({
-        ...completeStatus,
-        mailbox: { connected: false, complete: false },
-        currentStep: "mailbox",
-        complete: false,
-      }),
+      canTriggerPipelineFromCommand(
+        {
+          ...completeStatus,
+          mailbox: { connected: false, complete: false },
+          currentStep: "mailbox",
+          complete: false,
+        },
+        true,
+      ),
     ).toBe(false);
   });
 
   it("fails closed for absent or malformed setup state", () => {
-    expect(canTriggerPipelineFromCommand(undefined)).toBe(false);
-    expect(canTriggerPipelineFromCommand({ complete: true })).toBe(false);
+    expect(canTriggerPipelineFromCommand(undefined, true)).toBe(false);
+    expect(canTriggerPipelineFromCommand({ complete: true }, true)).toBe(false);
+    expect(canTriggerPipelineFromCommand(completeStatus, false)).toBe(false);
+    expect(canTriggerPipelineFromCommand(completeStatus, null)).toBe(false);
   });
 });

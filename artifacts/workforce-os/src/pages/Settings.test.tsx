@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   integrationProviders: ["gmail"] as string[],
   mailboxReady: true as boolean | null,
   mailboxCapability: true as boolean | null,
+  workflowCapability: true as boolean | null,
   orgCapability: true as boolean | null,
   suppressionCapability: true as boolean | null,
   suppressionRows: [] as Array<Record<string, unknown>>,
@@ -143,6 +144,7 @@ vi.mock("@workspace/api-client-react", async (importOriginal) => {
         creditsRemaining: null,
         welcomeComplete: true,
         canReviewArtifacts: true,
+        canManageWorkflow: mocks.workflowCapability,
         canManageMailbox: mocks.mailboxCapability,
         canManageOrg: mocks.orgCapability,
         canManageSuppressions: mocks.suppressionCapability,
@@ -645,6 +647,7 @@ describe("Settings ICP exclusions", () => {
   beforeEach(() => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
     mocks.location = "/settings/icp";
+    mocks.workflowCapability = true;
     mocks.updateIcp.mockReset();
     mocks.updateIcpOptions = undefined;
     mocks.icpProfile = {
@@ -702,6 +705,22 @@ describe("Settings ICP exclusions", () => {
         exclusionDomains: ["competitor.com", "partner.example"],
       }),
     });
+  });
+
+  it("keeps every ICP mutation read-only when workflow authority is denied", async () => {
+    mocks.workflowCapability = false;
+    await renderSettings();
+
+    expect(container.textContent).toContain(
+      "Only a workspace owner, administrator, or manager can change the ICP",
+    );
+    expect(
+      container.querySelector('input[aria-label="Exclusion Domains"]'),
+    ).toHaveProperty("disabled", true);
+    expect(getButton("Save ICP").disabled).toBe(true);
+
+    await act(async () => getButton("Save ICP").click());
+    expect(mocks.updateIcp).not.toHaveBeenCalled();
   });
 });
 

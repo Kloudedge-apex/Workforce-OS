@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";
-import { useListRuns, useTriggerRun } from "@workspace/api-client-react";
+import { useGetOrgSettings, useListRuns, useTriggerRun } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +18,10 @@ import { CountUp } from "@/components/motion/CountUp";
 import { EmptyState } from "@/components/states/EmptyState";
 import { ErrorState } from "@/components/states/ErrorState";
 import { showTriggerError } from "@/lib/runTrigger";
+import {
+  canManageWorkflow,
+  workflowAuthorityMessage,
+} from "@/lib/workflowAuthority";
 
 const STATUS_STYLES: Record<string, string> = {
   COMPLETED: "bg-green-100 text-green-800 border-green-200",
@@ -67,6 +71,12 @@ export default function Runs() {
   );
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / limit));
+  const { data: orgSettings } = useGetOrgSettings({
+    query: { queryKey: ["getOrgSettings"] },
+  });
+  const workflowCapability = orgSettings?.canManageWorkflow ?? null;
+  const workflowAllowed = canManageWorkflow(workflowCapability);
+  const workflowUnavailable = workflowAuthorityMessage(workflowCapability);
 
   const { mutate: triggerRun, isPending: triggering } = useTriggerRun({
     mutation: {
@@ -95,6 +105,15 @@ export default function Runs() {
           <p className="text-xs text-ink-400 mt-0.5">
             <CountUp value={total} /> executions recorded
           </p>
+          {!workflowAllowed && (
+            <p
+              className="mt-1 max-w-xl text-xs text-ink-500"
+              data-testid="run-start-read-only"
+              role="status"
+            >
+              {workflowUnavailable}
+            </p>
+          )}
         </div>
         <motion.div
           variants={reduced ? undefined : springHover}
@@ -106,8 +125,11 @@ export default function Runs() {
           <Button
             className="bg-rust-500 hover:bg-rust-600 text-white shadow-sm transition-shadow duration-200 hover:shadow-md"
             size="sm"
-            onClick={() => triggerRun()}
-            disabled={triggering}
+            onClick={() => {
+              if (workflowAllowed) triggerRun();
+            }}
+            disabled={triggering || !workflowAllowed}
+            title={!workflowAllowed ? workflowUnavailable : undefined}
           >
             {triggering ? (
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -139,13 +161,18 @@ export default function Runs() {
             <EmptyState
               icon={Inbox}
               title="No runs yet"
-              description="Trigger your first pipeline run to start sourcing leads and drafting outreach."
+              description={workflowAllowed
+                ? "Trigger your first pipeline run to start sourcing leads and drafting outreach."
+                : workflowUnavailable}
               action={
                 <Button
                   className="bg-rust-500 hover:bg-rust-600 text-white shadow-sm transition-shadow duration-200 hover:shadow-md"
                   size="sm"
-                  onClick={() => triggerRun()}
-                  disabled={triggering}
+                  onClick={() => {
+                    if (workflowAllowed) triggerRun();
+                  }}
+                  disabled={triggering || !workflowAllowed}
+                  title={!workflowAllowed ? workflowUnavailable : undefined}
                 >
                   {triggering ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />

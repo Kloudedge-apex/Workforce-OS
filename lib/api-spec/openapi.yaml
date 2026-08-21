@@ -1611,6 +1611,7 @@ components:
         creditsRemaining: { type: [integer, "null"] }
         welcomeComplete: { type: boolean }
         canReviewArtifacts: { type: [boolean, "null"] }
+        canManageWorkflow: { type: [boolean, "null"] }
         canManageMailbox: { type: [boolean, "null"] }
         canManageOrg: { type: [boolean, "null"] }
         canManageSuppressions: { type: [boolean, "null"] }
@@ -1633,6 +1634,7 @@ components:
           creditsRemaining,
           welcomeComplete,
           canReviewArtifacts,
+          canManageWorkflow,
           canManageMailbox,
           canManageOrg,
           canManageSuppressions,

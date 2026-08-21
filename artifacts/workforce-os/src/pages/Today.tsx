@@ -4,6 +4,7 @@ import {
   useGetTodayKpis,
   useListRuns,
   useTriggerRun,
+  useGetOrgSettings,
 } from "@workspace/api-client-react";
 import { useLocation } from "wouter";
 import {
@@ -22,6 +23,10 @@ import { ErrorState } from "@/components/states/ErrorState";
 import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 import { toast } from "sonner";
 import { showTriggerError } from "@/lib/runTrigger";
+import {
+  canManageWorkflow,
+  workflowAuthorityMessage,
+} from "@/lib/workflowAuthority";
 
 export default function Today() {
   const [, navigate] = useLocation();
@@ -68,6 +73,9 @@ export default function Today() {
       },
       onError: (err) => showTriggerError(err, runs?.items ?? [], navigate),
     },
+  });
+  const { data: orgSettings } = useGetOrgSettings({
+    query: { queryKey: ["getOrgSettings"] },
   });
 
   const artifacts = artifactsData?.items || [];
@@ -131,6 +139,7 @@ export default function Today() {
             isLoading={runsLoading}
             isError={runsError && !runs}
             isStarting={triggeringRun}
+            workflowCapability={orgSettings?.canManageWorkflow ?? null}
             onOpenRun={(runId) => navigate(`/runs/${runId}`)}
             onOpenRuns={() => navigate("/runs")}
             onStart={() => triggerRun()}
@@ -240,6 +249,7 @@ export interface TodayRunActionProps {
   isLoading: boolean;
   isError: boolean;
   isStarting: boolean;
+  workflowCapability: boolean | null;
   onOpenRun: (runId: string) => void;
   onOpenRuns: () => void;
   onStart: () => void;
@@ -251,11 +261,15 @@ export function TodayRunAction({
   isLoading,
   isError,
   isStarting,
+  workflowCapability,
   onOpenRun,
   onOpenRuns,
   onStart,
 }: TodayRunActionProps) {
   const activeRunId = awaitingRunId ?? runningRunId;
+  const workflowAllowed = canManageWorkflow(workflowCapability);
+  const workflowUnavailable = workflowAuthorityMessage(workflowCapability);
+  const startDisabled = !activeRunId && !isError && !workflowAllowed;
   return (
     <div
       className="border-b border-paper-200 bg-paper-100 p-4"
@@ -279,7 +293,11 @@ export function TodayRunAction({
                   ? "A pipeline run needs approval"
                   : runningRunId
                     ? "A pipeline run is in progress"
-                    : "Ready for the next pipeline run"}
+                    : workflowAllowed
+                      ? "Ready for the next pipeline run"
+                      : workflowCapability === false
+                        ? "Run start restricted"
+                        : "Run start unavailable"}
           </p>
           <p className="mt-0.5 text-xs text-ink-500">
             {isError
@@ -288,7 +306,9 @@ export function TodayRunAction({
                 ? "Review the blocking run before another can start."
                 : runningRunId
                   ? "Open Runs to follow its current state."
-                  : "Start sourcing and scoring when your team is ready."}
+                  : workflowAllowed
+                    ? "Start sourcing and scoring when your team is ready."
+                    : workflowUnavailable}
           </p>
           {!isLoading && (
             <Button
@@ -298,11 +318,12 @@ export function TodayRunAction({
                 "mt-3 h-7 text-xs",
                 awaitingRunId && "bg-rust-500 text-white hover:bg-rust-600",
               )}
-              disabled={isStarting}
+              disabled={isStarting || startDisabled}
+              title={startDisabled ? workflowUnavailable : undefined}
               onClick={() => {
                 if (activeRunId) onOpenRun(activeRunId);
                 else if (isError) onOpenRuns();
-                else onStart();
+                else if (workflowAllowed) onStart();
               }}
             >
               {isStarting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
@@ -314,7 +335,11 @@ export function TodayRunAction({
                     ? "View run"
                     : isStarting
                       ? "Starting…"
-                      : "Start run"}
+                      : workflowAllowed
+                        ? "Start run"
+                        : workflowCapability === false
+                          ? "Admin or manager required"
+                          : "Permission unavailable"}
             </Button>
           )}
         </div>

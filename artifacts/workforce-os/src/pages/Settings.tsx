@@ -30,6 +30,10 @@ import { EmptyState } from "@/components/states/EmptyState";
 import { ErrorState } from "@/components/states/ErrorState";
 import { getSendReadiness, workspaceLiveState } from "@/lib/sendReadiness";
 import { fetchGmailAuthUrl } from "@/lib/oauthConnect";
+import {
+  canManageWorkflow,
+  workflowAuthorityMessage,
+} from "@/lib/workflowAuthority";
 import { cn } from "@/lib/utils";
 
 // ─── Tab config ─────────────────────────────────────────────────────────────
@@ -548,6 +552,9 @@ function ComplianceCard({ settings }: { settings: OrgSettings }) {
 // ─── ICP Tab ──────────────────────────────────────────────────────────────────
 function IcpTab() {
   const queryClient = useQueryClient();
+  const orgQuery = useGetOrgSettings({
+    query: { queryKey: ["getOrgSettings"] },
+  });
   const { data, isLoading, isError, refetch } = useGetIcpProfile({ query: { queryKey: ["getIcpProfile"] } });
   const { mutate: update, isPending } = useUpdateIcpProfile({
     mutation: {
@@ -565,22 +572,33 @@ function IcpTab() {
   useEffect(() => {
     if (data && !initialized.current) { setProfile({ ...data }); initialized.current = true; }
   }, [data]);
+  const workflowCapability = orgQuery.data?.canManageWorkflow ?? null;
+  const workflowReadOnly = !canManageWorkflow(workflowCapability);
 
   return (
     <TabBoundary isLoading={isLoading} isError={isError} onRetry={() => refetch()} skeleton={<FormSkeleton rows={5} />}>
       <SectionHeader title="Ideal Customer Profile" description="Define which leads the SDR agent should source and target." />
+      {workflowReadOnly && (
+        <div
+          className="rounded-md border border-paper-200 bg-paper-50 px-3 py-2 text-xs text-ink-600"
+          data-testid="workflow-management-read-only"
+          role="status"
+        >
+          {workflowAuthorityMessage(workflowCapability)}
+        </div>
+      )}
       <SettingsCard className="p-5 space-y-5">
-        <ChipField label="Industries" chips={profile.industries} onChange={v => setProfile(p => ({ ...p, industries: v }))} placeholder="e.g. SaaS, Fintech" />
-        <ChipField label="Target Titles" chips={profile.titles} onChange={v => setProfile(p => ({ ...p, titles: v }))} placeholder="e.g. Head of Growth" />
-        <ChipField label="Target Geographies" chips={profile.geos} onChange={v => setProfile(p => ({ ...p, geos: v }))} placeholder="e.g. India, USA, UAE" />
+        <ChipField disabled={workflowReadOnly} label="Industries" chips={profile.industries} onChange={v => setProfile(p => ({ ...p, industries: v }))} placeholder="e.g. SaaS, Fintech" />
+        <ChipField disabled={workflowReadOnly} label="Target Titles" chips={profile.titles} onChange={v => setProfile(p => ({ ...p, titles: v }))} placeholder="e.g. Head of Growth" />
+        <ChipField disabled={workflowReadOnly} label="Target Geographies" chips={profile.geos} onChange={v => setProfile(p => ({ ...p, geos: v }))} placeholder="e.g. India, USA, UAE" />
         <Field label="Company Size Band">
-          <Input value={profile.sizeBand} onChange={e => setProfile(p => ({ ...p, sizeBand: e.target.value }))} placeholder="e.g. 50-500" />
+          <Input disabled={workflowReadOnly} value={profile.sizeBand} onChange={e => setProfile(p => ({ ...p, sizeBand: e.target.value }))} placeholder="e.g. 50-500" />
         </Field>
-        <ChipField label="Technology Signals" chips={profile.techStackSignals} onChange={v => setProfile(p => ({ ...p, techStackSignals: v }))} placeholder="e.g. Salesforce, HubSpot" />
-        <ChipField label="Intent Signals" chips={profile.intentSignals} onChange={v => setProfile(p => ({ ...p, intentSignals: v }))} placeholder="e.g. hiring engineers" />
+        <ChipField disabled={workflowReadOnly} label="Technology Signals" chips={profile.techStackSignals} onChange={v => setProfile(p => ({ ...p, techStackSignals: v }))} placeholder="e.g. Salesforce, HubSpot" />
+        <ChipField disabled={workflowReadOnly} label="Intent Signals" chips={profile.intentSignals} onChange={v => setProfile(p => ({ ...p, intentSignals: v }))} placeholder="e.g. hiring engineers" />
         <Separator />
-        <ChipField label="Seed Domains" chips={profile.seedDomains} onChange={v => setProfile(p => ({ ...p, seedDomains: v }))} placeholder="e.g. acme.com" />
-        <ChipField label="Exclusion Domains" chips={profile.exclusionDomains} onChange={v => setProfile(p => ({ ...p, exclusionDomains: v }))} placeholder="e.g. competitor.com" />
+        <ChipField disabled={workflowReadOnly} label="Seed Domains" chips={profile.seedDomains} onChange={v => setProfile(p => ({ ...p, seedDomains: v }))} placeholder="e.g. acme.com" />
+        <ChipField disabled={workflowReadOnly} label="Exclusion Domains" chips={profile.exclusionDomains} onChange={v => setProfile(p => ({ ...p, exclusionDomains: v }))} placeholder="e.g. competitor.com" />
         <p className="text-xs leading-relaxed text-ink-500">
           Excluded domains and their subdomains are removed before lead persistence
           and follow-on enrichment. Add competitors, customers, partners, and your
@@ -588,7 +606,14 @@ function IcpTab() {
         </p>
       </SettingsCard>
       <div className="flex justify-end">
-        <Button className="bg-rust-500 hover:bg-rust-600 text-white" disabled={isPending} onClick={() => update({ data: profile })}>
+        <Button
+          className="bg-rust-500 hover:bg-rust-600 text-white"
+          disabled={workflowReadOnly || isPending}
+          title={workflowReadOnly ? workflowAuthorityMessage(workflowCapability) : undefined}
+          onClick={() => {
+            if (canManageWorkflow(workflowCapability)) update({ data: profile });
+          }}
+        >
           {isPending ? "Saving…" : "Save ICP"}
         </Button>
       </div>
@@ -1325,12 +1350,12 @@ function FormSkeleton({ rows }: { rows: number }) {
   );
 }
 
-function ChipField({ label, chips, onChange, placeholder }: { label: string; chips: string[]; onChange: (v: string[]) => void; placeholder?: string }) {
+function ChipField({ label, chips, onChange, placeholder, disabled = false }: { label: string; chips: string[]; onChange: (v: string[]) => void; placeholder?: string; disabled?: boolean }) {
   const [input, setInput] = useState("");
 
   const add = () => {
     const val = input.trim();
-    if (val && !chips.includes(val)) { onChange([...chips, val]); }
+    if (!disabled && val && !chips.includes(val)) { onChange([...chips, val]); }
     setInput("");
   };
 
@@ -1340,7 +1365,7 @@ function ChipField({ label, chips, onChange, placeholder }: { label: string; chi
         {chips.map(c => (
           <span key={c} className="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-paper-300 rounded text-xs text-ink-800">
             {c}
-            <button aria-label={`Remove ${c}`} onClick={() => onChange(chips.filter(x => x !== c))} className="text-ink-300 hover:text-red-400 rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+            <button type="button" disabled={disabled} aria-label={`Remove ${c}`} onClick={() => onChange(chips.filter(x => x !== c))} className="text-ink-300 hover:text-red-400 rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50">
               <X className="h-3 w-3" />
             </button>
           </span>
@@ -1349,6 +1374,7 @@ function ChipField({ label, chips, onChange, placeholder }: { label: string; chi
           aria-label={label}
           className="flex-1 min-w-[120px] text-xs bg-transparent outline-none placeholder:text-ink-300 text-ink-900 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-sm"
           placeholder={placeholder}
+          disabled={disabled}
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); add(); } }}
