@@ -268,27 +268,16 @@ export default function ConversationThread() {
                     className="w-full bg-rust-500 hover:bg-rust-600 text-white"
                     size="sm"
                     onClick={() => draftReply({ id })}
-                    disabled={drafting}
+                    disabled={drafting || conv.archived}
+                    data-testid="conversation-ai-draft"
+                    title={
+                      conv.archived
+                        ? "Restore this conversation before drafting a reply"
+                        : undefined
+                    }
                   >
                     <Sparkles className="h-4 w-4 mr-2" />
                     {drafting ? "Drafting…" : "Draft Reply"}
-                  </Button>
-                </motion.div>
-                <motion.div
-                  variants={reduced ? undefined : springHover}
-                  initial="rest"
-                  whileHover="hover"
-                  whileTap="tap"
-                >
-                  <Button
-                    variant="outline"
-                    className="w-full border-paper-300"
-                    size="sm"
-                    onClick={() => archive({ id })}
-                    disabled={archiving}
-                  >
-                    <Archive className="h-4 w-4 mr-2" />
-                    {archiving ? "Archiving…" : "Archive"}
                   </Button>
                 </motion.div>
               </div>

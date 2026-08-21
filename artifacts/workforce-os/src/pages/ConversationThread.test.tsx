@@ -130,8 +130,15 @@ describe("ConversationThread observation loop", () => {
 
     Object.assign(globalThis, { React });
     const markup = renderToStaticMarkup(<ConversationThread />);
+    const draftButton = markup.match(
+      /<button[^>]*data-testid="conversation-ai-draft"[^>]*>/,
+    )?.[0];
 
     expect(markup).toContain("Restore");
     expect(markup).not.toContain('aria-label="Archive conversation"');
+    expect(draftButton).toContain("disabled=\"\"");
+    expect(draftButton).toContain(
+      'title="Restore this conversation before drafting a reply"',
+    );
   });
 });
