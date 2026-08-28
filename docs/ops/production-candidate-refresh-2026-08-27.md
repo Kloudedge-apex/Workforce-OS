@@ -9,3 +9,9 @@ in a bootstrap request.
 The backend production-authority audit was rerun on 2026-08-27. Its result is
 operational evidence, not a substitute for the bootstrap controller's signed
 database, delivery, smoke, and phase receipts.
+
+The checkpoint was refreshed again on 2026-08-28 because production admission
+requires the protected-head CI and immutable candidate-build evidence to be no
+more than 24 hours old. Existing source tags remain immutable and are never
+overwritten; each refresh therefore advances the protected source commit and
+produces a newly attributable candidate.
