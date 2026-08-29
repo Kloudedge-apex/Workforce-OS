@@ -1852,6 +1852,9 @@ components:
         durationMs: { type: integer }
         costUsd: { type: [number, "null"] }
         approvedBy: { type: ["string", "null"] }
+        failureReason:
+          type: ["string", "null"]
+          description: Safe operator guidance for a failed run. Raw upstream errors are never exposed.
         startedAt: { type: string }
         completedAt: { type: ["string", "null"] }
       required:
@@ -1864,6 +1867,7 @@ components:
           durationMs,
           costUsd,
           approvedBy,
+          failureReason,
           startedAt,
           completedAt,
         ]

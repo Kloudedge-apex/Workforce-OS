@@ -23,6 +23,7 @@ export interface GraphRunShape {
   durationMs: number;
   costUsd: number | null;
   approvedBy: string | null;
+  failureReason: string | null;
   startedAt: string;
   completedAt: string | null;
 }
@@ -148,6 +149,35 @@ function deriveAgents(
 }
 
 /**
+ * Convert internal worker failures into bounded, operator-safe guidance. Raw
+ * provider, database, and runtime errors can contain tenant data or secret
+ * identifiers, so they never cross the BFF boundary.
+ */
+export function safeRunFailureReason(run: UpstreamGraphRun): string | null {
+  if (run.status !== "FAILED") return null;
+
+  const error = run.error?.trim() ?? "";
+  if (/Received no input writes for ["']__start__["']/.test(error)) {
+    return "The pipeline could not initialize its workflow state. Start a new run.";
+  }
+  if (error.startsWith("auto-failed:")) {
+    return "The pipeline stopped after its automatic retries were exhausted. Start a new run.";
+  }
+
+  const failedStage = Object.entries(run.state?.stageStatuses ?? {}).find(
+    ([, status]) => status === "FAILED",
+  )?.[0];
+  const presentation = failedStage
+    ? Object.values(STAGE_PRESENTATION).find(
+        (item) => item.stage === failedStage,
+      )
+    : undefined;
+  return presentation
+    ? `The pipeline failed during ${presentation.label.toLowerCase()}. Start a new run.`
+    : "The pipeline failed before it could complete. Start a new run.";
+}
+
+/**
  * PURE: map ONE upstream GraphRun row → the openapi GraphRun schema.
  *
  * Derived fields:
@@ -179,6 +209,7 @@ export function shapeRun(
       completedMs !== null ? completedMs - startedMs : now - startedMs,
     costUsd: null,
     approvedBy: run.approvedBy ?? state?.approvedBy ?? null,
+    failureReason: safeRunFailureReason(run),
     startedAt: new Date(run.startedAt).toISOString(),
     completedAt: run.completedAt
       ? new Date(run.completedAt).toISOString()

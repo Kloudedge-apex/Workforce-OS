@@ -10,6 +10,7 @@ import {
   shapeRunsList,
   shapeRunDetail,
   shapeRunTimeline,
+  safeRunFailureReason,
   shapeTrigger,
   upstreamMessage,
   type RunDecisionUpstreamClient,
@@ -170,6 +171,7 @@ describe("shapeRun", () => {
       durationMs: 5 * 60 * 1000,
       costUsd: null,
       approvedBy: "user_42",
+      failureReason: null,
       startedAt: "2026-06-10T10:00:00.000Z",
       completedAt: "2026-06-10T10:05:00.000Z",
     });
@@ -197,7 +199,37 @@ describe("shapeRun", () => {
     expect(out.artifactsGenerated).toBeNull();
     expect(out.stagesCompleted).toEqual([]);
     expect(out.approvedBy).toBeNull();
+    expect(out.failureReason).toBeNull();
     expect(out.costUsd).toBeNull();
+  });
+
+  it("maps the empty-start failure to safe guidance without exposing raw errors", () => {
+    const failed: UpstreamGraphRun = {
+      ...completedRun,
+      status: "FAILED",
+      error: 'Received no input writes for "__start__"',
+    };
+
+    expect(safeRunFailureReason(failed)).toBe(
+      "The pipeline could not initialize its workflow state. Start a new run.",
+    );
+    expect(shapeRun(failed).failureReason).not.toContain("__start__");
+  });
+
+  it("never exposes an unknown raw run error", () => {
+    const failed: UpstreamGraphRun = {
+      ...completedRun,
+      status: "FAILED",
+      state: null,
+      error: "provider token rejected for secret@example.com",
+    };
+
+    const reason = safeRunFailureReason(failed);
+    expect(reason).toBe(
+      "The pipeline failed before it could complete. Start a new run.",
+    );
+    expect(reason).not.toContain("secret@example.com");
+    expect(reason).not.toContain("provider token");
   });
 });
 
