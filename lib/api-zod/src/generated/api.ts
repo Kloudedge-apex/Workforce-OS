@@ -983,6 +983,7 @@ export const ListRunsResponse = zod.object({
   "durationMs": zod.number(),
   "costUsd": zod.number().nullable(),
   "approvedBy": zod.string().nullable(),
+  "failureReason": zod.string().nullable().describe('Safe operator guidance for a failed run. Raw upstream errors are never exposed.'),
   "startedAt": zod.string(),
   "completedAt": zod.string().nullable()
 })),
@@ -1015,6 +1016,7 @@ export const GetRunResponse = zod.object({
   "durationMs": zod.number(),
   "costUsd": zod.number().nullable(),
   "approvedBy": zod.string().nullable(),
+  "failureReason": zod.string().nullable().describe('Safe operator guidance for a failed run. Raw upstream errors are never exposed.'),
   "startedAt": zod.string(),
   "completedAt": zod.string().nullable()
 }),

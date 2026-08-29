@@ -851,6 +851,11 @@ export interface GraphRun {
   costUsd: number | null;
   /** @nullable */
   approvedBy: string | null;
+  /**
+     * Safe operator guidance for a failed run. Raw upstream errors are never exposed.
+     * @nullable
+     */
+  failureReason: string | null;
   startedAt: string;
   /** @nullable */
   completedAt: string | null;

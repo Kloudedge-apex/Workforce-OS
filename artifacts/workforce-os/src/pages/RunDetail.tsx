@@ -416,6 +416,24 @@ export default function RunDetail() {
       </div>
 
       <div className="max-w-4xl mx-auto w-full p-6 space-y-6">
+        {run.status === "FAILED" && run.failureReason && (
+          <div
+            role="alert"
+            data-testid="run-failure-panel"
+            className="rounded-xl border border-rust-300 bg-rust-500/5 p-5 shadow-sm"
+          >
+            <div className="flex items-center gap-2">
+              <XCircle className="h-5 w-5 text-rust-500 shrink-0" />
+              <h2 className="font-serif text-lg font-semibold text-ink-900 dark:text-paper-50">
+                Run failed
+              </h2>
+            </div>
+            <p className="mt-2 text-sm leading-relaxed text-ink-700">
+              {run.failureReason}
+            </p>
+          </div>
+        )}
+
         {/* Run-level HITL: the pipeline pauses at its human checkpoint BEFORE
             drafting, so without this panel the org's only run sits frozen in
             AWAITING_APPROVAL with no UI escape. Honest about what exists at

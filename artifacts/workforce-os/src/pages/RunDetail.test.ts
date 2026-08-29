@@ -13,6 +13,7 @@ import RunDetail, {
 
 const mockState = vi.hoisted(() => ({
   reviewCapability: true as boolean | null,
+  runDetail: null as unknown,
 }));
 
 const awaitingRunDetail = {
@@ -79,7 +80,7 @@ vi.mock("@workspace/api-client-react", async (importOriginal) => {
   return {
     ...actual,
     useGetRun: () => ({
-      data: awaitingRunDetail,
+      data: mockState.runDetail,
       isLoading: false,
       isError: false,
       refetch: vi.fn(),
@@ -175,6 +176,25 @@ describe("approvalSavedFromError", () => {
 describe("RunDetail review capability", () => {
   beforeEach(() => {
     mockState.reviewCapability = true;
+    mockState.runDetail = awaitingRunDetail;
+  });
+
+  it("shows the safe failure reason for a failed run", () => {
+    mockState.runDetail = {
+      ...awaitingRunDetail,
+      run: {
+        ...awaitingRunDetail.run,
+        status: "FAILED",
+        failureReason:
+          "The pipeline could not initialize its workflow state. Start a new run.",
+      },
+    };
+
+    const html = renderRunDetail();
+
+    expect(html).toContain('data-testid="run-failure-panel"');
+    expect(html).toContain("Run failed");
+    expect(html).toContain("could not initialize its workflow state");
   });
 
   it("renders run approve and reject controls for an authorized reviewer", () => {
