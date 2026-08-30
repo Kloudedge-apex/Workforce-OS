@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
-# Single-container Workforce OS FE + BFF for Azure Container Apps (RG Ledgr-prod / ACR ledgracr).
+# Single-container Workforce OS FE + BFF for the isolated production Container App and ACR.
 # The api-server (BFF) serves the built Vite FE (FE_DIST) and /api.
 
 ARG NODE_IMAGE=node:24-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03

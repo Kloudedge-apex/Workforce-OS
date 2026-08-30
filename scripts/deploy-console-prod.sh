@@ -342,8 +342,8 @@ fi
 
 cd "${REPO_ROOT}"
 
-REGISTRY="ledgracr"
-RESOURCE_GROUP="Ledgr-prod"
+REGISTRY="workforceosprodacr"
+RESOURCE_GROUP="workforce-os-prod"
 ACR_REPO="workforceos-fe"
 APP="nikxius-web"
 DOCKERFILE="Dockerfile"

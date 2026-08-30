@@ -216,16 +216,16 @@ test_production_release_workflow_verifier() {
     "${harness}/fallback-variable.yml" "a repository/org variable fallback"
 
   sed \
-    's|350c994e-d076-42ab-bf56-4e923947dc32|00000000-0000-0000-0000-000000000000|' \
+    's|82ff99b2-0284-4aaf-a9a6-0d926bf01481|00000000-0000-0000-0000-000000000000|' \
     "${workflow}" >"${harness}/wrong-release-client.yml"
   expect_workflow_verifier_rejects \
     "${harness}/wrong-release-client.yml" "an unreviewed release identity"
 
   sed \
-    's|exclusive_authority="false"|exclusive_authority="true"|' \
-    "${workflow}" >"${harness}/source-authority-enabled.yml"
+    's|exclusive_authority="true"|exclusive_authority="false"|' \
+    "${workflow}" >"${harness}/source-authority-disabled.yml"
   expect_workflow_verifier_rejects \
-    "${harness}/source-authority-enabled.yml" "source-enabled mutation authority"
+    "${harness}/source-authority-disabled.yml" "source-disabled mutation authority"
 
   awk '
     { print }
@@ -334,16 +334,16 @@ EOF
 
 test_registry_verifier() {
   local image revision clerk_key_sha256 wrong_image
-  image="ledgracr.azurecr.io/workforceos-fe@sha256:$(printf 'a%.0s' {1..64})"
+  image="workforceosprodacr.azurecr.io/workforceos-fe@sha256:$(printf 'a%.0s' {1..64})"
   revision="$(printf 'b%.0s' {1..40})"
   clerk_key_sha256="$(printf 'd%.0s' {1..64})"
-  wrong_image="ledgracr.azurecr.io/workforceos-fe@sha256:$(printf 'c%.0s' {1..64})"
+  wrong_image="workforceosprodacr.azurecr.io/workforceos-fe@sha256:$(printf 'c%.0s' {1..64})"
   make_registry_harness
 
   env PATH="${HARNESS}/bin:${PATH}" CALL_LOG="${CALL_LOG}" EXPECTED_IMAGE="${image}" \
     "${HARNESS}/scripts/verify-registry-console-image.sh" \
     "${image}" "${revision}" "${clerk_key_sha256}" >/dev/null
-  assert_contains "${CALL_LOG}" "az acr login --name ledgracr --output none"
+  assert_contains "${CALL_LOG}" "az acr login --name workforceosprodacr --output none"
   assert_contains "${CALL_LOG}" "docker pull --platform linux/amd64 ${image}"
   assert_contains "${CALL_LOG}" "verify-console ${image} ${revision} ${clerk_key_sha256}"
   assert_before "${CALL_LOG}" "docker pull" "verify-console"
@@ -352,7 +352,7 @@ test_registry_verifier() {
   : >"${CALL_LOG}"
   if env PATH="${HARNESS}/bin:${PATH}" CALL_LOG="${CALL_LOG}" EXPECTED_IMAGE="${image}" \
     "${HARNESS}/scripts/verify-registry-console-image.sh" \
-    "ledgracr.azurecr.io/workforceos-fe:${revision}" "${revision}" "${clerk_key_sha256}" >/dev/null 2>&1; then
+    "workforceosprodacr.azurecr.io/workforceos-fe:${revision}" "${revision}" "${clerk_key_sha256}" >/dev/null 2>&1; then
     fail "registry verifier accepted a mutable tag"
   fi
   assert_excludes "${CALL_LOG}" "az "
@@ -496,7 +496,7 @@ test_containerapp_verifier() {
     >"${harness}/docs/ops/production-api-upstream-url.sha256"
   printf '%s\n' "$(printf 'b%.0s' {1..64})" \
     >"${harness}/docs/ops/production-clerk-auth.sha256"
-  image="ledgracr.azurecr.io/workforceos-fe@sha256:$(printf 'e%.0s' {1..64})"
+  image="workforceosprodacr.azurecr.io/workforceos-fe@sha256:$(printf 'e%.0s' {1..64})"
   write_containerapp_fixture "${harness}/app.json" "${image}"
   jq -n --arg image "${image}" '{properties: {
     active: true,
@@ -1103,7 +1103,7 @@ reset_deploy_harness() {
   : >"${SHOW_LOG}"
   FAKE_BRANCH="main"
   FAKE_REMOTE_COMMIT="${FAKE_COMMIT}"
-  FAKE_PREVIOUS_IMAGE="ledgracr.azurecr.io/workforceos-fe@sha256:$(printf '1%.0s' {1..64})"
+  FAKE_PREVIOUS_IMAGE="workforceosprodacr.azurecr.io/workforceos-fe@sha256:$(printf '1%.0s' {1..64})"
   FAKE_CI_STATUS=0
   FAKE_REGISTRY_STATUS=0
   FAKE_CONFIG_STATUS=0
@@ -1142,7 +1142,7 @@ test_deploy_guard() {
   FAKE_DIGEST="sha256:$(printf '3%.0s' {1..64})"
   FAKE_TREE_SHA="$(printf '5%.0s' {1..40})"
   FAKE_LEASE_COMMIT="$(printf '6%.0s' {1..40})"
-  expected_image="ledgracr.azurecr.io/workforceos-fe@${FAKE_DIGEST}"
+  expected_image="workforceosprodacr.azurecr.io/workforceos-fe@${FAKE_DIGEST}"
   FAKE_NEW_IMAGE="${expected_image}"
   reset_deploy_harness
 
@@ -1167,7 +1167,11 @@ test_deploy_guard() {
   assert_excludes "${CALL_LOG}" "storage blob lease break"
   assert_before "${CALL_LOG}" "force-with-lease=refs/heads/workforce-os-release-lock/production-console: origin ${FAKE_LEASE_COMMIT}" "az containerapp show"
   assert_excludes "${CALL_LOG}" "gh api --method DELETE"
-  assert_contains "${CALL_LOG}" "az containerapp update --name nikxius-web"
+  assert_contains "${CALL_LOG}" "az acr build --registry workforceosprodacr"
+  assert_contains "${CALL_LOG}" "az containerapp show --name nikxius-web --resource-group workforce-os-prod"
+  assert_contains "${CALL_LOG}" "az containerapp update --name nikxius-web --resource-group workforce-os-prod"
+  assert_excludes "${CALL_LOG}" "Ledgr-prod"
+  assert_excludes "${CALL_LOG}" "ledgracr"
   assert_before "${CALL_LOG}" "verify-registry" "az containerapp update"
   [[ "$(tail -n 1 "${UPDATE_LOG}")" == "${expected_image}" ]] || fail "deploy did not select exact digest"
   pass
@@ -1284,7 +1288,7 @@ test_deploy_guard() {
   pass
 
   reset_deploy_harness
-  FAKE_PREVIOUS_IMAGE="ledgracr.azurecr.io/workforceos-fe:legacy"
+  FAKE_PREVIOUS_IMAGE="workforceosprodacr.azurecr.io/workforceos-fe:legacy"
   if run_fake_deploy >/dev/null 2>&1; then
     fail "deploy accepted a mutable rollback image"
   fi
@@ -1328,7 +1332,7 @@ test_deploy_guard() {
 
   reset_deploy_harness
   FAKE_CONCURRENT_SHOW_AT=3
-  FAKE_CONCURRENT_IMAGE="ledgracr.azurecr.io/workforceos-fe@sha256:$(printf '7%.0s' {1..64})"
+  FAKE_CONCURRENT_IMAGE="workforceosprodacr.azurecr.io/workforceos-fe@sha256:$(printf '7%.0s' {1..64})"
   if run_fake_deploy >/dev/null 2>&1; then
     fail "deploy overwrote an image changed at the final pre-write read"
   fi
@@ -1366,7 +1370,7 @@ test_exact_commit_controller_boundary() {
   FAKE_DIGEST="sha256:$(printf '9%.0s' {1..64})"
   FAKE_TREE_SHA="$(printf 'a%.0s' {1..40})"
   FAKE_LEASE_COMMIT="$(printf 'b%.0s' {1..40})"
-  expected_image="ledgracr.azurecr.io/workforceos-fe@${FAKE_DIGEST}"
+  expected_image="workforceosprodacr.azurecr.io/workforceos-fe@${FAKE_DIGEST}"
   FAKE_NEW_IMAGE="${expected_image}"
   reset_deploy_harness
 
@@ -1436,7 +1440,7 @@ test_bootstrap_signal_forwarding() {
   FAKE_DIGEST="sha256:$(printf 'e%.0s' {1..64})"
   FAKE_TREE_SHA="$(printf 'f%.0s' {1..40})"
   FAKE_LEASE_COMMIT="$(printf '1%.0s' {1..40})"
-  FAKE_NEW_IMAGE="ledgracr.azurecr.io/workforceos-fe@${FAKE_DIGEST}"
+  FAKE_NEW_IMAGE="workforceosprodacr.azurecr.io/workforceos-fe@${FAKE_DIGEST}"
   reset_deploy_harness
   FAKE_BLOCK_REMOTE_CHECK=true
   FAKE_BOOTSTRAP_PID_FILE="${HARNESS}/bootstrap.pid"

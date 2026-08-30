@@ -73,16 +73,18 @@ jobs:
           set -euo pipefail
           # GitHub's workflow token cannot read Environment administration APIs.
           # The job declaration enforces the reviewed Environment. Public Azure
-          # coordinates and the current NO-GO authority verdict are source-pinned.
+          # coordinates and the reviewed GO authority verdict are source-pinned.
+          # Audit run 33075989120 completed the ten-day drain with zero findings
+          # and included the exact isolated console release identity below.
           guid_pattern='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-          azure_client_id="350c994e-d076-42ab-bf56-4e923947dc32"
+          azure_client_id="82ff99b2-0284-4aaf-a9a6-0d926bf01481"
           azure_subscription_id="3171575e-f164-425c-9ee0-2fb10cf93884"
           azure_tenant_id="d4b3813d-146f-4d03-96b8-d6e5862d58a2"
-          exclusive_authority="false"
-          production_control_storage_account="ledgrstorage"
+          exclusive_authority="true"
+          production_control_storage_account="workforceosprodctrl"
           production_control_storage_container="production-control"
           production_control_storage_blob="workforce-os/initial-production-bootstrap/state-v1.json"
-          production_control_storage_resource_id="/subscriptions/3171575e-f164-425c-9ee0-2fb10cf93884/resourceGroups/Ledgr-prod/providers/Microsoft.Storage/storageAccounts/ledgrstorage"
+          production_control_storage_resource_id="/subscriptions/3171575e-f164-425c-9ee0-2fb10cf93884/resourceGroups/workforce-os-prod/providers/Microsoft.Storage/storageAccounts/workforceosprodctrl"
           [[ "${azure_client_id}" =~ ${guid_pattern} ]]
           [[ "${azure_subscription_id}" =~ ${guid_pattern} ]]
           [[ "${azure_tenant_id}" =~ ${guid_pattern} ]]
