@@ -37,6 +37,17 @@ Once an image update is attempted, every failed rollout retains the lease,
 including one whose compensating rollback verifies healthy, so another rollout
 cannot enter potentially delayed or uncertain production state.
 
+For the specific pre-mutation scalar-output incident, the manual-only
+`.github/workflows/recover-production-lease.yml` path may break the orphaned
+shared lease only after a separately authorized, run-bound confirmation. It
+requires the referenced console release to have failed at the known
+post-acquire lease-ID check, proves that both production release workflows are
+inactive, proves that neither repository release lock exists, verifies the
+shared blob still has an infinite active lease, and uses the same protected
+production OIDC identity. It never deletes the state blob or mutates ACR or a
+Container App. Do not use it for a post-mutation or otherwise unexplained
+failure.
+
 ## Source and CI admission
 
 Before a rollout:

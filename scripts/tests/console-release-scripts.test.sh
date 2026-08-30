@@ -109,6 +109,37 @@ test_source_contract() {
   pass
 }
 
+test_stale_lease_recovery_workflow_source() {
+  local workflow="${REPO_ROOT}/.github/workflows/recover-production-lease.yml"
+  [[ -f "${workflow}" && ! -L "${workflow}" ]] ||
+    fail "stale-lease recovery workflow is missing or unsafe"
+  assert_contains "${workflow}" "  workflow_dispatch:"
+  assert_contains "${workflow}" "  actions: read"
+  assert_contains "${workflow}" "  contents: read"
+  assert_contains "${workflow}" "  id-token: write"
+  assert_contains "${workflow}" "  group: workforce-os-production"
+  assert_contains "${workflow}" "    environment: workforce-os-production"
+  assert_contains "${workflow}" \
+    '"${CONFIRMATION}" != "BREAK STALE WORKFORCE OS PRODUCTION LEASE FOR ${FAILED_RUN_ID}"'
+  assert_contains "${workflow}" \
+    'ERROR: failed run does not prove the known post-acquire scalar-output incident'
+  assert_contains "${workflow}" \
+    'assert_no_running_releases "Kloudedge-apex/Workforce-OS" "release-production.yml"'
+  assert_contains "${workflow}" \
+    'assert_no_running_releases "Kloudedge-apex/apex-product" "release-production.yml"'
+  assert_contains "${workflow}" \
+    '"workforce-os-release-lock/production-console"'
+  assert_contains "${workflow}" \
+    '"workforce-os-release-lock/production-gtm-platform"'
+  assert_contains "${workflow}" 'and .duration == "infinite"'
+  assert_contains "${workflow}" "az storage blob lease break"
+  assert_contains "${workflow}" "--lease-break-period 0"
+  assert_excludes "${workflow}" "storage blob delete"
+  assert_excludes "${workflow}" "containerapp update"
+  assert_excludes "${workflow}" "az acr build"
+  pass
+}
+
 test_clerk_auth_pin_vector() {
   local actual expected
   expected="5eddc3f498e16df540776fa025bef86f741fae6815abfb9dd80652026b8956ad"
@@ -1803,6 +1834,7 @@ test_controller_never_deletes_supplied_snapshot_path() {
 }
 
 test_source_contract
+test_stale_lease_recovery_workflow_source
 test_clerk_auth_pin_vector
 test_production_release_workflow_verifier
 test_registry_verifier
