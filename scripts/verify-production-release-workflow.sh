@@ -232,20 +232,20 @@ name: Release exact production console commit"
 
   require_workflow_line "${workflow_file}" "        id: protected_environment"
   require_workflow_text "${workflow_file}" \
-    'azure_client_id="350c994e-d076-42ab-bf56-4e923947dc32"'
+    'azure_client_id="82ff99b2-0284-4aaf-a9a6-0d926bf01481"'
   require_workflow_text "${workflow_file}" \
     'azure_subscription_id="3171575e-f164-425c-9ee0-2fb10cf93884"'
   require_workflow_text "${workflow_file}" \
     'azure_tenant_id="d4b3813d-146f-4d03-96b8-d6e5862d58a2"'
-  require_workflow_text "${workflow_file}" 'exclusive_authority="false"'
+  require_workflow_text "${workflow_file}" 'exclusive_authority="true"'
   require_workflow_text "${workflow_file}" \
-    'production_control_storage_account="ledgrstorage"'
+    'production_control_storage_account="workforceosprodctrl"'
   require_workflow_text "${workflow_file}" \
     'production_control_storage_container="production-control"'
   require_workflow_text "${workflow_file}" \
     'production_control_storage_blob="workforce-os/initial-production-bootstrap/state-v1.json"'
   require_workflow_text "${workflow_file}" \
-    'production_control_storage_resource_id="/subscriptions/3171575e-f164-425c-9ee0-2fb10cf93884/resourceGroups/Ledgr-prod/providers/Microsoft.Storage/storageAccounts/ledgrstorage"'
+    'production_control_storage_resource_id="/subscriptions/3171575e-f164-425c-9ee0-2fb10cf93884/resourceGroups/workforce-os-prod/providers/Microsoft.Storage/storageAccounts/workforceosprodctrl"'
   require_workflow_text "${workflow_file}" \
     '[[ "${exclusive_authority}" == "true" ]]'
   require_workflow_text "${workflow_file}" \
@@ -258,8 +258,8 @@ name: Release exact production console commit"
     'repos/\$\{GITHUB_REPOSITORY\}/environments' \
     "workflow token cannot query Environment administration APIs"
   reject_workflow_pattern "${workflow_file}" \
-    'exclusive_authority="true"' \
-    "source-pinned exclusive authority must remain fail-closed"
+    'exclusive_authority="false"' \
+    "reviewed source-pinned exclusive authority may not regress to NO-GO"
   require_workflow_text "${workflow_file}" \
     'printf '\''azure_client_id=%s\n'\'' "${azure_client_id}"'
   require_workflow_text "${workflow_file}" \

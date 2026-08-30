@@ -8,7 +8,7 @@ set -euo pipefail
 EXPECTED_IMAGE="${1:-}"
 EXPECTED_COMMIT="${2:-}"
 EXPECTED_CLERK_FRONTEND_HOST="${3:-}"
-RESOURCE_GROUP="Ledgr-prod"
+RESOURCE_GROUP="workforce-os-prod"
 APP="nikxius-web"
 
 valid_dns_hostname() {
@@ -23,10 +23,10 @@ valid_dns_hostname() {
   done
 }
 
-if [[ ! "${EXPECTED_IMAGE}" =~ ^ledgracr\.azurecr\.io/workforceos-fe@sha256:[0-9a-f]{64}$ ||
+if [[ ! "${EXPECTED_IMAGE}" =~ ^workforceosprodacr\.azurecr\.io/workforceos-fe@sha256:[0-9a-f]{64}$ ||
   ! "${EXPECTED_COMMIT}" =~ ^[0-9a-f]{40}$ ]] ||
   ! valid_dns_hostname "${EXPECTED_CLERK_FRONTEND_HOST}"; then
-  echo "Usage: $0 <ledgracr.azurecr.io/workforceos-fe@sha256:digest> <full-lowercase-git-sha> <clerk-frontend-host>" >&2
+  echo "Usage: $0 <workforceosprodacr.azurecr.io/workforceos-fe@sha256:digest> <full-lowercase-git-sha> <clerk-frontend-host>" >&2
   exit 2
 fi
 for REQUIRED_COMMAND in az git jq openssl realpath; do

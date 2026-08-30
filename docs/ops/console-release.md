@@ -4,8 +4,8 @@ The production console and same-origin BFF ship as one image:
 
 - GitHub repository: `Kloudedge-apex/Workforce-OS`
 - source branch: `main`
-- registry repository: `ledgracr.azurecr.io/workforceos-fe`
-- Azure Container App: `nikxius-web` in `Ledgr-prod`
+- registry repository: `workforceosprodacr.azurecr.io/workforceos-fe`
+- Azure Container App: `nikxius-web` in `workforce-os-prod`
 - runtime platform: `linux/amd64`
 
 `scripts/deploy-console-prod.sh` is the admitted image rollout path. The
@@ -61,10 +61,12 @@ Before a rollout:
    confirmation. GitHub natively admits the job through that environment; the
    separate governance audit verifies its administration policy because a
    workflow token cannot read Environment administration endpoints.
-5. The protected environment and exact OIDC federation exist. Exclusive Azure
-   mutation authority is still NO-GO. The reviewed workflow source pins the
-   public Azure coordinates, shared control-blob identity, and current `false`
-   authority verdict. The environment owns the `VITE_CLERK_PUBLISHABLE_KEY`
+5. The protected environment and exact OIDC federation exist. Protected audit
+   run `33075989120` completed the ten-day credential drain and returned `GO`
+   with zero findings for the isolated release identities. The reviewed
+   workflow source pins the isolated console identity, shared control-blob
+   identity, and `true` authority verdict. The environment owns the
+   `VITE_CLERK_PUBLISHABLE_KEY`
    secret. Repository- or organization-scoped fallbacks are not admitted.
    Both
    `production-api-upstream-url.sha256` and
@@ -76,7 +78,7 @@ Before a rollout:
    those observations before release; do not substitute tests, examples, or
    historical notes.
 
-As of 2026-08-16, GitHub reports `main` protected and the production and build
+As of 2026-08-30, GitHub reports `main` protected and the production and build
 environments configured. The separately retained governance evidence proves
 reviewed pull requests, exact blocking CI checks, stale-review dismissal,
 administrator enforcement, disabled force-push/deletion, direct-dispatch
@@ -135,15 +137,12 @@ pre-write image read, and post-write verification serialize cooperating
 controllers and detect divergence; they do not stop an unrelated Azure
 principal in the final read/write window.
 
-Production RBAC must close that gap before a release. Audit inherited and
-direct role assignments and prove there is no other writer: the protected CI
-OIDC principal alone may hold `Microsoft.App/containerApps/write` on
-`nikxius-web`. Remove standing user, group, Contributor, Owner, automation,
-and break-glass write paths or treat the release as blocked. Record the RBAC
-evidence with the release approval. This is an external NO-GO until the
-protected workflow and exclusive RBAC exist. Only that future protected job
-may supply `ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED=true`; an operator must
-not export or attest it from a workstation.
+Production RBAC closes that gap for the isolated console. Protected audit run
+`33075989120` verified the `workforce-os-v2-console-release` identity as the
+exclusive cooperating writer for `nikxius-web`, with exact OIDC federation and
+the shared control-blob lease authority. Only the protected job may supply
+`ACA_EXCLUSIVE_MUTATION_AUTHORITY_CONFIRMED=true`; an operator must not export
+or attest it from a workstation.
 
 The controller checks this attestation before creating a lease or registry
 artifact and again immediately before every forward or rollback Container App
@@ -173,14 +172,9 @@ The read-only `scripts/verify-console-containerapp-config.sh` guard requires:
 - `DEV_TRUST_X_ORG_ID` unset or `false`; and
 - a healthy, active latest revision running the expected digest.
 
-The currently documented legacy deployment used a mutable image tag. The
-deploy script intentionally refuses to guess a rollback digest from that tag.
-Before the first guarded rollout, an authorized operator must perform a
-separately reviewed one-time normalization: establish the exact digest of the
-currently running artifact from registry and deployment evidence, update the
-Container App to that digest without changing its bytes or configuration, and
-retain the read-back and health evidence. Stop if the running artifact cannot
-be tied to a unique digest.
+The isolated deployment already runs an immutable
+`workforceosprodacr.azurecr.io/workforceos-fe@sha256:...` image. The deploy
+script refuses mutable tags and captures that exact digest for rollback.
 
 ## Rollout
 
@@ -212,27 +206,18 @@ That framing hashes to
 Any change to one of those five runtime values requires a reviewed source-pin
 change before the Container App can pass release verification.
 
-The legacy Container Apps do not satisfy this tuple. The console and backend
-release controllers verify existing configuration before building an artifact
-or changing an image, so the first release intentionally stops until a
-separately authorized provider configuration change normalizes `nikxius-web`,
-`apex-gtm-api`, and `apex-gtm-worker` to the exact five values above. That
-change must use the future protected OIDC release authority, not a local user
-session. Capture the prior revisions and sanitized non-secret configuration
-evidence, update the API and worker as one coordinated change, apply the same
-tuple to the console, and run both repository verifiers against the active
-immutable image digests. Restore the captured revisions if authentication
-smoke checks fail. Do not weaken or bypass the preflight to admit legacy
-configuration.
+The isolated `nikxius-web` Container App satisfies this tuple and is verified
+against its active immutable digest before any build or write. A mismatch still
+fails before release rather than normalizing configuration implicitly.
 
-After every external NO-GO above is closed, dispatch the workflow from protected
+After the reviewed source change and exact-commit CI are complete, dispatch the workflow from protected
 `main` with the exact 40-character current `main` SHA and the exact phrase
 `RELEASE WORKFORCE OS PRODUCTION`. It rechecks the remote `main` identity,
 exact-commit CI, reviewed source pins, and the logged-in Azure subscription,
 tenant, and service-principal client ID before release. Native Environment
-admission protects the Clerk secret. Mutation authority remains source-pinned
-`false` until a reviewed source change records a successful Azure authority
-audit; it is never a dispatch input or repository/org variable fallback.
+admission protects the Clerk secret. Mutation authority is source-pinned from
+the successful Azure authority audit; it is never a dispatch input or
+repository/org variable fallback.
 
 The protected job injects the reviewed `VITE_CLERK_PUBLISHABLE_KEY` without
 printing it, then invokes `scripts/deploy-console-prod.sh --yes` directly. There
