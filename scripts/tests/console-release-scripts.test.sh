@@ -1161,6 +1161,7 @@ test_deploy_guard() {
   azure_release="az storage blob lease release --account-name workforcebootstrap --container-name production-control --blob-name workforce-os/initial-production-bootstrap/state-v1.json --auth-mode login --subscription 11111111-2222-3333-4444-555555555555 --only-show-errors --lease-id"
   assert_contains "${CALL_LOG}" "${azure_acquire}"
   assert_contains "${CALL_LOG}" "${azure_release}"
+  assert_excludes "${CALL_LOG}" "--query leaseId"
   assert_before "${CALL_LOG}" "${azure_acquire}" "force-with-lease=refs/heads/workforce-os-release-lock/production-console: origin"
   assert_before "${CALL_LOG}" "${azure_acquire}" "az acr build"
   assert_before "${CALL_LOG}" "force-with-lease=refs/heads/workforce-os-release-lock/production-console:${FAKE_LEASE_COMMIT} origin" "${azure_release}"
