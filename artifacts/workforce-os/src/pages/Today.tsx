@@ -1,5 +1,7 @@
 import React, { useState } from "react";
 import {
+  type GraphRun,
+  type TodayKpis,
   useListPendingArtifacts,
   useGetTodayKpis,
   useListRuns,
@@ -15,7 +17,14 @@ import { AgentActivityStream } from "@/components/v2/AgentActivityStream";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CheckCircle2, Clock3, History, Loader2, Play } from "lucide-react";
+import {
+  ArrowRight,
+  CheckCircle2,
+  Clock3,
+  History,
+  Loader2,
+  Play,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CountUp } from "@/components/motion/CountUp";
 import { EmptyState } from "@/components/states/EmptyState";
@@ -27,6 +36,48 @@ import {
   canManageWorkflow,
   workflowAuthorityMessage,
 } from "@/lib/workflowAuthority";
+
+const FUNNEL_STEPS = [
+  { key: "leadsSourced", label: "Sourced" },
+  { key: "verifiedEmails", label: "Verified" },
+  { key: "leadsQualified", label: "Qualified" },
+  { key: "artifactsPending", label: "In review" },
+  { key: "qualifiedMeetingsBooked", label: "Meetings" },
+] as const;
+
+const STATUS_ORDER = [
+  ["COMPLETED", "Completed", "bg-signal-positive"],
+  ["RUNNING", "Running", "bg-rust-500"],
+  ["AWAITING_APPROVAL", "Needs review", "bg-ember-400"],
+  ["FAILED", "Failed", "bg-signal-critical"],
+] as const;
+
+export function summarizeRunStatuses(runs: GraphRun[]) {
+  return STATUS_ORDER.map(([status, label, color]) => ({
+    status,
+    label,
+    color,
+    count: runs.filter((run) => run.status === status).length,
+  }));
+}
+
+function formatStartedAt(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function runTask(run: GraphRun) {
+  if (run.status === "AWAITING_APPROVAL") return "Review outreach drafts";
+  if (run.status === "COMPLETED") return "Run completed";
+  if (run.status === "FAILED") return "Needs attention";
+  if (run.status === "CANCELLED") return "Run cancelled";
+  const stage = run.stagesCompleted.at(-1)?.replaceAll("_", " ");
+  return stage ? `Completed ${stage}` : "Researching prospects";
+}
 
 export default function Today() {
   const [, navigate] = useLocation();
@@ -149,10 +200,44 @@ export default function Today() {
               Today at a glance
             </h2>
             <div className="grid grid-cols-2 gap-3">
-              {/* HONESTY: no delta badges — there is no real prior-period baseline
-                  yet. Deltas return when the backend serves one. Values are live. */}
               <KpiTile
-                label="New Review Items · 24h"
+                label="Leads sourced · All time"
+                value={
+                  kpisLoading ? (
+                    "-"
+                  ) : kpisError || !kpis ? (
+                    "Unavailable"
+                  ) : (
+                    <CountUp value={kpis.leadsSourced} />
+                  )
+                }
+              />
+              <KpiTile
+                label="Verified emails · All time"
+                value={
+                  kpisLoading ? (
+                    "-"
+                  ) : kpisError || !kpis ? (
+                    "Unavailable"
+                  ) : (
+                    <CountUp value={kpis.verifiedEmails} />
+                  )
+                }
+              />
+              <KpiTile
+                label="Qualified leads · All time"
+                value={
+                  kpisLoading ? (
+                    "-"
+                  ) : kpisError || !kpis ? (
+                    "Unavailable"
+                  ) : (
+                    <CountUp value={kpis.leadsQualified} />
+                  )
+                }
+              />
+              <KpiTile
+                label="Drafts in review · 24h"
                 value={
                   kpisLoading ? (
                     "-"
@@ -165,7 +250,7 @@ export default function Today() {
                 alert={!!kpis && kpis.artifactsPending > 5}
               />
               <KpiTile
-                label="Confirmed Sends · 24h"
+                label="Confirmed sends · 24h"
                 value={
                   kpisLoading ? (
                     "-"
@@ -177,7 +262,7 @@ export default function Today() {
                 }
               />
               <KpiTile
-                label="Confirmed Meetings · All time"
+                label="Confirmed meetings · All time"
                 value={
                   kpisLoading ? (
                     "-"
@@ -189,20 +274,20 @@ export default function Today() {
                 }
                 positive={!!kpis && kpis.qualifiedMeetingsBooked > 0}
               />
-              <KpiTile
-                label="Leads Scored · All time"
-                value={
-                  kpisLoading ? (
-                    "-"
-                  ) : kpisError || !kpis ? (
-                    "Unavailable"
-                  ) : (
-                    <CountUp value={kpis.leadsScored} />
-                  )
-                }
-              />
             </div>
           </div>
+
+          <OperationsPanel
+            kpis={kpis}
+            kpisLoading={kpisLoading}
+            kpisError={kpisError}
+            runs={runs?.items ?? []}
+            runsLoading={runsLoading}
+            runsError={runsError}
+            onOpenPipeline={() => navigate("/pipeline")}
+            onOpenRun={(runId) => navigate(`/runs/${runId}`)}
+            onOpenRuns={() => navigate("/runs")}
+          />
 
           <div className="min-h-[26rem] flex-1 flex flex-col">
             <div className="p-4 border-b border-paper-200 bg-paper-50 dark:bg-card flex items-center justify-between gap-3 shrink-0">
@@ -326,7 +411,9 @@ export function TodayRunAction({
                 else if (workflowAllowed) onStart();
               }}
             >
-              {isStarting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+              {isStarting && (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              )}
               {isError
                 ? "Open Runs"
                 : awaitingRunId
@@ -371,11 +458,188 @@ export function TodayLayout({ approvalQueue, overviewRail }: TodayLayoutProps) {
         <aside
           aria-label="Today overview"
           data-testid="today-overview-rail"
-          className="flex w-full shrink-0 flex-col border-t border-paper-200 bg-paper-50 lg:w-[23rem] lg:border-l lg:border-t-0 xl:w-[25rem]"
+          className="flex w-full shrink-0 flex-col border-t border-paper-200 bg-paper-50 lg:w-[23rem] lg:overflow-y-auto lg:border-l lg:border-t-0 xl:w-[25rem]"
         >
           {overviewRail}
         </aside>
       </div>
+    </div>
+  );
+}
+
+function OperationsPanel({
+  kpis,
+  kpisLoading,
+  kpisError,
+  runs,
+  runsLoading,
+  runsError,
+  onOpenPipeline,
+  onOpenRun,
+  onOpenRuns,
+}: {
+  kpis: TodayKpis | undefined;
+  kpisLoading: boolean;
+  kpisError: boolean;
+  runs: GraphRun[];
+  runsLoading: boolean;
+  runsError: boolean;
+  onOpenPipeline: () => void;
+  onOpenRun: (runId: string) => void;
+  onOpenRuns: () => void;
+}) {
+  const statuses = summarizeRunStatuses(runs);
+  const maxStatusCount = Math.max(1, ...statuses.map(({ count }) => count));
+  const funnelMax = Math.max(1, kpis?.leadsSourced ?? 0);
+
+  return (
+    <div className="border-b border-paper-200 bg-paper-50">
+      <section
+        className="border-b border-paper-200 p-4"
+        aria-label="Lead funnel"
+      >
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="font-serif text-lg text-ink-900 dark:text-paper-50">
+              Lead funnel
+            </h2>
+            <p className="text-[10px] font-mono uppercase tracking-wider text-ink-400">
+              Verified pipeline progress
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenPipeline}
+            className="flex items-center gap-1 text-xs font-medium text-rust-600 hover:text-rust-700"
+          >
+            View leads <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        </div>
+        {kpisError ? (
+          <p className="py-4 text-center text-xs text-ink-500">
+            Funnel data unavailable.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {FUNNEL_STEPS.map((step) => {
+              const value = kpis?.[step.key] ?? 0;
+              return (
+                <div key={step.key}>
+                  <div className="mb-1 flex items-center justify-between text-xs">
+                    <span className="text-ink-500">{step.label}</span>
+                    <span className="font-tabular font-semibold text-ink-900 dark:text-paper-50">
+                      {kpisLoading ? "-" : value}
+                    </span>
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-paper-200">
+                    <div
+                      className="h-full rounded-full bg-rust-500 transition-[width] duration-500"
+                      style={{ width: `${(value / funnelMax) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <section
+        className="border-b border-paper-200 p-4"
+        aria-label="Run status"
+      >
+        <h2 className="font-serif text-lg text-ink-900 dark:text-paper-50">
+          Run status
+        </h2>
+        <p className="text-[10px] font-mono uppercase tracking-wider text-ink-400">
+          Last {runs.length} agent runs
+        </p>
+        <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3">
+          {statuses.map((item) => (
+            <div key={item.status}>
+              <div className="mb-1 flex items-center justify-between text-xs">
+                <span className="text-ink-500">{item.label}</span>
+                <span className="font-tabular font-semibold text-ink-900 dark:text-paper-50">
+                  {runsLoading || runsError ? "-" : item.count}
+                </span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-paper-200">
+                <div
+                  className={cn("h-full rounded-full", item.color)}
+                  style={{ width: `${(item.count / maxStatusCount) * 100}%` }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="p-4" aria-label="Recent SDR agent runs">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="font-serif text-lg text-ink-900 dark:text-paper-50">
+              SDR agent runs
+            </h2>
+            <p className="text-[10px] font-mono uppercase tracking-wider text-ink-400">
+              Autonomous research and drafting
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenRuns}
+            className="flex items-center gap-1 text-xs font-medium text-rust-600 hover:text-rust-700"
+          >
+            View all <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        </div>
+        {runsLoading ? (
+          <p className="py-4 text-center text-xs text-ink-400">Loading runs…</p>
+        ) : runsError ? (
+          <p className="py-4 text-center text-xs text-ink-500">
+            Run data unavailable.
+          </p>
+        ) : runs.length === 0 ? (
+          <p className="py-4 text-center text-xs text-ink-500">
+            No agent runs yet.
+          </p>
+        ) : (
+          <div className="divide-y divide-paper-200 rounded-lg border border-paper-200 bg-ink-0">
+            {runs.slice(0, 4).map((run) => (
+              <button
+                type="button"
+                key={run.id}
+                onClick={() => onOpenRun(run.id)}
+                className="flex w-full items-center gap-3 p-3 text-left transition-colors hover:bg-paper-50"
+              >
+                <span
+                  className={cn(
+                    "h-2 w-2 shrink-0 rounded-full",
+                    run.status === "COMPLETED"
+                      ? "bg-signal-positive"
+                      : run.status === "RUNNING"
+                        ? "bg-rust-500"
+                        : run.status === "AWAITING_APPROVAL"
+                          ? "bg-ember-400"
+                          : "bg-ink-400",
+                  )}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-xs font-medium text-ink-900 dark:text-paper-50">
+                    {runTask(run)}
+                  </span>
+                  <span className="block text-[10px] text-ink-400">
+                    {formatStartedAt(run.startedAt)}
+                  </span>
+                </span>
+                <ArrowRight
+                  className="h-3.5 w-3.5 shrink-0 text-ink-300"
+                  aria-hidden="true"
+                />
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
