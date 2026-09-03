@@ -95,6 +95,8 @@ export interface OutreachArtifact {
   purpose: OutreachArtifactPurpose;
   channel: OutreachArtifactChannel;
   recipient: Recipient;
+  /** @nullable */
+  recipientWarning: string | null;
   subject: string;
   bodyText: string;
   /** @nullable */

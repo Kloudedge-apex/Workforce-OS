@@ -44,6 +44,7 @@ function artifact(overrides: Partial<OutreachArtifact> = {}): OutreachArtifact {
       email: "buyer@example.com",
       company: "Acme",
     },
+    recipientWarning: null,
     subject: "Re: Pilot",
     bodyText: "Thanks <team>. Tuesday works.",
     bodyHtml: "<p>Different secondary HTML</p>",
@@ -87,6 +88,15 @@ describe("ApprovalCard review contract", () => {
     expect(html).toContain("Thanks &lt;team&gt;. Tuesday works.");
     expect(html).not.toContain("Different secondary HTML");
     expect(html).toContain(">Approve<");
+  });
+
+  it("shows the operator warning for a catch-all recipient", () => {
+    const html = renderCard(
+      artifact({
+        recipientWarning: "SMTP returned CATCH_ALL; review before approval.",
+      }),
+    );
+    expect(html).toContain("SMTP returned CATCH_ALL; review before approval.");
   });
 
   it("keeps unsupported-channel content visible with only one Reject control", () => {

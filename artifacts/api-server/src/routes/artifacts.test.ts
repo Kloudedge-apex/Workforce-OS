@@ -24,6 +24,23 @@ describe("artifactSuppressionPath", () => {
   });
 });
 
+describe("recipient verification warning", () => {
+  it("surfaces operator-in-the-loop provenance from the persisted payload", () => {
+    const shaped = shapeArtifact(
+      makeUpstream({
+        payload: {
+          recipient_provenance: {
+            operatorWarning: "SMTP returned UNKNOWN; review before approval.",
+          },
+        },
+      }),
+    );
+    expect(shaped.recipientWarning).toBe(
+      "SMTP returned UNKNOWN; review before approval.",
+    );
+  });
+});
+
 // A raw OutreachArtifact row as apex-gtm-api serializes it (response_shape from
 // the Phase-2 release audit): bare prisma fields, dates as ISO strings.
 function makeUpstream(over: Partial<UpstreamArtifact> = {}): UpstreamArtifact {
@@ -738,7 +755,7 @@ describe("shapeArtifactApprovalEligibility", () => {
     ).toEqual({
       eligible: false,
       reason:
-        "Artifact cannot be approved without citing a fresh, non-mock signal",
+        "Artifact cannot be approved without citing a verified signal or company-site excerpt",
     });
   });
 });

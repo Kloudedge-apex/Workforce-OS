@@ -41,6 +41,7 @@ export const ListPendingArtifactsResponse = zod.object({
   "company": zod.string(),
   "avatarUrl": zod.string().nullish()
 }),
+  "recipientWarning": zod.string().nullable(),
   "subject": zod.string(),
   "bodyText": zod.string(),
   "bodyHtml": zod.string().nullable(),
@@ -116,6 +117,7 @@ export const ListArtifactsResponse = zod.object({
   "company": zod.string(),
   "avatarUrl": zod.string().nullish()
 }),
+  "recipientWarning": zod.string().nullable(),
   "subject": zod.string(),
   "bodyText": zod.string(),
   "bodyHtml": zod.string().nullable(),
@@ -185,6 +187,7 @@ export const GetArtifactResponse = zod.object({
   "company": zod.string(),
   "avatarUrl": zod.string().nullish()
 }),
+  "recipientWarning": zod.string().nullable(),
   "subject": zod.string(),
   "bodyText": zod.string(),
   "bodyHtml": zod.string().nullable(),
@@ -250,6 +253,7 @@ export const ApproveArtifactResponse = zod.object({
   "company": zod.string(),
   "avatarUrl": zod.string().nullish()
 }),
+  "recipientWarning": zod.string().nullable(),
   "subject": zod.string(),
   "bodyText": zod.string(),
   "bodyHtml": zod.string().nullable(),
@@ -319,6 +323,7 @@ export const RejectArtifactResponse = zod.object({
   "company": zod.string(),
   "avatarUrl": zod.string().nullish()
 }),
+  "recipientWarning": zod.string().nullable(),
   "subject": zod.string(),
   "bodyText": zod.string(),
   "bodyHtml": zod.string().nullable(),
