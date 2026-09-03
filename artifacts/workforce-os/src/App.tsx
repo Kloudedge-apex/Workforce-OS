@@ -78,6 +78,7 @@ function Router() {
             <Route path="/conversations/:id" component={ConversationThread} />
             <Route path="/runs" component={Runs} />
             <Route path="/runs/:id" component={RunDetail} />
+            <Route path="/analytics" component={Runs} />
             <Route path="/settings" component={Settings} />
             <Route path="/settings/*" component={Settings} />
             <Route component={NotFound} />

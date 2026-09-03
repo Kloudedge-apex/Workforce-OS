@@ -9,6 +9,7 @@ describe("shapeTodayKpis", () => {
   const stats: DashboardStatsUpstream = {
     leadsSourced: 42,
     leadsQualified: 17,
+    verifiedEmails: 18,
     emailsSent: 120,
     meetingsBooked: 6,
   };
@@ -25,6 +26,9 @@ describe("shapeTodayKpis", () => {
 
   it("maps the two upstream payloads onto the exact TodayKpis fields", () => {
     expect(shapeTodayKpis(stats, quality)).toEqual({
+      leadsSourced: 42,
+      leadsQualified: 17,
+      verifiedEmails: 18,
       artifactsPending: 9,
       artifactsSentToday: 13,
       qualifiedMeetingsBooked: 6,
@@ -38,10 +42,13 @@ describe("shapeTodayKpis", () => {
     expect(out).not.toHaveProperty("leadsSourcedToday");
   });
 
-  it("returns only the four measured contract keys (no extra upstream leakage)", () => {
+  it("returns only measured contract keys (no extra upstream leakage)", () => {
     const out = shapeTodayKpis(stats, quality);
     expect(Object.keys(out).sort()).toEqual(
       [
+        "leadsSourced",
+        "leadsQualified",
+        "verifiedEmails",
         "artifactsPending",
         "artifactsSentToday",
         "leadsScored",
