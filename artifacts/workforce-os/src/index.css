@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Lora:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
@@ -94,45 +94,43 @@
   --color-signal-info: hsl(var(--signal-info));
   --color-signal-critical: hsl(var(--signal-critical));
 
-  --shadow-xs: 0 1px 2px 0 hsl(215 28% 17% / 0.04);
-  --shadow-sm:
-    0 1px 3px 0 hsl(215 28% 17% / 0.06), 0 1px 2px -1px hsl(215 28% 17% / 0.05);
-  --shadow-md:
-    0 4px 6px -1px hsl(215 28% 17% / 0.08),
-    0 2px 4px -2px hsl(215 28% 17% / 0.06);
-  --shadow-lg:
-    0 10px 15px -3px hsl(215 28% 17% / 0.1),
-    0 4px 6px -4px hsl(215 28% 17% / 0.08);
+  /* warm shadow scale — ink-tinted (hue 20°), not gray */
+  --shadow-xs: 0 1px 2px 0 hsl(20 12% 12% / 0.05);
+  --shadow-sm: 0 1px 3px 0 hsl(20 12% 12% / 0.08), 0 1px 2px -1px hsl(20 12% 12% / 0.08);
+  --shadow-md: 0 4px 6px -1px hsl(20 12% 12% / 0.10), 0 2px 4px -2px hsl(20 12% 12% / 0.08);
+  --shadow-lg: 0 10px 15px -3px hsl(20 12% 12% / 0.12), 0 4px 6px -4px hsl(20 12% 12% / 0.10);
 }
 
 :root {
-  /* cool-gray control-room surfaces */
-  --paper-50: 214 32% 98%;
-  --paper-100: 214 28% 96%;
-  --paper-200: 214 24% 91%;
-  --paper-300: 214 18% 84%;
-  --paper-400: 214 14% 72%;
+  /* paper — warm off-white surfaces, hue ~40-42° */
+  --paper-50: 42 30% 98%;
+  --paper-100: 42 25% 96%;
+  --paper-200: 40 20% 92%;
+  --paper-300: 40 18% 86%;
+  --paper-400: 40 16% 78%;
+  /* ink — near-black warm neutrals, hue ~20° */
   --ink-0: 0 0% 100%;
-  --ink-300: 215 10% 65%;
-  --ink-400: 215 12% 52%;
-  --ink-500: 215 16% 42%;
-  --ink-600: 215 20% 34%;
-  --ink-700: 215 24% 25%;
-  --ink-800: 215 28% 16%;
-  --ink-900: 215 32% 8%;
-  /* legacy token names now carry the restrained blue/yellow system accents */
-  --rust-50: 214 100% 97%;
-  --rust-100: 214 95% 93%;
-  --rust-200: 213 94% 87%;
-  --rust-300: 212 92% 76%;
-  --rust-500: 217 91% 60%;
-  --rust-600: 221 83% 53%;
-  --rust-700: 224 76% 48%;
-  --rust-800: 226 71% 40%;
-  --rust-900: 224 64% 33%;
-  --ember-300: 48 96% 65%;
-  --ember-400: 45 93% 51%;
-  --ember-500: 38 92% 50%;
+  --ink-300: 20 5% 64%;
+  --ink-400: 20 4% 52%;
+  --ink-500: 20 5% 42%;
+  --ink-600: 20 6% 34%;
+  --ink-700: 20 6% 25%;
+  --ink-800: 20 7% 16%;
+  --ink-900: 20 8% 8%;
+  /* rust — primary brand, hue ~15° */
+  --rust-50: 15 60% 97%;
+  --rust-100: 15 60% 94%;
+  --rust-200: 15 62% 86%;
+  --rust-300: 15 66% 74%;
+  --rust-500: 15 72% 48%;
+  --rust-600: 15 74% 42%;
+  --rust-700: 15 76% 35%;
+  --rust-800: 15 78% 28%;
+  --rust-900: 15 80% 20%;
+  /* ember — warm accent, hue ~28° */
+  --ember-300: 28 88% 68%;
+  --ember-400: 28 85% 56%;
+  --ember-500: 28 82% 48%;
   /* signals */
   --signal-positive: 158 48% 32%;
   --signal-info: 215 32% 48%;
@@ -177,10 +175,10 @@
   --sidebar-primary-border: hsl(var(--rust-600));
   --sidebar-accent-border: hsl(var(--paper-300));
 
-  --app-font-sans: "Inter", system-ui, sans-serif;
-  --app-font-serif: "Inter", system-ui, sans-serif;
+  --app-font-sans: 'Inter', system-ui, sans-serif;
+  --app-font-serif: 'Lora', Georgia, serif;
   --app-font-mono: Menlo, monospace;
-  --radius: 0.5rem;
+  --radius: .5rem;
 
   /* elevate system — translucent ink overlays for hover/active feedback */
   --elevate-1: hsl(20 8% 8% / 0.04);
