@@ -978,6 +978,7 @@ components:
           enum: [EMAIL, LINKEDIN, HUBSPOT_NOTE, UNKNOWN]
         recipient:
           $ref: "#/components/schemas/Recipient"
+        recipientWarning: { type: ["string", "null"] }
         subject: { type: string }
         bodyText: { type: string }
         bodyHtml: { type: ["string", "null"] }
@@ -1016,6 +1017,7 @@ components:
           purpose,
           channel,
           recipient,
+          recipientWarning,
           subject,
           bodyText,
           bodyHtml,

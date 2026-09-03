@@ -22,6 +22,7 @@ const pendingArtifact: OutreachArtifact = {
     email: "buyer@example.com",
     company: "Acme",
   },
+  recipientWarning: null,
   subject: "Re: Pilot",
   bodyText: "Tuesday works.",
   bodyHtml: null,

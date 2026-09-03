@@ -318,6 +318,22 @@ export default function ArtifactDetail() {
       <Stagger className="max-w-5xl mx-auto w-full p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Email preview — a refusal renders a banner, never an (empty) draft */}
         <StaggerItem className="lg:col-span-2 space-y-4">
+          {data.recipientWarning && (
+            <div
+              role="alert"
+              className="rounded-xl border border-ember-400/50 bg-ember-400/10 p-4"
+            >
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="h-5 w-5 shrink-0 text-ember-500" />
+                <h2 className="font-serif text-base text-ink-900">
+                  Recipient needs operator review
+                </h2>
+              </div>
+              <p className="mt-2 text-sm text-ink-700">
+                {data.recipientWarning}
+              </p>
+            </div>
+          )}
           {isDeliveryUnknown && (
             <div
               role="alert"

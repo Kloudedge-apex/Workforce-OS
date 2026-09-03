@@ -99,6 +99,7 @@ export interface ShapedArtifact {
     company: string;
     avatarUrl: string | null;
   };
+  recipientWarning: string | null;
   subject: string;
   bodyText: string;
   bodyHtml: string | null;
@@ -362,7 +363,7 @@ export function shapeArtifactApprovalEligibility(
     )
   ) {
     return approvalUnavailable(
-      "Artifact cannot be approved without citing a fresh, non-mock signal",
+      "Artifact cannot be approved without citing a verified signal or company-site excerpt",
     );
   }
 
@@ -532,6 +533,12 @@ export function shapeArtifact(a: UpstreamArtifact): ShapedArtifact {
       company: payloadString(a.payload, "company") ?? "",
       avatarUrl: null,
     },
+    recipientWarning:
+      nonBlankString(
+        asRecord(asRecord(a.payload)?.["recipient_provenance"])?.[
+          "operatorWarning"
+        ],
+      ) ?? null,
     subject: a.subject ?? "",
     bodyText: a.bodyText ?? "",
     bodyHtml: a.bodyHtml ?? null,

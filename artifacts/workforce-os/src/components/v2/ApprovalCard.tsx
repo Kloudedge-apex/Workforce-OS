@@ -390,6 +390,16 @@ export function ApprovalCard({ artifact }: ApprovalCardProps) {
           </div>
         </div>
 
+        {artifact.recipientWarning && (
+          <div
+            role="alert"
+            className="mb-4 flex gap-2 rounded-lg border border-ember-400/40 bg-ember-400/10 p-3 text-sm text-ink-700"
+          >
+            <ShieldAlert className="h-4 w-4 shrink-0 text-ember-500" />
+            <span>{artifact.recipientWarning}</span>
+          </div>
+        )}
+
         {/* Content — a refusal renders a banner, never an (empty) draft preview */}
         {refused ? (
           <div
