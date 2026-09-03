@@ -23,7 +23,12 @@ export function Logo({ size = 28, className }: LogoProps) {
       xmlns="http://www.w3.org/2000/svg"
     >
       {/* Rounded-square plate */}
-      <rect width="32" height="32" rx="8" className="fill-blue-600" />
+      <rect
+        width="32"
+        height="32"
+        rx="8"
+        className="fill-rust-500"
+      />
       {/* "W" monogram */}
       <path
         d="M7 9 L11 23 L16 13 L21 23 L25 9"
