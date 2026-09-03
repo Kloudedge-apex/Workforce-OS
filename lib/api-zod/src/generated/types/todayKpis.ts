@@ -7,6 +7,9 @@
  */
 
 export interface TodayKpis {
+  leadsSourced: number;
+  leadsQualified: number;
+  verifiedEmails: number;
   artifactsPending: number;
   artifactsSentToday: number;
   qualifiedMeetingsBooked: number;

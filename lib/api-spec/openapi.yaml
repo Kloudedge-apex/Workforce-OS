@@ -1164,12 +1164,18 @@ components:
     TodayKpis:
       type: object
       properties:
+        leadsSourced: { type: integer }
+        leadsQualified: { type: integer }
+        verifiedEmails: { type: integer }
         artifactsPending: { type: integer }
         artifactsSentToday: { type: integer }
         qualifiedMeetingsBooked: { type: integer }
         leadsScored: { type: integer }
       required:
         [
+          leadsSourced,
+          leadsQualified,
+          verifiedEmails,
           artifactsPending,
           artifactsSentToday,
           qualifiedMeetingsBooked,

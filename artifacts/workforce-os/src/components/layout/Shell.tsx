@@ -1,144 +1,189 @@
 import React from "react";
 import { UserButton } from "@clerk/clerk-react";
+import { useHealthCheck } from "@workspace/api-client-react";
 import { Link, useLocation } from "wouter";
 import {
-  Activity,
+  BarChart3,
+  Bot,
+  FileText,
   Inbox,
-  Settings,
   LayoutDashboard,
-  Target,
-  BarChart2,
+  Megaphone,
+  Settings,
+  UsersRound,
 } from "lucide-react";
 import { CommandPalette } from "@/components/layout/CommandPalette";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
-import { Logo, Wordmark } from "@/components/brand/Logo";
+import { Logo } from "@/components/brand/Logo";
 import { useWorkspace, useCurrentUser } from "@/lib/workspace";
 import { cn } from "@/lib/utils";
-import { openCommandPalette } from "@/lib/openCommandPalette";
 
 const NAV_ITEMS = [
-  { href: "/today", label: "Today", icon: LayoutDashboard },
-  { href: "/pipeline", label: "Pipeline", icon: Target },
-  { href: "/outbound", label: "Outbound", icon: Activity },
-  { href: "/runs", label: "Runs", icon: BarChart2 },
-  { href: "/conversations", label: "Conversations", icon: Inbox },
-  { href: "/settings", label: "Settings", icon: Settings },
-];
+  { href: "/today", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/pipeline", label: "Leads", icon: UsersRound },
+  { href: "/runs", label: "Campaigns", icon: Megaphone },
+  { href: "/conversations", label: "Inbox", icon: Inbox },
+  { href: "/outbound", label: "Content", icon: FileText },
+  { href: "/analytics", label: "Analytics", icon: BarChart3 },
+] as const;
 
-export const MOBILE_NAV_ITEMS = [
-  NAV_ITEMS[0], // Today
-  NAV_ITEMS[1], // Pipeline
-  NAV_ITEMS[2], // Outbound
-  NAV_ITEMS[3], // Runs
-  NAV_ITEMS[4], // Conversations
-  NAV_ITEMS[5], // Settings
-];
+export const MOBILE_NAV_ITEMS = NAV_ITEMS;
+
+function isActive(location: string, href: string) {
+  return location === href || location.startsWith(`${href}/`);
+}
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const workspace = useWorkspace();
   const user = useCurrentUser();
+  const { data: health, isError: healthError } = useHealthCheck({
+    query: { queryKey: ["healthCheck"], refetchInterval: 30000, retry: 1 },
+  });
+  const operational = health?.status === "ok";
+  const currentPage =
+    NAV_ITEMS.find((item) => isActive(location, item.href))?.label ??
+    (location.startsWith("/settings") ? "Settings" : "Workspace");
 
   return (
-    <div className="min-h-[100dvh] flex flex-col md:flex-row bg-paper-50">
-      {/* Desktop Sidebar */}
-      <aside className="hidden md:flex w-[220px] flex-col border-r border-paper-200 bg-paper-100 flex-shrink-0">
-        <div className="p-4 border-b border-paper-200">
-          <Wordmark />
-          <p className="mt-1 text-xs text-ink-400 font-mono uppercase truncate">
-            {workspace.name}
-          </p>
+    <div className="flex min-h-[100dvh] flex-col bg-slate-100 md:flex-row">
+      <aside className="hidden w-60 shrink-0 flex-col border-r border-slate-800 bg-slate-950 text-slate-300 md:flex">
+        <div className="border-b border-slate-800 px-5 py-5">
+          <div className="flex items-center gap-3">
+            <Logo size={30} />
+            <div className="min-w-0">
+              <p className="truncate text-[15px] font-semibold tracking-tight text-white">
+                WorkforceOS
+              </p>
+              <p className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-lime-400" />6
+                agents online
+              </p>
+            </div>
+          </div>
         </div>
-        <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
+
+        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-5">
           {NAV_ITEMS.map((item) => {
-            const active = location.startsWith(item.href);
+            const active = isActive(location, item.href);
             return (
               <Link
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors",
+                  "relative flex items-center gap-3 rounded-sm px-3 py-2.5 text-sm font-medium transition-colors",
                   active
-                    ? "bg-rust-500 text-white shadow-sm"
-                    : "text-ink-700 hover:bg-paper-200 hover:text-ink-900 dark:text-ink-300 dark:hover:text-paper-50",
+                    ? "bg-slate-900 text-white before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:bg-lime-400"
+                    : "text-slate-400 hover:bg-slate-900/70 hover:text-white",
                 )}
               >
-                <item.icon className="h-4 w-4" />
+                <item.icon
+                  aria-hidden="true"
+                  className={cn("h-4 w-4", active && "text-lime-400")}
+                />
                 {item.label}
               </Link>
             );
           })}
         </nav>
-        <div className="p-4 border-t border-paper-200 flex items-center gap-3">
-          <UserButton
-            afterSignOutUrl="/sign-in"
-            appearance={{ elements: { avatarBox: "h-8 w-8" } }}
-          />
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-ink-900 dark:text-paper-50 truncate">
-              {user.name}
-            </p>
-            <p className="text-xs text-ink-400 truncate">{user.email}</p>
+
+        <div className="border-t border-slate-800 p-3">
+          <div className="flex items-center gap-3 rounded-sm px-2 py-2">
+            <UserButton
+              afterSignOutUrl="/sign-in"
+              appearance={{ elements: { avatarBox: "h-8 w-8" } }}
+            />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-semibold text-white">
+                {user.name}
+              </p>
+              <p className="truncate text-[10px] text-slate-500">
+                {workspace.name} · {workspace.plan}
+              </p>
+            </div>
+            <Link
+              href="/settings"
+              aria-label="Open settings"
+              title="Settings"
+              className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-800 hover:text-white"
+            >
+              <Settings aria-hidden="true" className="h-4 w-4" />
+            </Link>
           </div>
         </div>
       </aside>
 
-      {/* Main Content Area */}
-      <main className="flex-1 flex flex-col min-w-0 h-[100dvh] overflow-hidden">
-        {/* Topbar */}
-        <header className="h-12 border-b border-paper-200 bg-paper-50 flex items-center justify-between px-4 flex-shrink-0">
-          <div className="flex items-center gap-2">
-            <Logo size={20} className="md:hidden" />
-            <div className="hidden md:flex items-center text-xs text-ink-400">
-              <span>
-                {NAV_ITEMS.find((i) => location.startsWith(i.href))?.label ||
-                  "Workspace"}
-              </span>
-            </div>
+      <main className="flex h-[100dvh] min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6">
+          <div className="flex min-w-0 items-center gap-3">
+            <Logo size={24} className="md:hidden" />
+            <h1 className="truncate text-sm font-semibold text-slate-950">
+              {currentPage}
+            </h1>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              aria-label="Open command palette"
-              onClick={openCommandPalette}
-              className="hidden md:flex items-center gap-2 px-2 py-1 text-xs text-ink-400 bg-paper-100 border border-paper-200 rounded shadow-sm hover-elevate active-elevate-2 transition-colors mr-2"
+          <div className="flex items-center gap-3">
+            <div
+              className="hidden items-center gap-2 text-xs font-medium text-slate-500 sm:flex"
+              title={
+                operational
+                  ? "All monitored services are responding"
+                  : "Waiting for the health service"
+              }
             >
-              <span>Search</span>
-              <kbd className="font-mono bg-paper-200 px-1 rounded text-[10px]">
-                ⌘K
-              </kbd>
-            </button>
+              <span
+                className={cn(
+                  "h-2 w-2 rounded-full",
+                  operational
+                    ? "bg-emerald-500"
+                    : healthError
+                      ? "bg-amber-400"
+                      : "bg-slate-300",
+                )}
+              />
+              {operational
+                ? "System operational"
+                : healthError
+                  ? "Status unavailable"
+                  : "Checking system"}
+            </div>
+            <Link
+              href="/runs"
+              className="inline-flex h-8 items-center gap-2 rounded border border-blue-500 bg-white px-3 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30"
+            >
+              <Bot aria-hidden="true" className="h-3.5 w-3.5" />
+              Run agents
+            </Link>
+            <div className="hidden text-slate-500 lg:block">
+              <ThemeToggle />
+            </div>
             <div className="md:hidden">
               <UserButton
                 afterSignOutUrl="/sign-in"
                 appearance={{ elements: { avatarBox: "h-8 w-8" } }}
               />
             </div>
-            <ThemeToggle />
           </div>
         </header>
 
-        {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto">{children}</div>
       </main>
 
       <CommandPalette />
 
-      {/* Mobile Bottom Nav */}
-      <nav className="md:hidden flex items-center justify-around border-t border-paper-200 bg-paper-100 flex-shrink-0 pb-safe">
+      <nav className="flex shrink-0 items-center overflow-x-auto border-t border-slate-200 bg-white pb-safe md:hidden">
         {MOBILE_NAV_ITEMS.map((item) => {
-          const active = location.startsWith(item.href);
+          const active = isActive(location, item.href);
           return (
             <Link
               key={item.href}
               href={item.href}
               className={cn(
-                "flex flex-col items-center gap-1 p-3 text-[10px] font-medium flex-1 transition-colors",
-                active ? "text-rust-500" : "text-ink-400",
+                "flex min-w-16 flex-1 flex-col items-center gap-1 px-2 py-2 text-[10px] font-medium",
+                active ? "text-blue-700" : "text-slate-500",
               )}
             >
-              <item.icon className="h-5 w-5" />
-              <span className="truncate w-full text-center">{item.label}</span>
+              <item.icon aria-hidden="true" className="h-4 w-4" />
+              <span>{item.label}</span>
             </Link>
           );
         })}

@@ -7,6 +7,7 @@ const router = Router();
 export interface DashboardStatsUpstream {
   leadsSourced: number;
   leadsQualified: number;
+  verifiedEmails: number;
   emailsSent: number;
   meetingsBooked: number;
 }
@@ -25,6 +26,9 @@ export interface QualityKpiUpstream {
 
 /** FE TodayKpis contract (openapi.yaml #/components/schemas/TodayKpis). */
 export interface TodayKpis {
+  leadsSourced: number;
+  leadsQualified: number;
+  verifiedEmails: number;
   artifactsPending: number;
   artifactsSentToday: number;
   qualifiedMeetingsBooked: number;
@@ -45,6 +49,9 @@ export function shapeTodayKpis(
   quality: QualityKpiUpstream,
 ): TodayKpis {
   return {
+    leadsSourced: stats.leadsSourced,
+    leadsQualified: stats.leadsQualified,
+    verifiedEmails: stats.verifiedEmails,
     artifactsPending: quality.outreach_artifacts.pending_review,
     artifactsSentToday: quality.outreach_artifacts.sent,
     qualifiedMeetingsBooked: stats.meetingsBooked,
@@ -60,11 +67,16 @@ router.get("/today/kpis", async (req, res, next) => {
     const [stats, quality] = await Promise.all([
       apex.get("/dashboard/stats", { req }) as Promise<DashboardStatsUpstream>,
       // windowDays=1 approximates calendar "today" for the sent/pending split.
-      apex.get("/kpis/quality?windowDays=1", { req }) as Promise<QualityKpiUpstream>,
+      apex.get("/kpis/quality?windowDays=1", {
+        req,
+      }) as Promise<QualityKpiUpstream>,
     ]);
     res.json(shapeTodayKpis(stats, quality));
   } catch (err) {
-    if (err instanceof UpstreamError && (err.status === 401 || err.status === 403)) {
+    if (
+      err instanceof UpstreamError &&
+      (err.status === 401 || err.status === 403)
+    ) {
       res.status(err.status).json(err.body);
       return;
     }
